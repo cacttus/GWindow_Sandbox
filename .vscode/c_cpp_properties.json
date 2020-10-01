@@ -1,0 +1,30 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": [
+        "${workspaceFolder}",
+        "/usr/include/**"
+      ],
+      "defines": [],
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "clang-x64",
+      "configurationProvider": "ms-vscode.cmake-tools"
+    },
+    {
+      "name": "Win32",
+      "includePath": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/ext/SDL2-2.0.12/include",
+        "${workspaceFolder}/ext/SDL2_net-2.0.1/include"
+      ],
+      "defines": [],
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "msvc-x64",
+      "configurationProvider": "ms-vscode.cmake-tools"
+    }
+  ],
+  "version": 4
+}
