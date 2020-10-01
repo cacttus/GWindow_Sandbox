@@ -1,6 +1,21 @@
+/*
+  Design a graphics system where:
+    Scenes update independently of rendering.
+      Perform unlimited updates.
+      Render scene.
+    Window families share the same scene.
+      Window Family = sharing same GL context.
+    Multiple Scenes supported.
+    Rendering Pipeline shared across
+      GSurface
+      GWindow
 
+  * What is the point of running update async anyway, if we can't render asynchronously (without real intervention).
+
+*/
 #include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
 #include <condition_variable>
 #include <vector>
@@ -17,13 +32,13 @@
 
 typedef std::string string_t;
 
-double randomFloat() {
+float randomFloat() {
   static bool _frand_init = false;
   if (!_frand_init) {
-    srand(18093050563);
+    srand((unsigned int)18093050563);
     _frand_init = true;
   }
-  return double((double)rand() / (double)RAND_MAX);
+  return float(float(rand()) / float(RAND_MAX));
 }
 
 class vec3 {
@@ -80,8 +95,9 @@ public:
 //Returns time equivalent to a number of frames at 60fps
 #define FPS60_IN_MS(frames) ((int)((1.0f / 60.0f * frames) * 1000.0f))
 
-void doHardWork(float f) {
-  std::this_thread::sleep_for(std::chrono::milliseconds(FPS60_IN_MS(f)));
+void doHardWork_Frame(float f) {
+  int ms = FPS60_IN_MS(f);
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 int64_t getMilliseconds() {
   int64_t ret;
@@ -91,7 +107,6 @@ int64_t getMilliseconds() {
 }
 //////////////////////////////////////////////////////
 
-
 class GObject;
 class GScene;
 
@@ -99,27 +114,20 @@ class GScene;
 // VG Dummies
 
 //Dummy
-//class Gu {
-//public:
-//  std::vector<GScene> _scenes;
-//};
-
-//Dummy
 class RenderWindow {
 public:
+  string_t _name = "<unset>";
+  RenderWindow(const string_t& name) {
+    _name = name;
+  }
   void setScene(std::shared_ptr<GScene> s) {
     _scene = s;
   }
-  void renderScene() {
-    //Force access to the scene's GameObject(s)
+  int64_t _last = 0;
+  int64_t _update_msg_timer = 0;
+  int64_t _render_count = 0;
 
-    //Dummy rendering
-    //We could actually add some GLContext stuff here if we wantd.
-
-    //GLMakeCurrent(this)
-    //Draw something
-    //GLSwapBuffers
-  }
+  void renderScene();
   bool processInput() {
 
     //Dummy input to simulate some main-thread stuff
@@ -129,20 +137,22 @@ public:
     else if (GetAsyncKeyState(VK_DOWN) & 0x8000) { st += "Dn"; }
     if (GetAsyncKeyState(VK_LEFT) & 0x8000) { st += "Lt"; }
     else if (GetAsyncKeyState(VK_RIGHT) & 0x8000) { st += "Rt"; }
-    std::cout << st << std::endl;
+    if (st.length()) {
+      std::cout << st;
+    }
 
-    if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) return false;
+    if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+      return false;
+    }
+
     return true;
-
 #else
 
 #endif
   }
 
-private:
   std::shared_ptr<GScene> _scene;
-
-
+private:
 };
 
 //////////////////////////////////////////////////////
@@ -152,52 +162,89 @@ public:
   AsyncEngineComponent(const string_t& name) {
     _name = name;
   }
-  virtual void update(double elapsed) = 0;
-  void start() {
-    //Start this async component.
+  std::thread _myThread;
+  void launch() {
     std::weak_ptr<AsyncEngineComponent> weak = shared_from_this();
-
-    //Update this component asynchronously.
-    std::future<bool> fut = std::async(std::launch::async, [weak] {
+    _myThread = std::thread([weak] {
+      int64_t elapsed = 0;
+      int64_t count = 0;
       int64_t last = getMilliseconds();
-      if (std::shared_ptr<AsyncEngineComponent> ua = weak.lock()) {
-        std::unique_lock<std::mutex> ulock(ua->getMtx());
-        ua->getCv().wait(ulock);
 
-        double elapsed_seconds = (double)(getMilliseconds() - last) / 1000.0f;
-        ua->update(elapsed_seconds);
+      if (std::shared_ptr<AsyncEngineComponent> ua = weak.lock()) {
+
+        if (ua->_bTerminate == true) {
+          std::cout << "Async Component " << ua->_name << " terminated.";
+          return false;
+        }
+
+        if (ua->getMtx().try_lock()) {
+          double elapsed_seconds = (double)(getMilliseconds() - last) / 1000.0f;
+          ua->update(elapsed_seconds);
+          count++;
+
+          int64_t cur = getMilliseconds();
+          elapsed += (cur - last);
+          if (elapsed > 2000) {
+            std::cout << ua->_name << " updated " << count << " times in 2s.." << std::endl;
+            elapsed = 0;
+            count = 0;
+          }
+          ua->getMtx().unlock();
+        }
       }
 
       return true;
       });
   }
-  void pause() {
-
-  }
-  void resume() {
-    _cv.notify_one();
+  void wait() {
+    _myThread.join();
   }
 
-  std::condition_variable& getCv() { return _cv; }
+  void terminate() {
+    _bTerminate = true;
+  }
+
   std::mutex& getMtx() { return _mtx; }
+protected:
+  virtual void update(double elapsed) = 0;
 
-private:
-  std::condition_variable _cv;
+  //std::condition_variable _cv;
   std::mutex _mtx;
+  std::atomic_bool _bTerminate = false;
   string_t _name = "<unset>";
 };
 class GObject {
 public:
+  // Update + Render must use the same variables to test for races.
   vec3 _pos;
   vec3 _vel;
-  // Update + Render must use the same variables to test this 
+  string_t _name = "<unset>";
+
+  std::string* _error_monster = nullptr;
+  std::string _error_monster_last = "";
+
+  GObject(const string_t& name) {
+    _name = name;
+  }
   void update() {
-    doWork_Using_Shared_Vars(0);
+    doWork_Using_Shared_Vars();
   }
   void render() {
-    doWork_Using_Shared_Vars(0);
+    doWork_Using_Shared_Vars();
+
+    //**Make the rendering frame more realistic.
+   // doHardWork_Frame(.9);
   }
-  void doWork_Using_Shared_Vars(double elapsed) {
+  void doWork_Using_Shared_Vars() {
+    //pointer nonsense to make errors happen.
+    if (_error_monster != nullptr) {
+      _error_monster_last = *_error_monster;
+      delete _error_monster;
+    }
+    _error_monster = new std::string();
+    *_error_monster = std::string(128, 'A');
+    _error_monster_last = _error_monster_last.substr(0, _error_monster_last.length() / 2);
+
     //Do some BS operation. to update position/velocity
     for (int i = 0; i < 100; ++i) {
       vec3 v = vec3::random();
@@ -212,13 +259,18 @@ public:
 };
 class GScene : public AsyncEngineComponent {
 public:
- // int_fast64_t _lastFrameTimeMs = 0;
-  //Update + Render share data across threads.
+  GScene(const string_t& name) : AsyncEngineComponent(name) {
+  }
+  void addObject(std::shared_ptr<GObject> ob) {
+    std::lock_guard<std::mutex>(this->_mtx);
+    _objs.push_back(ob);
+  }
   void render() {
     for (auto obj : _objs) {
       obj->render();
     }
   }
+protected:
   void update(double elapsed) override {
     //This is running asynchronously.
     for (auto obj : _objs) {
@@ -228,40 +280,59 @@ public:
 private:
   std::vector<std::shared_ptr<GObject>> _objs;
 };
+void RenderWindow::renderScene() {
+  int64_t elapsed = (getMilliseconds() - _last);
+  if (elapsed > 2000) {
+    std::cout << _name << " rendered " << _render_count << " times in 2s.. last window family frame took " << elapsed << "ms" << std::endl;
+    _last = getMilliseconds();
+    _render_count = 0;
+  }
+  if (_scene) {
+    std::lock_guard<std::mutex> guard(_scene->getMtx());
+    //_scene->render();
+
+    doHardWork_Frame(1);//Take up exactly 60fps.
+
+    _render_count++;
+  }
+}
 
 int main() {
-  //This code should mimic the new asynchronous architexture.
   // Windows = Main thread
-
-  std::shared_ptr<GScene> gs = std::make_shared<GScene>("MyScene");
+  std::vector<std::shared_ptr<GScene>> scenes;
   std::vector<std::shared_ptr<RenderWindow>> windows;
+  for (int i = 0; i < 30; ++i) {
+    scenes.push_back(std::make_shared<GScene>(std::string("") + "Scene" + std::to_string(i)));
+    for (int iObj = 0; iObj < 10; ++iObj) {
+      scenes[scenes.size() - 1]->addObject(std::make_shared<GObject>(std::string("") + "Scene" + std::to_string(i) + "_obj" + std::to_string(iObj)));
+    }
 
-  int num_windows = 1;
-
-  for (int i = 0; i < num_windows; ++i) {
-    std::shared_ptr<RenderWindow> rw = std::make_shared<RenderWindow>();
-    rw->setScene(gs);
+    std::shared_ptr<RenderWindow> rw = std::make_shared<RenderWindow>(std::string("") + "Window" + std::to_string(i));
+    rw->setScene(scenes[scenes.size() - 1]);
     windows.push_back(rw);
   }
 
-  gs->start();
-
   //Update loop
-  int64_t update_msg_timer = 0;
   while (true) {
-    int64_t last = getMilliseconds();
+    bool window_requested_exit = false;
+
     for (auto win : windows) {
       if (!win->processInput()) {
         break;
       }
+      win->_scene->launch();
+    }
+    //fence.
+    for (auto win : windows) {
+      win->_scene->wait();
+    }
+    for (auto win : windows) {
       win->renderScene();
     }
-    int64_t elapsed = getMilliseconds() - last;
-    update_msg_timer += elapsed;
-    if (update_msg_timer > 2000) {
-      std::cout << "Running.. last frame took " << elapsed << "ms" << std::endl;
-    }
   }
+
+  std::cout << "Press any key to exit..." << std::endl;
+  std::cin.get();
 
   return 0;
 }
