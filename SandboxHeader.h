@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <set>
 #include <unordered_map>
+#include <fstream>
 
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>

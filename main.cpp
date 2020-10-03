@@ -355,7 +355,7 @@ void asyncSceneTest() {
   }
   std::cout << "..Done" << std::endl;
 }
-
+   
 int main() {
   BRLogInfo("Creating vulkan.");
   VG::SDLVulkan sv;

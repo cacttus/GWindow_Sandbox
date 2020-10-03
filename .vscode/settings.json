@@ -96,7 +96,9 @@
     "*.ipp": "cpp",
     "csignal": "cpp",
     "cfenv": "cpp",
-    "valarray": "cpp"
+    "valarray": "cpp",
+    "any": "cpp",
+    "unordered_set": "cpp"
   },
   "cmake.configureOnOpen": false,
   "cmake.debugConfig": {

@@ -28,7 +28,7 @@ function(GET_ARCH_CONFIG)
   endif() 
 endfunction()  
   
-message("CMAKE_MODULE_PATH=" ${CMAKE_MODULE_PATH} "CMAKE_PREFIX_PATH=" ${CMAKE_PREFIX_PATH} "CMAKE_TOOLCHAIN_PATH=" ${CMAKE_TOOLCHAIN_PATH})
+message("CMAKE_MODULE_PATH='" ${CMAKE_MODULE_PATH} "' CMAKE_PREFIX_PATH='" ${CMAKE_PREFIX_PATH} "' CMAKE_TOOLCHAIN_PATH='" ${CMAKE_TOOLCHAIN_PATH} "'")
     
 # ** Global Directories **  
 set(VG_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bin/)
@@ -117,3 +117,31 @@ endif()
 target_link_directories(${PROJECT_NAME} PRIVATE ${VG_LIB_DIR})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${VULKAN_LIBRARIES} ${OPENGL_LIBRARIES} ${SDL2_LIBRARIES} ${SDLNET_LIBRARIES} ${VG_ADDL_LIBS} ${X11_LIBRARIES} ${LUA_LIBRARIES})
 
+ 
+
+set(shader_path ${CMAKE_CURRENT_LIST_DIR}/)
+file(GLOB shaders RELATIVE ${CMAKE_SOURCE_DIR} "${shader_path}*.vs" "${shader_path}*.fs")
+foreach(shader ${shaders})
+  set(input_glsl "${CMAKE_CURRENT_LIST_DIR}/${shader}")
+  set(output_spv "${input_glsl}.spv")
+  execute_process(COMMAND "glslc" "${input_glsl}" "-o" "${output_spv}")
+endforeach()
+
+#--CMakeLists.txt--
+file(GLOB_RECURSE SHADER_FILES ${CMAKE_CURRENT_LIST_DIR}/*.vs *.fs *.gs)
+add_custom_target(compile_shaders ALL
+COMMAND ${CMAKE_CURRENT_LIST_DIR}/compile_shaders.sh 
+SOURCES ${SHADER_FILES} 
+DEPENDS ${SHADER_FILES}
+WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+#--compile_shaders.sh--
+# FILE=./shaderc/bin/glslc
+# if test -f "$FILE"; then
+#   echo "Compiling Shaders."
+#   ./shaderc/bin/glslc -fshader-stage=vertex ./test.vs -o ./test_vs.spv
+#   ./shaderc/bin/glslc -fshader-stage=fragment ./test.fs -o ./test_fs.spv
+# else 
+#   echo "./shaderc not found - Download shaderc and place in project root:"
+#   echo "https://github.com/google/shaderc#downloads"
+# fi
+    
