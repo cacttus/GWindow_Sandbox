@@ -48,7 +48,7 @@ message("Set Module Path to " ${CMAKE_MODULE_PATH} "Win32")
 endif() 
 
 # VG
-add_executable(${VG_TARGET_NAME} main.cpp)
+add_executable(${VG_TARGET_NAME} SDLVulkan.cpp main.cpp SandboxHeader.cpp)
   
 get_arch_config()  
  
@@ -66,12 +66,20 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
   
 # Packages
 find_package(Threads REQUIRED) #This is better than -pthread
+
+set(OpenGL_GL_PREFERENCE LEGACY) #GLVND or LEGACY
+find_package(OpenGL REQUIRED)
+find_package(SDL2 REQUIRED)
+find_package(Vulkan REQUIRED)  
+
 if(UNIX)
 find_package(X11 REQUIRED)
 endif()
  
 # Includes
-#target_include_directories(${PROJECT_NAME} PUBLIC )
+target_include_directories(${PROJECT_NAME} PUBLIC ${SDL2_INCLUDE_DIRS} ${SDLNET_INCLUDE_DIR} 
+${VULKAN_INCLUDE_DIRS} ${LUA_INCLUDE_DIR} ${LUAINTF_INCLUDE_DIR})
+
 
 # Libraries
 set(ADDL_LIBS "")
@@ -107,4 +115,5 @@ set(VG_GCC_LINK_GLOBAL -pthread)
   set(VG_ADDL_LIBS ncurses)
 endif() 
 target_link_directories(${PROJECT_NAME} PRIVATE ${VG_LIB_DIR})
-target_link_libraries(${PROJECT_NAME} PRIVATE ${VG_ADDL_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${VULKAN_LIBRARIES} ${OPENGL_LIBRARIES} ${SDL2_LIBRARIES} ${SDLNET_LIBRARIES} ${VG_ADDL_LIBS} ${X11_LIBRARIES} ${LUA_LIBRARIES})
+

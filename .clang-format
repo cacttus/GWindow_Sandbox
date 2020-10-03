@@ -1,0 +1,29 @@
+﻿---
+BasedOnStyle: Google
+FixNamespaceComments: 'true'
+ReflowComments: 'true'
+AllowAllParametersOfDeclarationOnNextLine: 'false'
+AccessModifierOffset: '-2'
+AlwaysBreakTemplateDeclarations: 'false'
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: 'false'
+IncludeBlocks: Preserve
+PointerAlignment: Left
+SortIncludes: 'false'
+AllowAllParametersOfDeclarationOnNextLine: 'true'
+ColumnLimit: 0
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass:      false
+  AfterControlStatement: false
+  AfterEnum:       false
+  AfterFunction:   false
+  AfterNamespace:  false
+  AfterObjCDeclaration: false
+  AfterStruct:     false
+  AfterUnion:      false
+  BeforeCatch:     true
+  BeforeElse:      true
+  IndentBraces:    false
+...

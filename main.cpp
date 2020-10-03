@@ -24,6 +24,8 @@
 #include <future>
 #include <deque>
 
+#include "./SDLVulkan.h"
+
 #ifdef _WIN32
 #include <Windows.h>
 #else
@@ -310,7 +312,7 @@ void RenderWindow::renderScene() {
   }
 }
 
-int main() {
+void asyncSceneTest() {
 #define CRAZINESS 20
 
   std::cout << "starting test.." << std::endl;
@@ -332,7 +334,6 @@ int main() {
     rw->setScene(scenes[scenes.size() - 1]);
     windows.push_back(rw);
   }
-
   // Update loop
   while (true) {
     bool window_requested_exit = false;
@@ -353,6 +354,14 @@ int main() {
     Cout::process();
   }
   std::cout << "..Done" << std::endl;
+}
+
+int main() {
+  BRLogInfo("Creating vulkan.");
+  VG::SDLVulkan sv;
+  sv.init();
+
+  //asyncSceneTest();
 
   std::cout << "Press any key to exit..." << std::endl;
   std::cin.get();
