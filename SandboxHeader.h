@@ -22,6 +22,9 @@
 #include <set>
 #include <unordered_map>
 #include <fstream>
+#include <dirent.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
