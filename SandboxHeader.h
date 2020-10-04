@@ -7,6 +7,17 @@
 #ifndef __SANDBOXHEADER_160169492510355883169343686315_H__
 #define __SANDBOXHEADER_160169492510355883169343686315_H__
 
+#ifdef _WIN32
+#define BR2_OS_WINDOWS 1
+#elif defined(__UNIX__)
+#define BR2_OS_LINUX 1
+#endif
+
+#ifdef BR2_OS_WINDOWS
+//This is need as std::numeric_limits::max conflicts with #define max()
+#define NOMINMAX
+#endif
+
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,28 +33,42 @@
 #include <set>
 #include <unordered_map>
 #include <fstream>
+#include <optional>
+#include <limits>
+#include <filesystem>
+
+#ifdef _WIN32
+//#define WIN32_LEAN_AND_MEAN
+//#include <Windows.h>
+#elif defined(__UNIX__)
+#include <X11/Xlib.h>
+#include <X11/keysym.h>
+// Use XQueryKeymap()
+#endif
+
+#define BR2_CPP17
+
+
+#ifdef BR2_OS_WINDOWS
+#include <direct.h>
+#else
 #include <dirent.h>
 #include <unistd.h>
-#include <limits.h>
+//For Sigtrap.
+#include <signal.h>
+#endif
 
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 #include <SDL.h>
 #include <SDL_syswm.h>
-#include <SDL_net.h>
 
-#ifndef BR2_OS_WINDOWS
-//For Sigtrap.
-#include <signal.h>
-#endif
-
-#ifdef _WIN32
-#define BR2_OS_WINDOWS 1
-#else
-#define BR2_OS_LINUX 1
+#ifdef main
+#undef main
 #endif
 
 namespace VG {
+
 
 //Defines
 #define BRThrowException(x) throw std::string(x);
@@ -72,6 +97,18 @@ std::string operator+(const std::string& str, const double& rhs);
 std::string operator+(const std::string& str, const float& rhs);
 
 //Classes
+
+class App {
+public:
+  static std::string _appRoot;
+  static string_t combinePath(const std::string& a, const std::string& b);
+  static string_t getFileNameFromPath(const string_t& name);
+  static string_t replaceAll(const string_t& str, char charToRemove, char charToAdd);
+  static string_t formatPath(const string_t& p);
+  static string_t getDirectoryNameFromPath(const string_t& pathName);
+  static string_t toHex(int value, bool bIncludePrefix);
+};
+
 class Os {
 public:
   static string_t newline() {

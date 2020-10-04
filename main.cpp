@@ -14,25 +14,9 @@
   asynchronously (without real intervention).
 
 */
-#include <iostream>
-#include <memory>
-#include <string>
-#include <thread>
-#include <condition_variable>
-#include <vector>
-#include <cstdlib>
-#include <future>
-#include <deque>
 
+#include "./SandboxHeader.h"
 #include "./SDLVulkan.h"
-
-#ifdef _WIN32
-#include <Windows.h>
-#else
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
-// Use XQueryKeymap()
-#endif
 
 typedef std::string string_t;
 
@@ -356,7 +340,9 @@ void asyncSceneTest() {
   std::cout << "..Done" << std::endl;
 }
    
-int main() {
+int main(int argc, char** argv) {
+  VG::App::_appRoot.assign(VG::App::getDirectoryNameFromPath(argv[0]));
+
   BRLogInfo("Creating vulkan.");
   VG::SDLVulkan sv;
   sv.init();

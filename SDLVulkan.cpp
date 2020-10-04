@@ -1,4 +1,5 @@
 #include "./SDLVulkan.h"
+#include "./VulkanDebug.h"
 /*
   Queue family - a queue with a common set of characteristics, and a number of possible queues.
   Logical device - the features of the physical device that we are using.
@@ -14,8 +15,9 @@
   opaque handle - 
   handle - abstarct refernce to some underlying implementation 
   subpass - render pass that depends ont he contents of the framebuffers of previous passes.
-
-  get surface formats
+  ImageView - You can't access images direclty you need to use an image view.
+  Push Constants - A small bank of values writable via the API and accessible in shaders. Push constants allow the application to set values used in shaders without creating buffers or modifying and binding descriptor sets for each update.
+    https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#glossary
 
   Vulkan
   VulkanDevice{
@@ -51,7 +53,7 @@ public:
   SDL_Window* _pSDLWindow = nullptr;
   // std::vector<VkLayerProperties> _availableLayers;
   bool _bEnableValidationLayers = true;
-//VK_DEFINE_NON_DISPATCHABLE_HANDLE
+  //VK_DEFINE_NON_DISPATCHABLE_HANDLE
   std::optional<uint32_t> graphicsFamily;
   std::optional<uint32_t> computeFamily;
   std::optional<uint32_t> presentFamily;
@@ -79,6 +81,7 @@ public:
   // PFN_vkCreateDebugUtilsMessengerEXT
   // vkCreateDebugUtilsMessengerEXT;
   VkExtFn(vkDestroyDebugUtilsMessengerEXT);
+#pragma region ErrorHandling
 
   //Error Handling
   void checkErrors() {
@@ -108,11 +111,15 @@ public:
     Vk_RS_STR(VK_ERROR_TOO_MANY_OBJECTS);
     Vk_RS_STR(VK_ERROR_FORMAT_NOT_SUPPORTED);
     Vk_RS_STR(VK_ERROR_FRAGMENTED_POOL);
+#ifdef VK_VERSION_1_2
     Vk_RS_STR(VK_ERROR_UNKNOWN);
-    Vk_RS_STR(VK_ERROR_OUT_OF_POOL_MEMORY);
-    Vk_RS_STR(VK_ERROR_INVALID_EXTERNAL_HANDLE);
     Vk_RS_STR(VK_ERROR_FRAGMENTATION);
     Vk_RS_STR(VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS);
+    Vk_RS_STR(VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR);
+#endif
+    Vk_RS_STR(VK_ERROR_OUT_OF_POOL_MEMORY);
+    Vk_RS_STR(VK_ERROR_INVALID_EXTERNAL_HANDLE);
+
     Vk_RS_STR(VK_ERROR_SURFACE_LOST_KHR);
     Vk_RS_STR(VK_ERROR_NATIVE_WINDOW_IN_USE_KHR);
     Vk_RS_STR(VK_SUBOPTIMAL_KHR);
@@ -127,10 +134,10 @@ public:
     Vk_RS_STR(VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR);
     Vk_RS_STR(VK_ERROR_FRAGMENTATION_EXT);
     Vk_RS_STR(VK_ERROR_INVALID_DEVICE_ADDRESS_EXT);
-    Vk_RS_STR(VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR);
-    Vk_RS_STR(VK_RESULT_BEGIN_RANGE);
-    Vk_RS_STR(VK_RESULT_END_RANGE);
-    Vk_RS_STR(VK_RESULT_RANGE_SIZE);
+    //These don't appear to be in the latest SDK on Windows, what gives?
+    //Vk_RS_STR(VK_RESULT_BEGIN_RANGE);
+    //Vk_RS_STR(VK_RESULT_END_RANGE);
+    //Vk_RS_STR(VK_RESULT_RANGE_SIZE);
     Vk_RS_STR(VK_RESULT_MAX_ENUM);
     return ret;
   }
@@ -152,9 +159,13 @@ public:
 
     BRThrowException(str);
   }
+#pragma endregion
 
-  //Main stuff.
+#pragma region VG(BR2) Copied
 
+#pragma endregion
+
+#pragma region SDL
   SDL_Window* makeSDLWindow(const GraphicsWindowCreateParameters& params,
                             int render_system, bool show) {
     string_t title;
@@ -220,7 +231,9 @@ public:
 
     return ret;
   }
+#pragma endregion
 
+#pragma region Vulkan_Test
   void init() {
     // Make the window.s
     SDL_SetMainReady();
@@ -726,8 +739,10 @@ public:
       imageCount = caps.maxImageCount;
     }
 
+    auto m = std::numeric_limits<uint32_t>::max();
+
     //Extent = Image size
-    if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+    if (caps.currentExtent.width != m) {
       swapChainExtent = caps.currentExtent;
     }
     else {
@@ -781,21 +796,17 @@ public:
       CheckVKR(vkCreateImageView, "", _device, &createInfo, nullptr, &_swapChainImageViews[i]);
     }
   }
+
   std::vector<char> readFile(const std::string& file) {
-    std::cout << "Loading file " << file << std::endl;
+    string_t file_loc = App::combinePath(App::_appRoot, file);
+    std::cout << "Loading file " << file_loc << std::endl;
 
-    static const int bufsiz = 2048;
-    char buffer[bufsiz];
-    memset(buffer, 0, bufsiz);
-    getcwd(buffer, sizeof(buffer));
-    string_t cwd = std::string(buffer);
-    std::cout << "cwd=" << cwd << std::endl;
     //chdir("~/git/GWindow_Sandbox/");
-
+    //#endif
     //::ate avoid seeking to the end. Neat trick.
-    std::ifstream fs(file, std::ios::in | std::ios::binary | std::ios::ate);
+    std::ifstream fs(file_loc, std::ios::in | std::ios::binary | std::ios::ate);
     if (!fs.good() || !fs.is_open()) {
-      errorExit(Stz "Could not open shader file '" + file + "'");
+      errorExit(Stz "Could not open shader file '" + file_loc + "'");
       return std::vector<char>{};
     }
 
@@ -810,48 +821,40 @@ public:
   }
 
   std::vector<VkPipelineShaderStageCreateInfo> createShaderForPipeline() {
-    std::vector<char> vertShaderCode = readFile(Stz "../test_vs.spv");
-    std::vector<char> fragShaderCode = readFile(Stz "../test_fs.spv");
+    std::vector<char> vertShaderCode = readFile(Stz "./../../test_vs.spv");
+    std::vector<char> fragShaderCode = readFile(Stz "./../../test_fs.spv");
 
     _vertShaderModule = createShaderModule(vertShaderCode);
     _fragShaderModule = createShaderModule(fragShaderCode);
 
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.pNext = nullptr;
-    vertShaderStageInfo.flags = 0;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
     vertShaderStageInfo.module = _vertShaderModule;
     vertShaderStageInfo.pName = "main";
-    vertShaderStageInfo.pSpecializationInfo = nullptr;  //Allows you to change shader constants in the SPIRV at runtime.
-    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
 
-    VkPipelineShaderStageCreateInfo fragInf{};
-    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.pNext = nullptr;
-    vertShaderStageInfo.flags = 0;
-    vertShaderStageInfo.module = _fragShaderModule;
-    vertShaderStageInfo.pName = "main";
-    vertShaderStageInfo.pSpecializationInfo = nullptr;
-    vertShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = _fragShaderModule;
+    fragShaderStageInfo.pName = "main";
 
-    std::vector<VkPipelineShaderStageCreateInfo> inf{vertShaderStageInfo, fragInf};
+    std::vector<VkPipelineShaderStageCreateInfo> inf{vertShaderStageInfo, fragShaderStageInfo};
     return inf;
   }
   void createGraphicsPipeline() {
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
-    
+
     //This is basically a glsl attribute specifying a layout identifier
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;       // * This is hard-coded in the shader for this test.
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;    // Optional
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;     // * This is hard-coded in the shader for this test.
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;  // Optional
+    vertexInputInfo.vertexBindingDescriptionCount = 0;
+    vertexInputInfo.vertexAttributeDescriptionCount = 0;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssembly.primitiveRestartEnable = VK_FALSE;  //Turn triangle fans into trinalge lists.
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
 
     VkViewport viewport{};
     viewport.x = 0.0f;
@@ -874,26 +877,19 @@ public:
 
     VkPipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;         // ** Requires GPU feature
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;  //Disables output to the framebuffer.
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;  // ** Requires GPU feature
-    rasterizer.lineWidth = 1.0f;                    // ** Requires WideLines
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
-    rasterizer.depthBiasConstantFactor = 0.0f;  // Optional
-    rasterizer.depthBiasClamp = 0.0f;           // Optional
-    rasterizer.depthBiasSlopeFactor = 0.0f;     // Optional
 
     //*Multisampling
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    multisampling.minSampleShading = 1.0f;           // Optional
-    multisampling.pSampleMask = nullptr;             // Optional
-    multisampling.alphaToCoverageEnable = VK_FALSE;  // Optional
-    multisampling.alphaToOneEnable = VK_FALSE;       // Optional
 
     //VkPipelineDepthStencilStateCreateInfo // depth / stencil - we'll use null here.
 
@@ -921,7 +917,8 @@ public:
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     VkDynamicState dynamicStates[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_LINE_WIDTH};
+        VK_DYNAMIC_STATE_LINE_WIDTH };
+
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = 2;
@@ -933,6 +930,7 @@ public:
     pipelineLayoutInfo.pSetLayouts = nullptr;          // Optional
     pipelineLayoutInfo.pushConstantRangeCount = 0;     // Optional
     pipelineLayoutInfo.pPushConstantRanges = nullptr;  // Optional
+    //VkDescriptorSetLayout
 
     CheckVKR(vkCreatePipelineLayout, "", _device, &pipelineLayoutInfo, nullptr, &_pipelineLayout);
 
@@ -943,7 +941,6 @@ public:
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;  // vertex shader, frag shader.
     pipelineInfo.pStages = shaderStages.data();
-    // pipelineInfo.flags = 0;
     pipelineInfo.pVertexInputState = &vertexInputInfo;
     pipelineInfo.pInputAssemblyState = &inputAssembly;
     pipelineInfo.pViewportState = &viewportState;
@@ -951,19 +948,21 @@ public:
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pDepthStencilState = nullptr;  // Optional
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr;  // Optional
+    pipelineInfo.pDynamicState = &dynamicState;  // Optional
     pipelineInfo.layout = _pipelineLayout;
     pipelineInfo.renderPass = _renderPass;
     pipelineInfo.subpass = 0;                          //Index of subpass - we have 1 subpass
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;  // Derive this pipeline from another one. This is pretty neat.
-    pipelineInfo.basePipelineIndex = -1;               // Optional
+    //pipelineInfo.basePipelineIndex = -1;               // Optional
+
+   // BRLogInfo(VulkanDebug::get_VkGraphicsPipelineCreateInfo());
 
     CheckVKR(vkCreateGraphicsPipelines, "", _device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline);
   }
   void createRenderPass() {
     VkAttachmentDescription colorAttachment{};
     colorAttachment.format = _swapChainImageFormat;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT; // Number of samples.
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;  // Number of samples.
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -971,6 +970,7 @@ public:
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+    //Framebuffer attachments.
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1019,6 +1019,7 @@ public:
     vkDestroyInstance(_instance, nullptr);
     SDL_DestroyWindow(_pSDLWindow);
   }
+#pragma endregion
 
 };  // namespace VG
 
@@ -1027,7 +1028,6 @@ public:
 SDLVulkan::SDLVulkan() {
   _pInt = std::make_unique<SDLVulkan_Internal>();
 }
-
 SDLVulkan::~SDLVulkan() {
   _pInt->cleanup();
   _pInt = nullptr;
