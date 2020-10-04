@@ -15,9 +15,33 @@
   opaque handle - 
   handle - abstarct refernce to some underlying implementation 
   subpass - render pass that depends ont he contents of the framebuffers of previous passes.
+<<<<<<< Updated upstream
   ImageView - You can't access images direclty you need to use an image view.
   Push Constants - A small bank of values writable via the API and accessible in shaders. Push constants allow the application to set values used in shaders without creating buffers or modifying and binding descriptor sets for each update.
     https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#glossary
+=======
+
+  Descriptor - (Resource Descriptor) - This is like a GL Buffer Binding. Tells Pipeline how to access and lay out memory for a SSBO or UBO.
+
+  Mesh Shaders - An NVidia extension that combines the primitive assembly stages as a single dispatched compute "mesh" stage (multiple threads)
+  and a "task" sage.
+    https://www.geeks3d.com/20200519/introduction-to-mesh-shaders-opengl-and-vulkan/
+    - Meshlets are small meshes of a big mesh to render.
+    - Meshes are decmoposed because each mesh shader is limited on the number of output meshes.
+    - 
+    
+  Nvidia WARP unit
+    https://www.geeks3d.com/hacklab/20180705/demo-visualizing-nvidia-gl_threadinwarpnv-gl_warpidnv-and-gl_smidnv-gl_nv_shader_thread_group/
+    - it is a set of 32 fragment (pixel) threads.
+    - warps are grouped in SM's (streaming multiprocessors)
+    - each SM contains 64 warps - 2048 threads.
+    - gtx 1080 contains 20 SMs
+      - Each GPU core can run 16 threads
+    - rtx 3080 has 68 SMs
+    
+
+  get surface formats
+>>>>>>> Stashed changes
 
   Vulkan
   VulkanDevice{
@@ -903,16 +927,25 @@ public:
     colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable = VK_FALSE;
-    colorBlending.logicOp = VK_LOGIC_OP_COPY;  // Optional
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-    colorBlending.blendConstants[0] = 0.0f;  // Optional
-    colorBlending.blendConstants[1] = 0.0f;  // Optional
-    colorBlending.blendConstants[2] = 0.0f;  // Optional
-    colorBlending.blendConstants[3] = 0.0f;  // Optional
+    VkPipelineColorBlendStateCreateInfo colorBlending = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .attachmentCount = 1,
+        .pAttachments = &colorBlendAttachment,
+    };
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,            // Optional
+        .pSetLayouts = nullptr,         // Optional
+        .pushConstantRangeCount = 0,    // Optional
+        .pPushConstantRanges = nullptr  // Optional
+    };
+
+    CheckVKR(vkCreatePipelineLayout, "", _device, &pipelineLayoutInfo, nullptr, &_pipelineLayout);
+
+    //Create render pass for pipeline
+    createRenderPass();
 
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     VkDynamicState dynamicStates[] = {
