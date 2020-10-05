@@ -391,7 +391,7 @@ public:
   void init() {
     _vulkan = std::make_shared<Vulkan>();
 
-    // Make the window.s
+    // Make the window.
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1) {
       vulkan()->errorExit(Stz "SDL could not be initialized: " + SDL_GetError());
@@ -430,7 +430,7 @@ public:
     createGraphicsPipeline();
     createFramebuffers();
     createCommandBuffers();
-    createSyncObjects(); //This depends on the swapchain being made.
+    createSyncObjects();
 
     _bSwapChainOutOfDate = false;
   }
