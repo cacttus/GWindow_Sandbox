@@ -7,47 +7,33 @@
     Queue family - a queue with a common set of characteristics, and a number of possible queues.
     Logical device - the features of the physical device that we are using.
       Multiple per phsical device.  
-
-    initialize, SURFACE, create validation layers, pick physical device, create logical device from physical, get surface format from our surface,
-    make swapchain, make swapchain images, make image views for images,
-    create shader modules
-    create pipeline
-
-
-    opaque pointer
-    opaque handle - 
-    handle - abstarct refernce to some underlying implementation 
-    subpass - render pass that depends ont he contents of the framebuffers of previous passes.
-    ImageView - You can't access images direclty you need to use an image view.
+    Opaque pointer / opaque handle - handles that are interpreted by the API and don't represent anything the client knows about.
+    Handle - abstarct refernce to some underlying implementation 
+    Subpass - render pass that depends ont he contents of the framebuffers of previous passes.
+    ImageView - You can't access images directly you need to use an image view.
     Push Constants - A small bank of values writable via the API and accessible in shaders. Push constants allow the application to set values used in shaders without creating buffers or modifying and binding descriptor sets for each update.
       https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#glossary
-
     Descriptor - (Resource Descriptor) - This is like a GL Buffer Binding. Tells Pipeline how to access and lay out memory for a SSBO or UBO.
     Fences - CPU->GPU synchronization - finish rendering all frames before next loop
     Semaphores -> GPU->GPU sync, finish one pipeline stage before continuing.
-
-    Mesh Shaders - An NVidia extension that combines the primitive assembly stages as a single dispatched compute "mesh" stage (multiple threads)
-    and a "task" sage.
+    Mesh Shaders - An NVidia extension that combines the primitive assembly stages as a single dispatched compute "mesh" stage (multiple threads) and a "task" sage.
       https://www.geeks3d.com/20200519/introduction-to-mesh-shaders-opengl-and-vulkan/
       - Meshlets are small meshes of a big mesh to render.
       - Meshes are decmoposed because each mesh shader is limited on the number of output meshes.
-      - 
-      
     Nvidia WARP unit
       https://www.geeks3d.com/hacklab/20180705/demo-visualizing-nvidia-gl_threadinwarpnv-gl_warpidnv-and-gl_smidnv-gl_nv_shader_thread_group/
       - it is a set of 32 fragment (pixel) threads.
       - warps are grouped in SM's (streaming multiprocessors)
       - each SM contains 64 warps - 2048 threads.
-      - gtx 1080 contains 20 SMs
-        - Each GPU core can run 16 threads
+      - gtx 1080 has 20 SMs
       - rtx 3080 has 68 SMs
-
+        - Each GPU core can run 16 threads
     Recursive Preprocessor
       Deferred expression   
       Disabling Context
-    Sparse binding of buffer
-      - Buffer is physically allocated in multiple separate chunks
-
+    Sparse buffer binding
+      - Buffer is physically allocated in multiple separate chunks.
+      - This may be good for allocating buffer pools as pools are pretty much a requirement.
 */
 
 //Macros
