@@ -48,7 +48,7 @@ message("Set Module Path to " ${CMAKE_MODULE_PATH} "Win32")
 endif() 
 
 # VG
-add_executable(${VG_TARGET_NAME} SDLVulkan.cpp main.cpp SandboxHeader.cpp)
+add_executable(${VG_TARGET_NAME} SDLVulkan.cpp main.cpp SandboxHeader.cpp VulkanDebug.cpp)
   
 get_arch_config()  
  

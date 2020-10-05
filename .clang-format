@@ -13,7 +13,9 @@ PointerAlignment: Left
 SortIncludes: 'false'
 AllowAllParametersOfDeclarationOnNextLine: 'true'
 ColumnLimit: 0
+ContinuationIndentWidth: 2
 BreakBeforeBraces: Custom
+Cpp11BracedListStyle: 'false'
 BraceWrapping:
   AfterClass:      false
   AfterControlStatement: false

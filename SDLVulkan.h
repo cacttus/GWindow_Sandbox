@@ -28,6 +28,7 @@ class SDLVulkan : public VirtualMemory {
   virtual ~SDLVulkan() override;
 
   void init();
+  void renderLoop();
 
   std::unique_ptr<SDLVulkan_Internal> _pInt;
 };

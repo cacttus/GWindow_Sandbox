@@ -9,7 +9,7 @@
 
 #ifdef _WIN32
 #define BR2_OS_WINDOWS 1
-#elif defined(__UNIX__)
+#elif defined(linux)
 #define BR2_OS_LINUX 1
 #endif
 
@@ -78,6 +78,7 @@ static void log_log(const std::string& str) {
 #define BRLogInfo(xx) VG::log_log(Stz xx)
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
+#define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
 //BRLogWarn("oops") expands to 
 //VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
 

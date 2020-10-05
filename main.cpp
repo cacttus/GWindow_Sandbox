@@ -346,6 +346,7 @@ int main(int argc, char** argv) {
   BRLogInfo("Creating vulkan.");
   VG::SDLVulkan sv;
   sv.init();
+  sv.renderLoop();
 
   //asyncSceneTest();
 
