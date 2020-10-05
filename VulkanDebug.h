@@ -11,7 +11,6 @@
 
 namespace VG {
 
-
 /**
 *  @class VulkanDebug
 *  @brief A lot of vulkan errors are simple access violations relevant to a struct.
@@ -21,15 +20,12 @@ namespace VG {
 class VulkanDebug {
 public:
   static string_t VkGraphicsPipelineCreateInfo_toString();
-  static string_t VkResult_toString(VkResult r) ;
+  static string_t VkResult_toString(VkResult r);
   static string_t VkColorSpaceKHR_toString(VkColorSpaceKHR sp);
   static string_t VkFormat_toString(VkFormat fmt);
-  //void printQueueFamilyInfo(std::vector<VkQueueFamilyProperties>& fams);
-
+  static string_t VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r);
 };
 
-}//ns Game
-
-
+}  // namespace VG
 
 #endif

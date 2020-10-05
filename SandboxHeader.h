@@ -77,6 +77,11 @@ static void log_log(const std::string& str) {
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
+#define AssertOrThrow2(x)     \
+  do {                        \
+    assertOrThrow((bool)(x)); \
+  } while (0);
+
 //BRLogWarn("oops") expands to
 //VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
 
@@ -117,14 +122,18 @@ public:
   }
 };
 
-
-#define CREATE_VERTEX(x,y)
+#define CREATE_VERTEX_TYPE(name, ...)
 
 //Classes
 class Vertex {
 public:
   vec3 _pos;
   vec4 _color;
+  Vertex() {}
+  Vertex(const vec3& pos, const vec4& color) {
+    _pos = pos;
+    _color = color;
+  }
   static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
     std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
 
@@ -137,21 +146,21 @@ public:
     //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
     //double: VK_FORMAT_R64_SFLOAT
     attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0; // layout location=
+    attributeDescriptions[0].location = 0;  // layout location=
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(Vertex, _pos);
     attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1; // layout location=
+    attributeDescriptions[1].location = 1;  // layout location=
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(Vertex, _pos);
-    return attributeDescriptions; 
+    return attributeDescriptions;
   }
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription = {
       .binding = 0,              // uint32_t         -- this is the layout location
       .stride = sizeof(Vertex),  // uint32_t
-      //**Can be use VK_VERTEX_INPUT_RATE_INSTANCE
       // **Instanced rendering.
+      //**use VK_VERTEX_INPUT_RATE_INSTANCE
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
 
     };
@@ -191,11 +200,16 @@ class Gu {
 public:
   static void debugBreak();
 };
+static void assertOrThrow(bool b) {
+  if (!b) {
+    Gu::debugBreak();
+    throw new std::runtime_error("Runtime Error thrown.");
+  }
+}
 class GraphicsWindowCreateParameters {
 public:
-  static constexpr int Wintype_Desktop =
-    0;  // X11 doesn't encourage disabling buttons like win32, so we're going
-        // with 'window types' instead of disabling properties.
+  static constexpr int Wintype_Desktop = 0;  // X11 doesn't encourage disabling buttons like win32, so we're going
+                                             // with 'window types' instead of disabling properties.
   static constexpr int Wintype_Utility = 1;
   static constexpr int Wintype_Noborder = 2;
 

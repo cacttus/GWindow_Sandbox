@@ -11,15 +11,15 @@ namespace VG {
 #define V_STC_STR(x, y)                                                                  \
   str += Stz " [" + App::toHex(off, true) + "][" + off + "]" + std::string(#y) + "\r\n"; \
   off += sizeof(x::y);
-// 
+//
 // string_t VulkanDebug::queueFamilyInfo_toString() {
 //   std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
 //   vkGetPhysicalDeviceQueueFamilyProperties(_physicalDevice, &queueFamilyCount, queueFamilies.data());
-// 
+//
 //   string_t qf_info = "";
 //   for (int i = 0; i < queueFamilies.size(); ++i) {
 //     auto& queueFamily = queueFamilies[i];
-// 
+//
 //     qf_info += Stz "  Queue " + i + Os::newline();
 //     qf_info += Stz "   flags:";
 // #define PRINT_QUEUE_FLAG(x)             \
@@ -37,7 +37,7 @@ namespace VG {
 //                "height:" + queueFamily.minImageTransferGranularity.height +
 //                "depth:" + queueFamily.minImageTransferGranularity.depth + Os::newline();
 //   }
-// 
+//
 //   return qf_info;
 // }
 
@@ -72,6 +72,23 @@ string_t VulkanDebug::VkGraphicsPipelineCreateInfo_toString() {
 }
 #pragma endregion
 #pragma region Stringify Methods
+// ^\s+([a-zA-Z0-9_]+)\s=\s.*
+// V_ENM_STR($1);
+
+string_t VulkanDebug::VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r) {
+  string_t ret = "";
+
+  V_ENM_STR(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_PROTECTED_BIT);
+  V_ENM_STR(VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD);
+  V_ENM_STR(VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD);
+  V_ENM_STR(VK_MEMORY_PROPERTY_FLAG_BITS_MAX_ENUM);
+  return ret;
+}
 string_t VulkanDebug::VkColorSpaceKHR_toString(VkColorSpaceKHR r) {
   string_t ret = "";
   V_ENM_STR(VK_COLOR_SPACE_SRGB_NONLINEAR_KHR);
