@@ -9,13 +9,13 @@
       Multiple per phsical device.  
     Opaque pointer / opaque handle - handles that are interpreted by the API and don't represent anything the client knows about.
     Handle - abstarct refernce to some underlying implementation 
-    Subpass - render pass that depends ont he contents of the framebuffers of previous passes.
+    Subpass - render pass that depends on the contents of the framebuffers of previous passes.
     ImageView - You can't access images directly you need to use an image view.
     Push Constants - A small bank of values writable via the API and accessible in shaders. Push constants allow the application to set values used in shaders without creating buffers or modifying and binding descriptor sets for each update.
       https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#glossary
-    Descriptor - (Resource Descriptor) - This is like a GL Buffer Binding. Tells Pipeline how to access and lay out memory for a SSBO or UBO.
+    Descriptor - (Resource Descriptor) - This is like a GL Buffer Binding. Tells Pipeline how to access and lay out memory for a SSBO or UBO or Attribute.
     Fences - CPU->GPU synchronization - finish rendering all frames before next loop
-    Semaphores -> GPU->GPU sync, finish one pipeline stage before continuing.
+    Semaphores -> GPU->GPU sync, allows finish one pipeline stage before continuing.
     Mesh Shaders - An NVidia extension that combines the primitive assembly stages as a single dispatched compute "mesh" stage (multiple threads) and a "task" sage.
       https://www.geeks3d.com/20200519/introduction-to-mesh-shaders-opengl-and-vulkan/
       - Meshlets are small meshes of a big mesh to render.
@@ -29,8 +29,8 @@
       - rtx 3080 has 68 SMs
         - Each GPU core can run 16 threads
     Recursive Preprocessor
-      Deferred expression   
-      Disabling Context
+      - Deferred expression
+      - Disabling Context
     Sparse buffer binding
       - Buffer is physically allocated in multiple separate chunks.
       - This may be good for allocating buffer pools as pools are pretty much a requirement.
