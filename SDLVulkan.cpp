@@ -38,24 +38,8 @@
     - gtx 1080 contains 20 SMs
       - Each GPU core can run 16 threads
     - rtx 3080 has 68 SMs
-    
 
-  get surface formats
-
-  Vulkan
-  VulkanDevice{
-      queue famililes
-      deviceproperties
-      devicefeatures
-      device info
-      Context = createLogicalDevice() (create context .. ?)
-  }
-
-  Wikipedia
-  People whom are experts on subjets get the final say on definitions and terminology in writing. 
-  Thsu they should be allowed to write freely on wikipedia.
-  They get the final say because of hteir success, thier success being due to some underlying advancement in the organization of the
-  knowledge that those whom are not do not possess.
+  Deferred expression   
 
 */
 
@@ -1127,10 +1111,10 @@ public:
       VkFenceCreateInfo fenceInfo = {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .pNext = nullptr,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT, //Fences must always be created in a signaled state.
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,  //Fences must always be created in a signaled state.
       };
 
-      CheckVKR(vkCreateFence, "", _device, &fenceInfo, nullptr, &_inFlightFences[i] );
+      CheckVKR(vkCreateFence, "", _device, &fenceInfo, nullptr, &_inFlightFences[i]);
     }
   }
 #pragma endregion
@@ -1159,10 +1143,10 @@ public:
         validateVkResult(res, "", "vkAcquireNextImageKHR");
       }
     }
- 
+
     //There is currently a frame that is using this image. So wait for this image.
     if (_imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-        vkWaitForFences(_device, 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+      vkWaitForFences(_device, 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
     }
     _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
 
@@ -1174,30 +1158,29 @@ public:
       .pNext = nullptr,                        //const void*
       //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
       //to finish rendering, or just wait for the framebuffer output.
-      .waitSemaphoreCount = 1,                 //uint32_t
-      .pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],     //const VkSemaphore*
-      .pWaitDstStageMask = waitStages,                  //const VkPipelineStageFlags*
-      .commandBufferCount = 1,                          //uint32_t
-      .pCommandBuffers = &_commandBuffers[imageIndex],  //const VkCommandBuffer*
+      .waitSemaphoreCount = 1,                                       //uint32_t
+      .pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],  //const VkSemaphore*
+      .pWaitDstStageMask = waitStages,                               //const VkPipelineStageFlags*
+      .commandBufferCount = 1,                                       //uint32_t
+      .pCommandBuffers = &_commandBuffers[imageIndex],               //const VkCommandBuffer*
       //The semaphore is signaled when the queue has completed the requested wait stages.
-      .signalSemaphoreCount = 1,                       //uint32_t
+      .signalSemaphoreCount = 1,                                       //uint32_t
       .pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
     };
 
     vkResetFences(_device, 1, &_inFlightFences[_currentFrame]);
 
-
     vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]);
 
     VkPresentInfoKHR presentinfo = {
-      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,   //VkStructureType
-      .pNext = nullptr,                              //const void*
-      .waitSemaphoreCount = 1,                       //uint32_t
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,                   //VkStructureType
+      .pNext = nullptr,                                              //const void*
+      .waitSemaphoreCount = 1,                                       //uint32_t
       .pWaitSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
-      .swapchainCount = 1,                           //uint32_t
-      .pSwapchains = &_swapChain,                    //const VkSwapchainKHR*
-      .pImageIndices = &imageIndex,                  //const uint32_t*
-      .pResults = nullptr                            //VkResult*   //multiple swapchains
+      .swapchainCount = 1,                                           //uint32_t
+      .pSwapchains = &_swapChain,                                    //const VkSwapchainKHR*
+      .pImageIndices = &imageIndex,                                  //const uint32_t*
+      .pResults = nullptr                                            //VkResult*   //multiple swapchains
     };
     res = vkQueuePresentKHR(_presentQueue, &presentinfo);
     if (res != VK_SUCCESS) {
@@ -1250,7 +1233,7 @@ public:
     for (int iFrame = 0; iFrame < MAX_FRAMES_IN_FLIGHT; iFrame++) {
       vkDestroySemaphore(_device, _renderFinishedSemaphores[iFrame], nullptr);
       vkDestroySemaphore(_device, _imageAvailableSemaphores[iFrame], nullptr);
-      vkDestroyFence(_device,_inFlightFences[iFrame],nullptr);
+      vkDestroyFence(_device, _inFlightFences[iFrame], nullptr);
     }
     _renderFinishedSemaphores.clear();
     _imageAvailableSemaphores.clear();
@@ -1291,13 +1274,17 @@ void SDLVulkan::renderLoop() {
   while (!exit) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-      if (event.type == SDL_WINDOWEVENT) {
+      if (event.type == SDL_QUIT) {
+        exit = true;
+        break;
+      }
+      else if (event.type == SDL_WINDOWEVENT) {
         if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
           _pInt->recreateSwapChain();
           break;
         }
       }
-      if (event.type == SDL_KEYDOWN) {
+      else if (event.type == SDL_KEYDOWN) {
         if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
           exit = true;
           break;

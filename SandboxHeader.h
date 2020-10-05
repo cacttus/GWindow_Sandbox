@@ -48,7 +48,6 @@
 
 #define BR2_CPP17
 
-
 #ifdef BR2_OS_WINDOWS
 #include <direct.h>
 #else
@@ -69,7 +68,6 @@
 
 namespace VG {
 
-
 //Defines
 #define BRThrowException(x) throw std::string(x);
 static void log_log(const std::string& str) {
@@ -79,7 +77,7 @@ static void log_log(const std::string& str) {
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
-//BRLogWarn("oops") expands to 
+//BRLogWarn("oops") expands to
 //VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
 
 //String
@@ -97,7 +95,70 @@ std::string operator+(const std::string& str, const uint64_t& rhs);
 std::string operator+(const std::string& str, const double& rhs);
 std::string operator+(const std::string& str, const float& rhs);
 
+class vec4 {
+public:
+  float x, y, z, w;
+  vec4() {}
+  vec4(float dx, float dy, float dz, float dw) {
+    x = dx;
+    y = dy;
+    z = dz;
+    w = dw;
+  }
+};
+class vec3 {
+public:
+  float x, y, z;
+  vec3() {}
+  vec3(float dx, float dy, float dz) {
+    x = dx;
+    y = dy;
+    z = dz;
+  }
+};
+
+
+#define CREATE_VERTEX(x,y)
+
 //Classes
+class Vertex {
+public:
+  vec3 _pos;
+  vec4 _color;
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+    //Vertex formats use color format enum.
+    //float: VK_FORMAT_R32_SFLOAT
+    //vec2: VK_FORMAT_R32G32_SFLOAT
+    //vec3: VK_FORMAT_R32G32B32_SFLOAT
+    //vec4: VK_FORMAT_R32G32B32A32_SFLOAT
+    //ivec2: VK_FORMAT_R32G32_SINT, a 2-component vector of 32-bit signed integers
+    //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
+    //double: VK_FORMAT_R64_SFLOAT
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0; // layout location=
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(Vertex, _pos);
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1; // layout location=
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, _pos);
+    return attributeDescriptions; 
+  }
+  static VkVertexInputBindingDescription getBindingDescription() {
+    VkVertexInputBindingDescription bindingDescription = {
+      .binding = 0,              // uint32_t         -- this is the layout location
+      .stride = sizeof(Vertex),  // uint32_t
+      //**Can be use VK_VERTEX_INPUT_RATE_INSTANCE
+      // **Instanced rendering.
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
+
+    };
+
+    return bindingDescription;
+  }
+};
 
 class App {
 public:
@@ -133,8 +194,8 @@ public:
 class GraphicsWindowCreateParameters {
 public:
   static constexpr int Wintype_Desktop =
-      0;  // X11 doesn't encourage disabling buttons like win32, so we're going
-          // with 'window types' instead of disabling properties.
+    0;  // X11 doesn't encourage disabling buttons like win32, so we're going
+        // with 'window types' instead of disabling properties.
   static constexpr int Wintype_Utility = 1;
   static constexpr int Wintype_Noborder = 2;
 
@@ -147,12 +208,12 @@ public:
   bool _fullscreen = false;
   bool _show = true;  // Show after creating
   bool _forceAspectRatio =
-      false;  // Forces the window buffer to be the same aspect as the screen.
+    false;  // Forces the window buffer to be the same aspect as the screen.
   std::shared_ptr<GraphicsWindow> _parent = nullptr;
   GraphicsWindowCreateParameters(
-      const string_t& title, int32_t x, int32_t y, int32_t width,
-      int32_t height, int32_t type, bool fullscreen, bool show,
-      bool forceAspectRatio, std::shared_ptr<GraphicsWindow> parent = nullptr) {
+    const string_t& title, int32_t x, int32_t y, int32_t width,
+    int32_t height, int32_t type, bool fullscreen, bool show,
+    bool forceAspectRatio, std::shared_ptr<GraphicsWindow> parent = nullptr) {
     _title = title;
     _x = x;
     _y = y;
