@@ -1,28 +1,45 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(location = 0) out vec3 fragColor;
-
-// vec2 positions[3] = vec2[](
-//     vec2(0.0, -0.5),
-//     vec2(0.5, 0.5),
-//     vec2(-0.5, 0.5)
-// );
+layout(location = 0) out vec4 fragColor;
 
 
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
+float a=-1.0, b=1.0;
+//clip space in the example.
+//  -1, -1
+//
+//            1, 1
+vec2 positions[9] = vec2[](
+  //2 triangles for background, 1 for foreground
+    vec2(a, a),
+    vec2(b, b),
+    vec2(a, b ),
+
+    vec2(a, a),
+    vec2(b, a),
+    vec2(b, b),
+
+    //FG triangle
+    vec2(0.0, -.5),
+    vec2(.5, .5),
+    vec2(-.5, .5)
 );
 
-vec3 colors[3] = vec3[](
-    vec3(1.0, 0.0, 0.0),
-    vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0)
-    //     vec3(1.0, 0.0, 0.0),
-    // vec3(0.0, 1.0, 0.0),
-    // vec3(0.0, 0.0, 1.0)
+float ca=0.1;
+float cb=0.7;
+
+vec4 colors[9] = vec4[](
+    vec4(ca, ca, ca, 1),
+    vec4(cb, cb, cb, 1),
+    vec4(ca, ca, ca, 1),
+        
+    vec4(ca, ca, ca, 1),
+    vec4(cb, cb, cb, 1),
+    vec4(cb, cb, cb, 1),
+
+    vec4(1.0, 0.0, 0.0, 1 ),
+    vec4(0.0, 1.0, 0.0, 1 ),
+    vec4(0.0, 0.0, 1.0, 0.0) //alpha 
 );
 
 void main() {

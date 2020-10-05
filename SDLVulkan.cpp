@@ -102,6 +102,7 @@ public:
   std::vector<VkFramebuffer> _swapChainFramebuffers;
   VkCommandPool _commandPool = VK_NULL_HANDLE;
   std::vector<VkCommandBuffer> _commandBuffers;
+  bool _bSwapChainOutOfDate = false;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -114,15 +115,11 @@ public:
   void checkErrors() {
     SDLUtils::checkSDLErr();
   }
-
   void validateVkResult(VkResult res, const string_t& errmsg, const string_t& fname) {
     checkErrors();
     if (res != VK_SUCCESS) {
       errorExit(Stz "Error: '" + fname + "' returned '" + VulkanDebug::VkResult_toString(res) + "' (" + res + ")" + Os::newline() + (errmsg.length() ? (Stz "  Msg: " + errmsg) : Stz ""));
     }
-  }
-  void exitApp(const std::string& st, int e = -1) {
-    std::cout << "Error: " << st << std::endl;
   }
   void errorExit(const string_t& str) {
     SDLUtils::checkSDLErr();
@@ -207,7 +204,7 @@ public:
     // Make the window.s
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1) {
-      exitApp(Stz "SDL could not be initialized: " + SDL_GetError(), -1);
+      errorExit(Stz "SDL could not be initialized: " + SDL_GetError());
     }
 
     string_t title = "hello vuklkan";
@@ -224,8 +221,8 @@ public:
     setupDebug();
     pickPhysicalDevice();
     createLogicalDevice();
-    makeSwapChain();
-    makeImageViews();
+    createSwapChain();
+    createImageViews();
     createGraphicsPipeline();
     createFramebuffers();
     createCommandPool();
@@ -234,6 +231,20 @@ public:
 
     BRLogInfo("Showing window..");
     SDL_ShowWindow(_pSDLWindow);
+  }
+  void recreateSwapChain() {
+    vkDeviceWaitIdle(_device);
+
+    cleanupSwapChain();
+
+    createSwapChain();
+    createImageViews();
+    createRenderPass();
+    createGraphicsPipeline();
+    createFramebuffers();
+    createCommandBuffers();
+
+    _bSwapChainOutOfDate = false;
   }
   void printGpuSpecs(const VkPhysicalDeviceFeatures* const features) const {
     // features.
@@ -664,7 +675,7 @@ public:
     return _pQueueFamilies.get();
   }
 
-  void makeSwapChain() {
+  void createSwapChain() {
     BRLogInfo("Creating Swapchain.");
 
     //VkPresentModeKHR;
@@ -721,16 +732,22 @@ public:
 
     auto m = std::numeric_limits<uint32_t>::max();
 
+    int win_w = 0, win_h = 0;
+    SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
+    _swapChainExtent.width = win_w;
+    _swapChainExtent.height = win_h;
+
     //Extent = Image size
-    if (caps.currentExtent.width != m) {
-      _swapChainExtent = caps.currentExtent;
-    }
-    else {
-      VkExtent2D actualExtent = { 0, 0 };
-      actualExtent.width = std::max(caps.minImageExtent.width, std::min(caps.maxImageExtent.width, actualExtent.width));
-      actualExtent.height = std::max(caps.minImageExtent.height, std::min(caps.maxImageExtent.height, actualExtent.height));
-      _swapChainExtent = actualExtent;
-    }
+    //Not sure what this as for.
+    // if (caps.currentExtent.width != m) {
+    //   _swapChainExtent = caps.currentExtent;
+    // }
+    // else {
+    //   VkExtent2D actualExtent = { 0, 0 };
+    //   actualExtent.width = std::max(caps.minImageExtent.width, std::min(caps.maxImageExtent.width, actualExtent.width));
+    //   actualExtent.height = std::max(caps.minImageExtent.height, std::min(caps.maxImageExtent.height, actualExtent.height));
+    //   _swapChainExtent = actualExtent;
+    // }
 
     //Create swapchain
     VkSwapchainCreateInfoKHR swapChainCreateInfo = {
@@ -757,7 +774,7 @@ public:
 
     _swapChainImageFormat = surfaceFormat.format;
   }
-  void makeImageViews() {
+  void createImageViews() {
     BRLogInfo("Creating Image Views.");
     for (size_t i = 0; i < _swapChainImages.size(); i++) {
       VkImageViewCreateInfo createInfo = {};
@@ -872,7 +889,7 @@ public:
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE; //CHANGED -- VK_CULL_MODE_BACK_BIT; //Disable
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;  //Disable
     rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -886,7 +903,7 @@ public:
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;//CHANGED -- VK_TRUE;
+    colorBlendAttachment.blendEnable = VK_TRUE;
     colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -936,7 +953,7 @@ public:
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pDepthStencilState = nullptr;  // Optional
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr;//&dynamicState;  // Optional
+    pipelineInfo.pDynamicState = nullptr;  //&dynamicState;  // Optional
     pipelineInfo.layout = _pipelineLayout;
     pipelineInfo.renderPass = _renderPass;
     pipelineInfo.subpass = 0;                          //Index of subpass - we have 1 subpass
@@ -1076,8 +1093,7 @@ public:
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-      vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
-      //vkCmdDraw(_commandBuffers[i], 6, 2, 0, 0);
+      vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
       vkCmdEndRenderPass(_commandBuffers[i]);
       CheckVKR(vkEndCommandBuffer, "", _commandBuffers[i]);
     }
@@ -1105,7 +1121,21 @@ public:
     //signal the semaphore.
     uint32_t imageIndex = 0;
     //Returns an image in the swapchain that we can draw to.
-    CheckVKR(vkAcquireNextImageKHR, "", _device, _swapChain, UINT64_MAX, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    VkResult res;
+    res = vkAcquireNextImageKHR(_device, _swapChain, UINT64_MAX, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    if (res != VK_SUCCESS) {
+      if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+        _bSwapChainOutOfDate = true;
+        return;
+      }
+      else if (res == VK_SUBOPTIMAL_KHR) {
+        _bSwapChainOutOfDate = true;
+        return;
+      }
+      else {
+        validateVkResult(res, "", "vkAcquireNextImageKHR");
+      }
+    }
 
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1136,7 +1166,20 @@ public:
       .pImageIndices = &imageIndex,                  //const uint32_t*
       .pResults = nullptr                            //VkResult*   //multiple swapchains
     };
-    CheckVKR(vkQueuePresentKHR, "", _presentQueue, &presentinfo);
+    res = vkQueuePresentKHR(_presentQueue, &presentinfo);
+    if (res != VK_SUCCESS) {
+      if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+        _bSwapChainOutOfDate = true;
+        return;
+      }
+      else if (res == VK_SUBOPTIMAL_KHR) {
+        _bSwapChainOutOfDate = true;
+        return;
+      }
+      else {
+        validateVkResult(res, "", "vkAcquireNextImageKHR");
+      }
+    }
 
     //**CONTINUE TUTORIAL AFTER THIS POINT
     //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
@@ -1145,20 +1188,36 @@ public:
   }
 #pragma endregion
 
-  void
-  cleanup() {
-    // All child objects created using instance must have been destroyed prior
-    // to destroying instance
-    vkDestroySemaphore(_device, _renderFinishedSemaphore, nullptr);
-    vkDestroySemaphore(_device, _imageAvailableSemaphore, nullptr);
-    vkDestroyCommandPool(_device, _commandPool, nullptr);
+  void cleanupSwapChain() {
     for (auto& v : _swapChainFramebuffers) {
       vkDestroyFramebuffer(_device, v, nullptr);
     }
-    _swapChainFramebuffers.resize(0);
+    _swapChainFramebuffers.clear();
+
+    vkFreeCommandBuffers(_device, _commandPool, static_cast<uint32_t>(_commandBuffers.size()), _commandBuffers.data());
+    _commandBuffers.clear();
+
     vkDestroyPipeline(_device, _graphicsPipeline, nullptr);
-    vkDestroyRenderPass(_device, _renderPass, nullptr);
     vkDestroyPipelineLayout(_device, _pipelineLayout, nullptr);
+    vkDestroyRenderPass(_device, _renderPass, nullptr);
+
+    for (size_t i = 0; i < _swapChainImageViews.size(); i++) {
+      vkDestroyImageView(_device, _swapChainImageViews[i], nullptr);
+    }
+    _swapChainImageViews.clear();
+
+    vkDestroySwapchainKHR(_device, _swapChain, nullptr);
+  }
+  void cleanup() {
+    // All child objects created using instance must have been destroyed prior
+    // to destroying instance
+
+    cleanupSwapChain();
+
+    vkDestroySemaphore(_device, _renderFinishedSemaphore, nullptr);
+    vkDestroySemaphore(_device, _imageAvailableSemaphore, nullptr);
+    vkDestroyCommandPool(_device, _commandPool, nullptr);
+
     vkDestroyShaderModule(_device, _vertShaderModule, nullptr);
     vkDestroyShaderModule(_device, _fragShaderModule, nullptr);
     vkDestroyDevice(_device, nullptr);
@@ -1192,6 +1251,12 @@ void SDLVulkan::renderLoop() {
   while (!exit) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      if (event.type == SDL_WINDOWEVENT) {
+        if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+          _pInt->recreateSwapChain();
+          break;
+        }
+      }
       if (event.type == SDL_KEYDOWN) {
         if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
           exit = true;
