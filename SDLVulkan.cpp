@@ -20,6 +20,8 @@
     https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#glossary
 
   Descriptor - (Resource Descriptor) - This is like a GL Buffer Binding. Tells Pipeline how to access and lay out memory for a SSBO or UBO.
+  Fences - CPU->GPU synchronization - finish rendering all frames before next loop
+  Semaphores -> GPU->GPU sync, finish one pipeline stage before continuing.
 
   Mesh Shaders - An NVidia extension that combines the primitive assembly stages as a single dispatched compute "mesh" stage (multiple threads)
   and a "task" sage.
@@ -71,6 +73,13 @@ namespace VG {
 
 class SDLVulkan_Internal {
 public:
+  const int MAX_FRAMES_IN_FLIGHT = 2;
+  std::vector<VkSemaphore> _imageAvailableSemaphores;
+  std::vector<VkSemaphore> _renderFinishedSemaphores;
+  size_t _currentFrame = 0;
+  std::vector<VkFence> _inFlightFences;
+  std::vector<VkFence> _imagesInFlight;
+
   SDL_Window* _pSDLWindow = nullptr;
   // std::vector<VkLayerProperties> _availableLayers;
   bool _bEnableValidationLayers = true;
@@ -1101,28 +1110,42 @@ public:
 
   void createSemaphores() {
     BRLogInfo("Creating Rendering Semaphores.");
-    VkSemaphoreCreateInfo semaphoreInfo = {
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-    };
-    CheckVKR(vkCreateSemaphore, "", _device, &semaphoreInfo, nullptr, &_imageAvailableSemaphore);
-    CheckVKR(vkCreateSemaphore, "", _device, &semaphoreInfo, nullptr, &_renderFinishedSemaphore);
+    _imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    _renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    _inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+    _imagesInFlight.resize(_swapChainImages.size(), VK_NULL_HANDLE);
+
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+      VkSemaphoreCreateInfo semaphoreInfo = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+      };
+      CheckVKR(vkCreateSemaphore, "", _device, &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
+      CheckVKR(vkCreateSemaphore, "", _device, &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
+
+      VkFenceCreateInfo fenceInfo = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT, //Fences must always be created in a signaled state.
+      };
+
+      CheckVKR(vkCreateFence, "", _device, &fenceInfo, nullptr, &_inFlightFences[i] );
+    }
   }
 #pragma endregion
 
 #pragma region Vulkan Rendering
 
-  VkSemaphore _imageAvailableSemaphore;
-  VkSemaphore _renderFinishedSemaphore;
   void drawFrame() {
+    vkWaitForFences(_device, 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
     //one command buffer per framebuffer,
     //acquire the image form teh swapchain (which is our framebuffer)
     //signal the semaphore.
     uint32_t imageIndex = 0;
     //Returns an image in the swapchain that we can draw to.
     VkResult res;
-    res = vkAcquireNextImageKHR(_device, _swapChain, UINT64_MAX, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    res = vkAcquireNextImageKHR(_device, _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
     if (res != VK_SUCCESS) {
       if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         _bSwapChainOutOfDate = true;
@@ -1136,6 +1159,12 @@ public:
         validateVkResult(res, "", "vkAcquireNextImageKHR");
       }
     }
+ 
+    //There is currently a frame that is using this image. So wait for this image.
+    if (_imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+        vkWaitForFences(_device, 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+    }
+    _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
 
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1143,24 +1172,28 @@ public:
     VkSubmitInfo submitInfo = {
       .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
       .pNext = nullptr,                        //const void*
-      .waitSemaphoreCount = 1,                 //uint32_t
       //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
       //to finish rendering, or just wait for the framebuffer output.
-      .pWaitSemaphores = &_imageAvailableSemaphore,     //const VkSemaphore*
+      .waitSemaphoreCount = 1,                 //uint32_t
+      .pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],     //const VkSemaphore*
       .pWaitDstStageMask = waitStages,                  //const VkPipelineStageFlags*
       .commandBufferCount = 1,                          //uint32_t
       .pCommandBuffers = &_commandBuffers[imageIndex],  //const VkCommandBuffer*
       //The semaphore is signaled when the queue has completed the requested wait stages.
       .signalSemaphoreCount = 1,                       //uint32_t
-      .pSignalSemaphores = &_renderFinishedSemaphore,  //const VkSemaphore*
+      .pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
     };
-    vkQueueSubmit(_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    vkResetFences(_device, 1, &_inFlightFences[_currentFrame]);
+
+
+    vkQueueSubmit(_graphicsQueue, 1, &submitInfo, _inFlightFences[_currentFrame]);
 
     VkPresentInfoKHR presentinfo = {
       .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,   //VkStructureType
       .pNext = nullptr,                              //const void*
       .waitSemaphoreCount = 1,                       //uint32_t
-      .pWaitSemaphores = &_renderFinishedSemaphore,  //const VkSemaphore*
+      .pWaitSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
       .swapchainCount = 1,                           //uint32_t
       .pSwapchains = &_swapChain,                    //const VkSwapchainKHR*
       .pImageIndices = &imageIndex,                  //const uint32_t*
@@ -1184,7 +1217,7 @@ public:
     //**CONTINUE TUTORIAL AFTER THIS POINT
     //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
     // We add additional threads for async the rendering.
-    vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
+    //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
   }
 #pragma endregion
 
@@ -1214,8 +1247,15 @@ public:
 
     cleanupSwapChain();
 
-    vkDestroySemaphore(_device, _renderFinishedSemaphore, nullptr);
-    vkDestroySemaphore(_device, _imageAvailableSemaphore, nullptr);
+    for (int iFrame = 0; iFrame < MAX_FRAMES_IN_FLIGHT; iFrame++) {
+      vkDestroySemaphore(_device, _renderFinishedSemaphores[iFrame], nullptr);
+      vkDestroySemaphore(_device, _imageAvailableSemaphores[iFrame], nullptr);
+      vkDestroyFence(_device,_inFlightFences[iFrame],nullptr);
+    }
+    _renderFinishedSemaphores.clear();
+    _imageAvailableSemaphores.clear();
+    _inFlightFences.clear();
+
     vkDestroyCommandPool(_device, _commandPool, nullptr);
 
     vkDestroyShaderModule(_device, _vertShaderModule, nullptr);
