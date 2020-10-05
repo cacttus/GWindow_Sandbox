@@ -291,9 +291,7 @@ public:
   std::vector<VkFence> _imagesInFlight;
 
   SDL_Window* _pSDLWindow = nullptr;
-  // std::vector<VkLayerProperties> _availableLayers;
   bool _bEnableValidationLayers = true;
-  //VK_DEFINE_NON_DISPATCHABLE_HANDLE
   struct QueueFamilies {
     std::optional<uint32_t> _graphicsFamily;
     std::optional<uint32_t> _computeFamily;
@@ -302,10 +300,7 @@ public:
   std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
 
   VkSurfaceKHR _main_window_surface = VK_NULL_HANDLE;
-  //VkInstance _instance = VK_NULL_HANDLE;
-  //VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-  //VkDevice _device = VK_NULL_HANDLE;
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   VkExtent2D _swapChainExtent;
   VkFormat _swapChainImageFormat;
@@ -318,14 +313,8 @@ public:
   VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
   std::vector<VkFramebuffer> _swapChainFramebuffers;
 
-  //VkCommandPool _commandPool = VK_NULL_HANDLE;
-  //VkQueue _graphicsQueue = VK_NULL_HANDLE;  // Device queues are implicitly cleaned up when the device is destroyed, so we don't need to do anything in cleanup.
-
   std::vector<VkCommandBuffer> _commandBuffers;
   bool _bSwapChainOutOfDate = false;
-
-  //VkBuffer _vertexBuffer = VK_NULL_HANDLE;
-  //VkDeviceMemory _vertexBufferMemory = VK_NULL_HANDLE;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -391,9 +380,6 @@ public:
       // Linux: Couldn't find matching GLX visual.
       SDLUtils::checkSDLErr(true, false);
     }
-
-    // Customize window (per display system)
-    // setWindowProps(ret, params);
 
     vulkan()->checkErrors();
 
