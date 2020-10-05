@@ -47,6 +47,8 @@ vec4 colors[9] = vec4[](
 );
 
 void main() {
+    //**TODO: finish implementing vertex buffers , add PVM matrices.
+
     gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
     fragColor = colors[gl_VertexIndex];
 }
