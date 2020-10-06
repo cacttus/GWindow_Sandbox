@@ -54,9 +54,9 @@
 
 namespace VG {
 struct UniformBufferObject {
-    BR2::mat4 model;
-    BR2::mat4 view;
-    BR2::mat4 proj;
+  BR2::mat4 model;
+  BR2::mat4 view;
+  BR2::mat4 proj;
 };
 /**
  * @class Vulkan 
@@ -124,26 +124,33 @@ public:
  */
 enum class VulkanBufferType {
   VertexBuffer,
-  IndexBuffer
+  IndexBuffer,
+  UniformBuffer
 };
 class VulkanBuffer : VulkanObject {
   VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
 
 public:
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType) : VulkanObject(dev) {}
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, VkDeviceSize size, void* data, size_t datasize) : VulkanObject(dev) {
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged) : VulkanObject(dev) {
+    _bUseStagingBuffer = bStaged;
+    _eType = eType;
+  }
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, VkDeviceSize bufsize, void* data = nullptr, size_t datasize = 0) : VulkanBuffer(dev, eType, bStaged) {
     //Enable staging for efficiency.
     //This buffer becomes a staging buffer, and creates a sub-buffer class that represents GPU memory.
-    _bUseStagingBuffer = true;
-    _eType = eType;
-
     VkMemoryPropertyFlags bufType = 0;
-    
+
     if (_eType == VulkanBufferType::IndexBuffer) {
       bufType = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
     else if (_eType == VulkanBufferType::VertexBuffer) {
       bufType = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+    else if (_eType == VulkanBufferType::UniformBuffer) {
+      bufType = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+      if (bStaged == true) {
+        BRLogWarn("Uniform buffer resides in GPU memory. This will cause a performance penalty if the buffer is updated often (per frame).");
+      }
     }
     else {
       BRThrowException(Stz "Invalid buffer type '" + (int)_eType + "'.");
@@ -151,19 +158,22 @@ public:
 
     if (_bUseStagingBuffer) {
       //Create a staging buffer for efficiency operations
+      //Staging buffers only make sense for data that resides on the GPu and doesn't get updated per frame.
+      // Uniform data is not a goojd option for staging buffers, but mesh and bone data is a good option.
+      allocate(bufsize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-      allocate(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      copy_host(data, datasize);
-
-      _gpuBuffer = std::make_unique<VulkanBuffer>(dev, _eType);
-      _gpuBuffer->allocate(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      _gpuBuffer = std::make_unique<VulkanBuffer>(dev, _eType, false);
+      _gpuBuffer->allocate(bufsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | bufType, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
       _gpuBuffer->_isGpuBuffer = true;
-      copy_gpu(data, datasize);
     }
     else {
       //Allocate non-staged
-      allocate(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      copy_host(data, datasize);
+      allocate(bufsize, bufType, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      //copy_host(data, datasize);
+    }
+
+    if (data != nullptr) {
+      writeData(data, 0, datasize);
     }
   }
   virtual ~VulkanBuffer() override {
@@ -205,6 +215,15 @@ public:
     CheckVKR(vkAllocateMemory, "", vulkan()->device(), &allocInfo, nullptr, &_bufferMemory);
     CheckVKR(vkBindBufferMemory, "", vulkan()->device(), _buffer, _bufferMemory, 0);
   }
+  void writeData(void* data, size_t off, size_t datasize) {
+    //Copy data to the GPU
+    AssertOrThrow2(data != nullptr);
+    AssertOrThrow2(off + datasize <= _allocatedSize);
+    copy_host(data, datasize);
+    if (_bUseStagingBuffer) {
+      copy_gpu(data, datasize);
+    }
+  }
   void cleanup() {
     vkDestroyBuffer(vulkan()->device(), _buffer, nullptr);
     vkFreeMemory(vulkan()->device(), _bufferMemory, nullptr);
@@ -216,9 +235,9 @@ private:
   VkBuffer _buffer = VK_NULL_HANDLE;
   VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
   VkDeviceSize _allocatedSize = 0;
-  std::unique_ptr<VulkanBuffer> _gpuBuffer = nullptr;  // If staging is enabled.
+  std::unique_ptr<VulkanBuffer> _gpuBuffer = nullptr;      // If staging is enabled.
   bool _bUseStagingBuffer = false;
-  bool _isGpuBuffer = false;  //for staging buffers, true if this buffer resides on the GPu and vkMapMemory can't be called.
+  bool _isGpuBuffer = false;  //for staged buffers, this class represents the GPU side of the buffer. This buffer resides on the GPU and vkMapMemory can't be called on it.
 
   void copy_host(void* host_buf, size_t host_bufsize,
                  size_t host_buf_offset = 0,
@@ -294,6 +313,22 @@ private:
   }
 };
 
+//This is one of the most important classes as it gives us the "extents" of all our images, buffers and viewports.
+class VulkanSwapchain {
+public:
+  //Should allow the creation and destcuction of swapchain.
+  // Vulkan
+  //  VulkanSwapchain s(..args)
+  // when window is resized.
+  //  _swapchain = new Swapchain
+  // ~VulkanSwapchain
+  //    cleanupSwapchain()
+  // extent() { return _extent (width and height)}
+};
+class MeshComponent {
+public:
+};
+
 class SDLVulkan_Internal {
 public:
   std::shared_ptr<Vulkan> _vulkan;
@@ -301,6 +336,8 @@ public:
 
   std::shared_ptr<VulkanBuffer> _vertexBuffer;
   std::shared_ptr<VulkanBuffer> _indexBuffer;
+  std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  VkDescriptorSetLayout _descriptorSetLayout;
 
   int32_t _iConcurrentFrames = 2;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
@@ -445,13 +482,59 @@ public:
     vkDeviceWaitIdle(vulkan()->device());
 
     createSwapChain();
+    createUniformBuffers();
     createImageViews();
+    createDescriptorSetLayout();
     createGraphicsPipeline();
     createFramebuffers();
     createCommandBuffers();
     createSyncObjects();
 
     _bSwapChainOutOfDate = false;
+  }
+
+  void createDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding uboBinding = {
+      .binding = 0,                                         //uint32_t
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
+      .descriptorCount = 1,                                 //uint32_t
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
+      .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+    };
+    //This is for each UBO bound to the shader program (pipeline)
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                              //const void*
+      .flags = 0,                                                    //VkDescriptorSetLayoutCreateFlags   Some cool stuff can be put here to modify UBO updates.
+      .bindingCount = 1,                                             //uint32_t
+      .pBindings = &uboBinding,                                      //const VkDescriptorSetLayoutBinding*
+    };
+    CheckVKR(vkCreateDescriptorSetLayout, "", vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
+  }
+  void createUniformBuffers() {
+    for (auto& img : _swapChainImages) {
+      _uniformBuffers.push_back(std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        sizeof(UniformBufferObject), nullptr, 0));
+    }
+  }
+  void updateUniformBuffer(uint32_t currentImage) {
+    //Push constants are faster.
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+    UniformBufferObject ub = {
+      .model = BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1)),
+      .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
+      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, (float)_swapChainExtent.height, 0.1f, 10.0f)
+    };
+
+    _uniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
+
+    // ubo.proj[1][1] *= -1;
   }
   void printGpuSpecs(const VkPhysicalDeviceFeatures* const features) const {
     // features.
@@ -1058,14 +1141,15 @@ public:
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
-      .setLayoutCount = 0,                                     // uint32_t
-      .pSetLayouts = nullptr,                                  // VkDescriptorSetLayout
-      .pushConstantRangeCount = 0,                             // uint32_t
-      .pPushConstantRanges = nullptr                           // VkPushConstantRange
+      //These are the buffer descriptors - UBO - SSBO -
+      .setLayoutCount = 1,                   // uint32_t
+      .pSetLayouts = &_descriptorSetLayout,  // VkDescriptorSetLayout
+      //Constants to pass to shaders.
+      .pushConstantRangeCount = 0,    // uint32_t
+      .pPushConstantRanges = nullptr  // VkPushConstantRange
     };
 
     CheckVKR(vkCreatePipelineLayout, "", vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
-
 
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
@@ -1177,7 +1261,6 @@ public:
       .alphaToCoverageEnable = false,                                     //VkBool32
       .alphaToOneEnable = false,                                          //VkBool32
     };
-
 
     VkGraphicsPipelineCreateInfo pipelineInfo = {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
@@ -1357,7 +1440,7 @@ public:
       // VulkanIndexBuffer
       //    _eType : VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 
-      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size()/3), 0, 0, 0 );  
+      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
       //vkCmdDrawIndexedIndirect
       //vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
       //vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
@@ -1425,6 +1508,8 @@ public:
 
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
+    updateUniformBuffer(imageIndex);
+
     //aquire next image
     VkSubmitInfo submitInfo = {
       .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
@@ -1442,7 +1527,6 @@ public:
     };
 
     vkResetFences(vulkan()->device(), 1, &_inFlightFences[_currentFrame]);
-
     vkQueueSubmit(vulkan()->graphicsQueue(), 1, &submitInfo, _inFlightFences[_currentFrame]);
 
     VkPresentInfoKHR presentinfo = {
@@ -1536,6 +1620,7 @@ public:
     _vertexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
       VulkanBufferType::VertexBuffer,
+      true,
       v_datasize,
       _planeVerts.data(), v_datasize);
 
@@ -1543,12 +1628,16 @@ public:
     _indexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
       VulkanBufferType::IndexBuffer,
+      true,
       i_datasize,
       _planeInds.data(), i_datasize);
   }
 #pragma endregion
 
   void cleanupSwapChain() {
+    _uniformBuffers.resize(0);
+    vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
+
     if (_swapChainFramebuffers.size() > 0) {
       for (auto& v : _swapChainFramebuffers) {
         if (v != VK_NULL_HANDLE) {
@@ -1582,7 +1671,6 @@ public:
     if (_swapChain != VK_NULL_HANDLE) {
       vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
     }
-
     //We don't need to re-create sync objects on window resize but since this data depends on the swapchain, it makes a little cleaner.
     for (auto& sem : _renderFinishedSemaphores) {
       vkDestroySemaphore(vulkan()->device(), sem, nullptr);

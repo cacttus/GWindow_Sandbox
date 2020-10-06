@@ -11,6 +11,7 @@
 #include "../VulkanGame/src/math/Vec4x.h"
 #include "../VulkanGame/src/math/Vec3x.h"
 #include "../VulkanGame/src/math/Vec2x.h"
+#include "../VulkanGame/src/math/MathAll.h"
 //
 // #ifdef _WIN32
 // #define BR2_OS_WINDOWS 1
@@ -71,12 +72,17 @@
 #undef main
 #endif
 
-using namespace BR2;
+//using namespace BR2;
 
 namespace VG {
 
+//This is a stub namespace for the base BR2 functions.
+typedef std::string string_t;
 //Defines
-//#define BRThrowException(x) throw std::string(x);
+#ifdef BRThrowException
+#undef BRThrowException
+#endif
+#define BRThrowException(x) throw std::string(x);
 static void log_log(const std::string& str) {
   std::cout << str << std::endl;
 }
@@ -84,10 +90,13 @@ static void log_log(const std::string& str) {
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
-// #define AssertOrThrow2(x)     \
-//   do {                        \
-//     assertOrThrow((bool)(x)); \
-//   } while (0);
+#ifdef AssertOrThrow2
+#undef AssertOrThrow2
+#endif
+#define AssertOrThrow2(x)     \
+  do {                        \
+    VG::assertOrThrow((bool)(x)); \
+  } while (0);
 
 //BRLogWarn("oops") expands to
 //VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
@@ -141,10 +150,10 @@ std::string operator+(const std::string& str, const float& rhs);
 //Classes
 class v_v2c4 {
 public:
-  vec2 _pos;
-  vec4 _color;
+  BR2::vec2 _pos;
+  BR2::vec4 _color;
   v_v2c4() {}
-  v_v2c4(const vec2& pos, const vec4& color) {
+  v_v2c4(const BR2::vec2& pos, const BR2::vec4& color) {
     _pos = pos;
     _color = color;
   }
@@ -176,10 +185,10 @@ public:
 };
 class v_v3c4 {
 public:
-  vec3 _pos;
-  vec4 _color;
+  BR2::vec3 _pos;
+  BR2::vec4 _color;
   v_v3c4() {}
-  v_v3c4(const vec3& pos, const vec4& color) {
+  v_v3c4(const BR2::vec3& pos, const BR2::vec4& color) {
     _pos = pos;
     _color = color;
   }
@@ -251,7 +260,7 @@ public:
 };
 static void assertOrThrow(bool b) {
   if (!b) {
-    Gu::debugBreak();
+    VG::Gu::debugBreak();
     throw new std::runtime_error("Runtime Error thrown.");
   }
 }
