@@ -7,11 +7,16 @@
 #ifndef __SANDBOXHEADER_160169492510355883169343686315_H__
 #define __SANDBOXHEADER_160169492510355883169343686315_H__
 
-#ifdef _WIN32
-#define BR2_OS_WINDOWS 1
-#elif defined(linux)
-#define BR2_OS_LINUX 1
-#endif
+#include "../VulkanGame/src/math/Mat4x.h"
+#include "../VulkanGame/src/math/Vec4x.h"
+#include "../VulkanGame/src/math/Vec3x.h"
+#include "../VulkanGame/src/math/Vec2x.h"
+//
+// #ifdef _WIN32
+// #define BR2_OS_WINDOWS 1
+// #elif defined(linux)
+// #define BR2_OS_LINUX 1
+// #endif
 
 #ifdef BR2_OS_WINDOWS
 //This is need as std::numeric_limits::max conflicts with #define max()
@@ -46,7 +51,7 @@
 // Use XQueryKeymap()
 #endif
 
-#define BR2_CPP17
+//#define BR2_CPP17
 
 #ifdef BR2_OS_WINDOWS
 #include <direct.h>
@@ -66,10 +71,12 @@
 #undef main
 #endif
 
+using namespace BR2;
+
 namespace VG {
 
 //Defines
-#define BRThrowException(x) throw std::string(x);
+//#define BRThrowException(x) throw std::string(x);
 static void log_log(const std::string& str) {
   std::cout << str << std::endl;
 }
@@ -77,10 +84,10 @@ static void log_log(const std::string& str) {
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
-#define AssertOrThrow2(x)     \
-  do {                        \
-    assertOrThrow((bool)(x)); \
-  } while (0);
+// #define AssertOrThrow2(x)     \
+//   do {                        \
+//     assertOrThrow((bool)(x)); \
+//   } while (0);
 
 //BRLogWarn("oops") expands to
 //VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
@@ -100,36 +107,36 @@ std::string operator+(const std::string& str, const uint64_t& rhs);
 std::string operator+(const std::string& str, const double& rhs);
 std::string operator+(const std::string& str, const float& rhs);
 
-class vec4 {
-public:
-  float x, y, z, w;
-  vec4() {}
-  vec4(float dx, float dy, float dz, float dw) {
-    x = dx;
-    y = dy;
-    z = dz;
-    w = dw;
-  }
-};
-class vec3 {
-public:
-  float x, y, z;
-  vec3() {}
-  vec3(float dx, float dy, float dz) {
-    x = dx;
-    y = dy;
-    z = dz;
-  }
-};
-class vec2 {
-public:
-  float x, y;
-  vec2() {}
-  vec2(float dx, float dy) {
-    x = dx;
-    y = dy;
-  }
-};
+// class vec4 {
+// public:
+//   float x, y, z, w;
+//   vec4() {}
+//   vec4(float dx, float dy, float dz, float dw) {
+//     x = dx;
+//     y = dy;
+//     z = dz;
+//     w = dw;
+//   }
+// };
+// class vec3 {
+// public:
+//   float x, y, z;
+//   vec3() {}
+//   vec3(float dx, float dy, float dz) {
+//     x = dx;
+//     y = dy;
+//     z = dz;
+//   }
+// };
+// class vec2 {
+// public:
+//   float x, y;
+//   vec2() {}
+//   vec2(float dx, float dy) {
+//     x = dx;
+//     y = dy;
+//   }
+// };
 
 //Classes
 class v_v2c4 {

@@ -8,6 +8,7 @@
     command buffers exist in command pools and they package a series of dependent rendering commands that cannot be run async (begin, bind buffers, bind uniforms, bind textures, draw.. end)
 
   Notes
+    Aliasing - using the same chunk of memory for multiple resources.
     Queue family - a queue with a common set of characteristics, and a number of possible queues.
     Logical device - the features of the physical device that we are using.
       Multiple per phsical device.  
@@ -52,7 +53,11 @@
 #define VkExtFn(_vkFn) PFN_##_vkFn _vkFn = nullptr;
 
 namespace VG {
-
+struct UniformBufferObject {
+    BR2::mat4 model;
+    BR2::mat4 view;
+    BR2::mat4 proj;
+};
 /**
  * @class Vulkan 
  * @brief Root class for the vulkan device api.
@@ -117,13 +122,32 @@ public:
  *        You're supposed to use buffer pools as there is a maximum buffer allocation limit on the GPU, however this is just a demo.
  *        4096 = Nvidia GPU allocation limit.
  */
+enum class VulkanBufferType {
+  VertexBuffer,
+  IndexBuffer
+};
 class VulkanBuffer : VulkanObject {
+  VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
+
 public:
-  VulkanBuffer(std::shared_ptr<Vulkan> dev) : VulkanObject(dev) {}
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VkDeviceSize size, void* data, size_t datasize) : VulkanObject(dev) {
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType) : VulkanObject(dev) {}
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, VkDeviceSize size, void* data, size_t datasize) : VulkanObject(dev) {
     //Enable staging for efficiency.
     //This buffer becomes a staging buffer, and creates a sub-buffer class that represents GPU memory.
     _bUseStagingBuffer = true;
+    _eType = eType;
+
+    VkMemoryPropertyFlags bufType = 0;
+    
+    if (_eType == VulkanBufferType::IndexBuffer) {
+      bufType = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    else if (_eType == VulkanBufferType::VertexBuffer) {
+      bufType = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+    else {
+      BRThrowException(Stz "Invalid buffer type '" + (int)_eType + "'.");
+    }
 
     if (_bUseStagingBuffer) {
       //Create a staging buffer for efficiency operations
@@ -131,7 +155,7 @@ public:
       allocate(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
       copy_host(data, datasize);
 
-      _gpuBuffer = std::make_unique<VulkanBuffer>(dev);
+      _gpuBuffer = std::make_unique<VulkanBuffer>(dev, _eType);
       _gpuBuffer->allocate(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
       _gpuBuffer->_isGpuBuffer = true;
       copy_gpu(data, datasize);
@@ -276,6 +300,7 @@ public:
   std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 
   std::shared_ptr<VulkanBuffer> _vertexBuffer;
+  std::shared_ptr<VulkanBuffer> _indexBuffer;
 
   int32_t _iConcurrentFrames = 2;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
@@ -1030,6 +1055,18 @@ public:
   void createGraphicsPipeline() {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
+      .setLayoutCount = 0,                                     // uint32_t
+      .pSetLayouts = nullptr,                                  // VkDescriptorSetLayout
+      .pushConstantRangeCount = 0,                             // uint32_t
+      .pPushConstantRanges = nullptr                           // VkPushConstantRange
+    };
+
+    CheckVKR(vkCreatePipelineLayout, "", vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
+
+
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
     auto binding_desc = v_v2c4::getBindingDescription();
@@ -1077,34 +1114,8 @@ public:
       .pScissors = &scissor,                                           //const VkRect2D*
     };
 
-    VkPipelineRasterizationStateCreateInfo rasterizer = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                     //const void*
-      .flags = 0,                                                           //VkPipelineRasterizationStateCreateFlags
-      .depthClampEnable = VK_FALSE,                                         //VkBool32
-      .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
-      .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
-      .cullMode = VK_CULL_MODE_NONE,                                        //VK_CULL_MODE_BACK_BIT,               //VkCullModeFlags
-      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
-      .depthBiasEnable = VK_FALSE,                                          //VkBool32
-      .depthBiasConstantFactor = 0,                                         //float
-      .depthBiasClamp = 0,                                                  //float
-      .depthBiasSlopeFactor = 0,                                            //float
-      .lineWidth = 1,                                                       //float
-    };
-
-    //*Multisampling
-    VkPipelineMultisampleStateCreateInfo multisampling = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                   //const void*
-      .flags = 0,                                                         //VkPipelineMultisampleStateCreateFlags
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits
-      .sampleShadingEnable = VK_FALSE,                                    //VkBool32
-      .minSampleShading = 0,                                              //float
-      .pSampleMask = nullptr,                                             //const VkSampleMask*
-      .alphaToCoverageEnable = false,                                     //VkBool32
-      .alphaToOneEnable = false,                                          //VkBool32
-    };
+    //Create render pass for pipeline
+    createRenderPass();
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {
       .blendEnable = VK_TRUE,                                                                                                       //VkBool32
@@ -1116,7 +1127,6 @@ public:
       .alphaBlendOp = VK_BLEND_OP_ADD,                                                                                              //VkBlendOp
       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,  //VkColorComponentFlags
     };
-
     VkPipelineColorBlendStateCreateInfo colorBlending = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .logicOpEnable = VK_FALSE,
@@ -1124,18 +1134,21 @@ public:
       .pAttachments = &colorBlendAttachment,
     };
 
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
-      .setLayoutCount = 0,                                     // uint32_t
-      .pSetLayouts = nullptr,                                  // VkDescriptorSetLayout
-      .pushConstantRangeCount = 0,                             // uint32_t
-      .pPushConstantRanges = nullptr                           // VkPushConstantRange
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                     //const void*
+      .flags = 0,                                                           //VkPipelineRasterizationStateCreateFlags
+      .depthClampEnable = VK_FALSE,                                         //VkBool32
+      .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
+      .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
+      .cullMode = VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
+      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
+      .depthBiasEnable = VK_FALSE,                                          //VkBool32
+      .depthBiasConstantFactor = 0,                                         //float
+      .depthBiasClamp = 0,                                                  //float
+      .depthBiasSlopeFactor = 0,                                            //float
+      .lineWidth = 1,                                                       //float
     };
-
-    CheckVKR(vkCreatePipelineLayout, "", vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
-
-    //Create render pass for pipeline
-    createRenderPass();
 
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     std::vector<VkDynamicState> dynamicStates = {
@@ -1151,6 +1164,20 @@ public:
       .dynamicStateCount = (uint32_t)dynamicStates.size(),            //uint32_t
       .pDynamicStates = dynamicStates.data(),                         //const VkDynamicState*
     };
+
+    //*Multisampling
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                   //const void*
+      .flags = 0,                                                         //VkPipelineMultisampleStateCreateFlags
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits
+      .sampleShadingEnable = VK_FALSE,                                    //VkBool32
+      .minSampleShading = 0,                                              //float
+      .pSampleMask = nullptr,                                             //const VkSampleMask*
+      .alphaToCoverageEnable = false,                                     //VkBool32
+      .alphaToOneEnable = false,                                          //VkBool32
+    };
+
 
     VkGraphicsPipelineCreateInfo pipelineInfo = {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
@@ -1325,8 +1352,14 @@ public:
       VkBuffer vertexBuffers[] = { _vertexBuffer->buffer() };
       VkDeviceSize offsets[] = { 0 };
       vkCmdBindVertexBuffers(_commandBuffers[i], 0, 1, vertexBuffers, offsets);
+      vkCmdBindIndexBuffer(_commandBuffers[i], _indexBuffer->buffer(), 0, VK_INDEX_TYPE_UINT32);
+      //_indexBuffer->bind()
+      // VulkanIndexBuffer
+      //    _eType : VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 
-      vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
+      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size()/3), 0, 0, 0 );  
+      //vkCmdDrawIndexedIndirect
+      //vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
       //vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
       vkCmdEndRenderPass(_commandBuffers[i]);
       CheckVKR(vkEndCommandBuffer, "", _commandBuffers[i]);
@@ -1444,16 +1477,26 @@ public:
   }
 
   std::vector<v_v2c4> _planeVerts;
+  std::vector<uint32_t> _planeInds;
   void makePlane() {
     //    vec2(0.0, -.5),
     //vec2(.5, .5),
     //vec2(-.5, .5)
-
     _planeVerts = {
-      { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
-      { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
-      { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
+      { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
+      { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
+      { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
+      { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
     };
+    _planeInds = {
+      0, 1, 2, 2, 3, 0
+    };
+
+    // _planeVerts = {
+    //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
+    //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
+    //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
+    // };
   }
 
   std::vector<v_v3c4> _boxVerts;
@@ -1488,12 +1531,20 @@ public:
 
     makePlane();
 
-    size_t datasize = sizeof(v_v2c4) * _planeVerts.size();
+    size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
-      datasize,
-      _planeVerts.data(), datasize);
+      VulkanBufferType::VertexBuffer,
+      v_datasize,
+      _planeVerts.data(), v_datasize);
+
+    size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
+    _indexBuffer = std::make_shared<VulkanBuffer>(
+      vulkan(),
+      VulkanBufferType::IndexBuffer,
+      i_datasize,
+      _planeInds.data(), i_datasize);
   }
 #pragma endregion
 
