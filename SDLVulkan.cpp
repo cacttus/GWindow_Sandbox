@@ -3,6 +3,10 @@
 /*
   This is just following the Vulkan Tutorial https://vulkan-tutorial.com.
 
+  Command Buffers vs Command pools
+    command pools batch commands into differnet types like compute vs graphics vs presentation.
+    command buffers exist in command pools and they package a series of dependent rendering commands that cannot be run async (begin, bind buffers, bind uniforms, bind textures, draw.. end)
+
   Notes
     Queue family - a queue with a common set of characteristics, and a number of possible queues.
     Logical device - the features of the physical device that we are using.
@@ -122,18 +126,20 @@ public:
     _bUseStagingBuffer = true;
 
     if (_bUseStagingBuffer) {
-      VkMemoryPropertyFlags dev_memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
       //Create a staging buffer for efficiency operations
+
+      allocate(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      copy_host(data, datasize);
+
       _gpuBuffer = std::make_unique<VulkanBuffer>(dev);
       _gpuBuffer->allocate(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
       _gpuBuffer->_isGpuBuffer = true;
-
-      allocate(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      copy_data_from_CPU_to_GPU(data, datasize);
+      copy_gpu(data, datasize);
     }
     else {
       //Allocate non-staged
       allocate(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      copy_host(data, datasize);
     }
   }
   virtual ~VulkanBuffer() override {
@@ -144,49 +150,6 @@ public:
   VkBuffer& buffer() { return _buffer; }
   VkDeviceMemory bufferMemory() { return _bufferMemory; }
 
-  //In vulkan the CPU is "host" and the GPU is "device"
-  void copy_data_from_CPU_to_GPU(void* host_buf, size_t host_bufsize,
-                                 size_t host_buf_offset = 0,
-                                 size_t gpu_buf_offset = 0,
-                                 size_t copy_count = std::numeric_limits<size_t>::max()) {
-    if (copy_count == std::numeric_limits<size_t>::max()) {
-      copy_count = _allocatedSize;
-    }
-
-    if (_bUseStagingBuffer) {
-      //We must create a command buffer to copy to the GPU and then fence it.
-      VkCommandBufferAllocateInfo allocInfo{};
-      allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-      allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-      allocInfo.commandPool = vulkan()->commandPool();
-      allocInfo.commandBufferCount = 1;
-
-      VkCommandBuffer commandBuffer;
-      CheckVKR(vkAllocateCommandBuffers, "", vulkan()->device(), &allocInfo, &commandBuffer);
-      VkCommandBufferBeginInfo beginInfo{};
-      beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-      beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-      CheckVKR(vkBeginCommandBuffer, "", commandBuffer, &beginInfo);
-      VkBufferCopy copyRegion{};
-      copyRegion.srcOffset = host_buf_offset;  // Optional
-      copyRegion.dstOffset = gpu_buf_offset;   // Optional
-      copyRegion.size = copy_count;
-      vkCmdCopyBuffer(commandBuffer, buffer(), _gpuBuffer->buffer(), 1, &copyRegion);
-      CheckVKR(vkEndCommandBuffer, "", commandBuffer);
-      VkSubmitInfo submitInfo{};
-      submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-      submitInfo.commandBufferCount = 1;
-      submitInfo.pCommandBuffers = &commandBuffer;
-
-      CheckVKR(vkQueueSubmit, "", vulkan()->graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-      CheckVKR(vkQueueWaitIdle, "", vulkan()->graphicsQueue());
-      vkFreeCommandBuffers(vulkan()->device(), vulkan()->commandPool(), 1, &commandBuffer);
-    }
-    else {
-      copy_host(host_buf, host_bufsize, host_buf_offset, gpu_buf_offset, copy_count);
-    }
-  }
   void allocate(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
     BRLogInfo("Allocating vertex buffer: " + size + "B.");
     _allocatedSize = size;
@@ -237,9 +200,12 @@ private:
                  size_t host_buf_offset = 0,
                  size_t gpu_buf_offset = 0,
                  size_t copy_count = std::numeric_limits<size_t>::max()) {
-    AssertOrThrow2(_isGpuBuffer = false);
-    //If this buffer is not a staged buffer, copies data to host.
+    //Copy data to the host buffer, this is required for both staged and host-only buffers.
+    if (copy_count == std::numeric_limits<size_t>::max()) {
+      copy_count = _allocatedSize;
+    }
 
+    AssertOrThrow2(_isGpuBuffer == false);
     AssertOrThrow2(host_buf_offset + copy_count <= host_bufsize);
     AssertOrThrow2(gpu_buf_offset + copy_count <= _allocatedSize);
 
@@ -247,6 +213,48 @@ private:
     CheckVKR(vkMapMemory, "", vulkan()->device(), _bufferMemory, gpu_buf_offset, _allocatedSize, 0, &gpu_data);
     memcpy(gpu_data, host_buf, copy_count);
     vkUnmapMemory(vulkan()->device(), _bufferMemory);
+  }
+  void copy_gpu(void* host_buf, size_t host_bufsize,
+                size_t host_buf_offset = 0,
+                size_t gpu_buf_offset = 0,
+                size_t copy_count = std::numeric_limits<size_t>::max()) {
+    //If this buffer is a saged buffer, this copies data to the GPU buffer
+    // If this buffer is staged it executes a command to copy to GPU memory.
+    // Otherwise we do a direct copy to host memory.
+    //In vulkan the CPU is "host" and the GPU is "device"
+    if (copy_count == std::numeric_limits<size_t>::max()) {
+      copy_count = _allocatedSize;
+    }
+    AssertOrThrow2(_bUseStagingBuffer == true);
+
+    //We must create a command buffer to copy to the GPU and then fence it.
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = vulkan()->commandPool();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    CheckVKR(vkAllocateCommandBuffers, "", vulkan()->device(), &allocInfo, &commandBuffer);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    CheckVKR(vkBeginCommandBuffer, "", commandBuffer, &beginInfo);
+    VkBufferCopy copyRegion{};
+    copyRegion.srcOffset = host_buf_offset;  // Optional
+    copyRegion.dstOffset = gpu_buf_offset;   // Optional
+    copyRegion.size = copy_count;
+    vkCmdCopyBuffer(commandBuffer, buffer(), _gpuBuffer->buffer(), 1, &copyRegion);
+    CheckVKR(vkEndCommandBuffer, "", commandBuffer);
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    CheckVKR(vkQueueSubmit, "", vulkan()->graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    CheckVKR(vkQueueWaitIdle, "", vulkan()->graphicsQueue());
+    vkFreeCommandBuffers(vulkan()->device(), vulkan()->commandPool(), 1, &commandBuffer);
   }
   uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties props;
@@ -879,14 +887,14 @@ public:
       }
     }
     //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR; //VK_PRESENT_MODE_MAX_ENUM_KHR;
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAX_ENUM_KHR;
     for (const auto& availablePresentMode : presentModes) {
       if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
         presentMode = availablePresentMode;
         break;
       }
     }
-    if(presentMode == VK_PRESENT_MODE_FIFO_KHR){
+    if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
       BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
     }
 
@@ -1020,11 +1028,12 @@ public:
     return inf;
   }
   void createGraphicsPipeline() {
+    //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
-    auto binding_desc = Vertex::getBindingDescription();
-    auto attr_desc = Vertex::getAttributeDescriptions();
+    auto binding_desc = v_v2c4::getBindingDescription();
+    auto attr_desc = v_v2c4::getAttributeDescriptions();
 
     //This is basically a glsl attribute specifying a layout identifier
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
@@ -1033,61 +1042,80 @@ public:
       .flags = 0,
       .vertexBindingDescriptionCount = 1,
       .pVertexBindingDescriptions = &binding_desc,
-      .vertexAttributeDescriptionCount = 1,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(attr_desc.size()),
       .pVertexAttributeDescriptions = attr_desc.data(),
     };
 
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssembly.primitiveRestartEnable = VK_FALSE;
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                      //const void*
+      .flags = 0,                                                            //VkPipelineInputAssemblyStateCreateFlags
+      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,                       //VkPrimitiveTopology
+      .primitiveRestartEnable = VK_FALSE,                                    //VkBool32
+    };
 
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float)_swapChainExtent.width;
-    viewport.height = (float)_swapChainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
+    VkViewport viewport = {
+      .x = 0,
+      .y = 0,
+      .width = (float)_swapChainExtent.width,
+      .height = (float)_swapChainExtent.height,
+      .minDepth = 0,
+      .maxDepth = 1,
+    };
 
     VkRect2D scissor{};
     scissor.offset = { 0, 0 };
     scissor.extent = _swapChainExtent;
 
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport;
-    viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
+    VkPipelineViewportStateCreateInfo viewportState = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                //const void*
+      .flags = 0,                                                      //VkPipelineViewportStateCreateFlags
+      .viewportCount = 1,                                              //uint32_t
+      .pViewports = &viewport,                                         //const VkViewport*
+      .scissorCount = 1,                                               //uint32_t
+      .pScissors = &scissor,                                           //const VkRect2D*
+    };
 
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;  //Disable
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_FALSE;
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                     //const void*
+      .flags = 0,                                                           //VkPipelineRasterizationStateCreateFlags
+      .depthClampEnable = VK_FALSE,                                         //VkBool32
+      .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
+      .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
+      .cullMode = VK_CULL_MODE_NONE,                                        //VK_CULL_MODE_BACK_BIT,               //VkCullModeFlags
+      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
+      .depthBiasEnable = VK_FALSE,                                          //VkBool32
+      .depthBiasConstantFactor = 0,                                         //float
+      .depthBiasClamp = 0,                                                  //float
+      .depthBiasSlopeFactor = 0,                                            //float
+      .lineWidth = 1,                                                       //float
+    };
 
     //*Multisampling
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                                   //const void*
+      .flags = 0,                                                         //VkPipelineMultisampleStateCreateFlags
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits
+      .sampleShadingEnable = VK_FALSE,                                    //VkBool32
+      .minSampleShading = 0,                                              //float
+      .pSampleMask = nullptr,                                             //const VkSampleMask*
+      .alphaToCoverageEnable = false,                                     //VkBool32
+      .alphaToOneEnable = false,                                          //VkBool32
+    };
 
-    //VkPipelineDepthStencilStateCreateInfo // depth / stencil - we'll use null here.
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
+      .blendEnable = VK_TRUE,                                                                                                       //VkBool32
+      .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,                                                                             //VkBlendFactor
+      .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,                                                                   //VkBlendFactor
+      .colorBlendOp = VK_BLEND_OP_ADD,                                                                                              //VkBlendOp
+      .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,                                                                                   //VkBlendFactor
+      .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,                                                                                  //VkBlendFactor
+      .alphaBlendOp = VK_BLEND_OP_ADD,                                                                                              //VkBlendOp
+      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,  //VkColorComponentFlags
+    };
 
     VkPipelineColorBlendStateCreateInfo colorBlending = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -1097,11 +1125,11 @@ public:
     };
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-      .setLayoutCount = 0,            // Optional
-      .pSetLayouts = nullptr,         // Optional
-      .pushConstantRangeCount = 0,    // Optional
-      .pPushConstantRanges = nullptr  // Optional
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
+      .setLayoutCount = 0,                                     // uint32_t
+      .pSetLayouts = nullptr,                                  // VkDescriptorSetLayout
+      .pushConstantRangeCount = 0,                             // uint32_t
+      .pPushConstantRanges = nullptr                           // VkPushConstantRange
     };
 
     CheckVKR(vkCreatePipelineLayout, "", vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
@@ -1110,33 +1138,41 @@ public:
     createRenderPass();
 
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
-    VkDynamicState dynamicStates[] = {
-      VK_DYNAMIC_STATE_VIEWPORT,
-      VK_DYNAMIC_STATE_LINE_WIDTH
+    std::vector<VkDynamicState> dynamicStates = {
+      //Note: if viewport is dynamic then the viewports below are ignored.
+      //VK_DYNAMIC_STATE_VIEWPORT,
+      //VK_DYNAMIC_STATE_LINE_WIDTH
     };
 
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = 2;
-    dynamicState.pDynamicStates = dynamicStates;
+    VkPipelineDynamicStateCreateInfo dynamicState = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                               //const void*
+      .flags = 0,                                                     //VkPipelineDynamicStateCreateFlags
+      .dynamicStateCount = (uint32_t)dynamicStates.size(),            //uint32_t
+      .pDynamicStates = dynamicStates.data(),                         //const VkDynamicState*
+    };
 
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;  // vertex shader, frag shader.
-    pipelineInfo.pStages = shaderStages.data();
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pDepthStencilState = nullptr;  // Optional
-    pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr;  //&dynamicState;  // Optional
-    pipelineInfo.layout = _pipelineLayout;
-    pipelineInfo.renderPass = _renderPass;
-    pipelineInfo.subpass = 0;                          //Index of subpass - we have 1 subpass
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;  // Derive this pipeline from another one. This is pretty neat.
-    //pipelineInfo.basePipelineIndex = -1;               // Optional
+    VkGraphicsPipelineCreateInfo pipelineInfo = {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                          //const void*
+      .flags = 0,                                                //VkPipelineCreateFlags
+      .stageCount = 2,                                           //uint32_t
+      .pStages = shaderStages.data(),                            //const VkPipelineShaderStageCreateInfo*
+      .pVertexInputState = &vertexInputInfo,                     //const VkPipelineVertexInputStateCreateInfo*
+      .pInputAssemblyState = &inputAssembly,                     //const VkPipelineInputAssemblyStateCreateInfo*
+      .pTessellationState = nullptr,                             //const VkPipelineTessellationStateCreateInfo*
+      .pViewportState = &viewportState,                          //const VkPipelineViewportStateCreateInfo*
+      .pRasterizationState = &rasterizer,                        //const VkPipelineRasterizationStateCreateInfo*
+      .pMultisampleState = &multisampling,                       //const VkPipelineMultisampleStateCreateInfo*
+      .pDepthStencilState = nullptr,                             //const VkPipelineDepthStencilStateCreateInfo*
+      .pColorBlendState = &colorBlending,                        //const VkPipelineColorBlendStateCreateInfo*
+      .pDynamicState = nullptr,                                  //const VkPipelineDynamicStateCreateInfo*
+      .layout = _pipelineLayout,                                 //VkPipelineLayout
+      .renderPass = _renderPass,                                 //VkRenderPass
+      .subpass = 0,                                              //uint32_t
+      .basePipelineHandle = VK_NULL_HANDLE,                      //VkPipeline
+      .basePipelineIndex = -1,                                   //int32_t
+    };
 
     // BRLogInfo(VulkanDebug::get_VkGraphicsPipelineCreateInfo());
 
@@ -1146,37 +1182,51 @@ public:
     BRLogInfo("Creating Render Pass.");
 
     //This is essentially a set of data that we supply to VkCmdRenderPass
-
     //VkCmdRenderPass -> RenderPassInfo.colorAttachment -> framebuffer index.
 
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = _swapChainImageFormat;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;  // Number of samples.
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription colorAttachment = {
+      .flags = 0,                                          //VkAttachmentDescriptionFlags
+      .format = _swapChainImageFormat,                     //VkFormat
+      .samples = VK_SAMPLE_COUNT_1_BIT,                    //VkSampleCountFlagBits
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,               //VkAttachmentLoadOp
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,             //VkAttachmentStoreOp
+      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,    //VkAttachmentLoadOp
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,  //VkAttachmentStoreOp
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,          //VkImageLayout
+      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,      //VkImageLayout
+    };
 
     //Framebuffer attachments.
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkAttachmentReference colorAttachmentRef = {
+      .attachment = 0,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
 
     //Subpass.
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
+    VkSubpassDescription subpass = {
+      .flags = 0,                                            //VkSubpassDescriptionFlags
+      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,  //VkPipelineBindPoint
+      .inputAttachmentCount = 0,                             //uint32_t
+      .pInputAttachments = nullptr,                          //const VkAttachmentReference*
+      .colorAttachmentCount = 1,                             //uint32_t
+      .pColorAttachments = &colorAttachmentRef,              //const VkAttachmentReference*
+      .pResolveAttachments = nullptr,                        //const VkAttachmentReference*
+      .pDepthStencilAttachment = nullptr,                    //const VkAttachmentReference*
+      .preserveAttachmentCount = 0,                          //uint32_t
+      .pPreserveAttachments = nullptr,                       //const uint32_t*
+    };
 
-    VkRenderPassCreateInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-
+    VkRenderPassCreateInfo renderPassInfo = {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                    //const void*
+      .flags = 0,                                          //VkRenderPassCreateFlags
+      .attachmentCount = 1,                                //uint32_t
+      .pAttachments = &colorAttachment,                    //const VkAttachmentDescription*
+      .subpassCount = 1,                                   //uint32_t
+      .pSubpasses = &subpass,                              //const VkSubpassDescription*
+      .dependencyCount = 0,                                //uint32_t
+      .pDependencies = nullptr,                            //const VkSubpassDependency*
+    };
     CheckVKR(vkCreateRenderPass, "", vulkan()->device(), &renderPassInfo, nullptr, &_renderPass);
   }
   VkShaderModule createShaderModule(const std::vector<char>& code) {
@@ -1200,15 +1250,17 @@ public:
     for (size_t i = 0; i < _swapChainImageViews.size(); i++) {
       VkImageView attachments[] = { _swapChainImageViews[i] };
 
-      VkFramebufferCreateInfo framebufferInfo{};
-      framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-      framebufferInfo.renderPass = _renderPass;
-      framebufferInfo.attachmentCount = 1;
-      framebufferInfo.pAttachments = attachments;
-      framebufferInfo.width = _swapChainExtent.width;
-      framebufferInfo.height = _swapChainExtent.height;
-      framebufferInfo.layers = 1;
-      framebufferInfo.flags = 0;  //VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT * Imageless framebuffer
+      VkFramebufferCreateInfo framebufferInfo = {
+        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,  //VkStructureType
+        .pNext = nullptr,                                    //const void*
+        .flags = 0,                                          //VkFramebufferCreateFlags
+        .renderPass = _renderPass,                           //VkRenderPass
+        .attachmentCount = 1,                                //uint32_t
+        .pAttachments = attachments,                         //const VkImageView*
+        .width = _swapChainExtent.width,                     //uint32_t
+        .height = _swapChainExtent.height,                   //uint32_t
+        .layers = 1,                                         //uint32_t
+      };
 
       CheckVKR(vkCreateFramebuffer, "", vulkan()->device(), &framebufferInfo, nullptr, &_swapChainFramebuffers[i]);
     }
@@ -1274,7 +1326,8 @@ public:
       VkDeviceSize offsets[] = { 0 };
       vkCmdBindVertexBuffers(_commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-      vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
+      vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
+      //vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
       vkCmdEndRenderPass(_commandBuffers[i]);
       CheckVKR(vkEndCommandBuffer, "", _commandBuffers[i]);
     }
@@ -1390,24 +1443,37 @@ public:
     //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
   }
 
-  std::vector<Vertex> _verts;
-  std::vector<uint32_t> _inds;
+  std::vector<v_v2c4> _planeVerts;
+  void makePlane() {
+    //    vec2(0.0, -.5),
+    //vec2(.5, .5),
+    //vec2(-.5, .5)
+
+    _planeVerts = {
+      { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
+      { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
+      { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
+    };
+  }
+
+  std::vector<v_v3c4> _boxVerts;
+  std::vector<uint32_t> _boxInds;
   void makeBox() {
-    _verts = {
-      Vertex(vec3(0, 0, 0), vec4(1, 1, 1, 1)),
-      Vertex(vec3(1, 0, 0), vec4(1, 1, 1, 1)),
-      Vertex(vec3(0, 1, 0), vec4(1, 1, 1, 1)),
-      Vertex(vec3(1, 1, 0), vec4(1, 1, 1, 1)),
-      Vertex(vec3(0, 0, 1), vec4(1, 1, 1, 1)),
-      Vertex(vec3(1, 0, 1), vec4(1, 1, 1, 1)),
-      Vertex(vec3(0, 1, 1), vec4(1, 1, 1, 1)),
-      Vertex(vec3(1, 1, 1), vec4(1, 1, 1, 1)),
+    _boxVerts = {
+      { { 0, 0, 0 }, { 1, 1, 1, 1 } },
+      { { 1, 0, 0 }, { 1, 1, 1, 1 } },
+      { { 0, 1, 0 }, { 1, 1, 1, 1 } },
+      { { 1, 1, 0 }, { 1, 1, 1, 1 } },
+      { { 0, 0, 1 }, { 1, 1, 1, 1 } },
+      { { 1, 0, 1 }, { 1, 1, 1, 1 } },
+      { { 0, 1, 1 }, { 1, 1, 1, 1 } },
+      { { 1, 1, 1 }, { 1, 1, 1, 1 } },
     };
     //      6     7
     //  2      3
     //      4     5
     //  0      1
-    _inds = {
+    _boxInds = {
       0, 3, 1, /**/ 0, 2, 3,  //
       1, 3, 7, /**/ 1, 7, 5,  //
       5, 7, 6, /**/ 5, 6, 4,  //
@@ -1418,14 +1484,16 @@ public:
   }
 
   void createVertexBuffer() {
-    makeBox();
+    //makeBox();
 
-    size_t datasize = sizeof(Vertex) * _verts.size();
+    makePlane();
+
+    size_t datasize = sizeof(v_v2c4) * _planeVerts.size();
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
       datasize,
-      _verts.data(), datasize);
+      _planeVerts.data(), datasize);
   }
 #pragma endregion
 
@@ -1465,19 +1533,19 @@ public:
     }
 
     //We don't need to re-create sync objects on window resize but since this data depends on the swapchain, it makes a little cleaner.
-    for(auto& sem : _renderFinishedSemaphores){
+    for (auto& sem : _renderFinishedSemaphores) {
       vkDestroySemaphore(vulkan()->device(), sem, nullptr);
     }
     _renderFinishedSemaphores.clear();
-    for(auto& sem : _imageAvailableSemaphores){
+    for (auto& sem : _imageAvailableSemaphores) {
       vkDestroySemaphore(vulkan()->device(), sem, nullptr);
     }
-    _imageAvailableSemaphores.clear();   
-         for(auto& fence : _inFlightFences){
+    _imageAvailableSemaphores.clear();
+    for (auto& fence : _inFlightFences) {
       vkDestroyFence(vulkan()->device(), fence, nullptr);
     }
     _inFlightFences.clear();
-    _imagesInFlight.clear(); 
+    _imagesInFlight.clear();
   }
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.

@@ -121,16 +121,58 @@ public:
     z = dz;
   }
 };
-
-#define CREATE_VERTEX_TYPE(name, ...)
+class vec2 {
+public:
+  float x, y;
+  vec2() {}
+  vec2(float dx, float dy) {
+    x = dx;
+    y = dy;
+  }
+};
 
 //Classes
-class Vertex {
+class v_v2c4 {
+public:
+  vec2 _pos;
+  vec4 _color;
+  v_v2c4() {}
+  v_v2c4(const vec2& pos, const vec4& color) {
+    _pos = pos;
+    _color = color;
+  }
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;  // layout location=
+    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(v_v2c4, _pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;  // layout location=
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(v_v2c4, _color);
+    return attributeDescriptions;
+  }
+  static VkVertexInputBindingDescription getBindingDescription() {
+    VkVertexInputBindingDescription bindingDescription = {
+      .binding = 0,              // uint32_t   index of the binding in the array of bindings -- Ex we can have like an OBJ file with multiple buffers for v,c,n.. instead of interleaved arrays
+      .stride = sizeof(v_v2c4),  // uint32_t
+      // **Instanced rendering.
+      //**use VK_VERTEX_INPUT_RATE_INSTANCE
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
+
+    };
+
+    return bindingDescription;
+  }
+};
+class v_v3c4 {
 public:
   vec3 _pos;
   vec4 _color;
-  Vertex() {}
-  Vertex(const vec3& pos, const vec4& color) {
+  v_v3c4() {}
+  v_v3c4(const vec3& pos, const vec4& color) {
     _pos = pos;
     _color = color;
   }
@@ -148,17 +190,17 @@ public:
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout location=
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset = offsetof(Vertex, _pos);
+    attributeDescriptions[0].offset = offsetof(v_v3c4, _pos);
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;  // layout location=
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, _pos);
+    attributeDescriptions[1].offset = offsetof(v_v3c4, _color);
     return attributeDescriptions;
   }
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription = {
       .binding = 0,              // uint32_t         -- this is the layout location
-      .stride = sizeof(Vertex),  // uint32_t
+      .stride = sizeof(v_v3c4),  // uint32_t
       // **Instanced rendering.
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
