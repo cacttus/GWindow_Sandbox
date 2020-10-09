@@ -42,6 +42,7 @@
     Descriptor sets vs descriptor pools.
     *Indirect functions - Parameters that would be passed are read by a buffer (UBO) during execution.
     Tessellation is performed via subdivision of concentric triangles of the input triangles.
+    oversampling / undersampling = bilinear filtering / anisotropic filtering
 
 */
 
@@ -52,7 +53,12 @@
     VkResult res__ = (fname_(__VA_ARGS__));                    \
     vulkan()->validateVkResult(res__, (Stz emsg_), (#fname_)); \
   } while (0)
-
+//Validate within the vulkan instance.
+#define CheckVKRV(fname_, emsg_, ...)                \
+  do {                                               \
+    VkResult res__ = (fname_(__VA_ARGS__));          \
+    validateVkResult(res__, (Stz emsg_), (#fname_)); \
+  } while (0)
 //Find Vk Extension
 #define VkExtFn(_vkFn) PFN_##_vkFn _vkFn = nullptr;
 
@@ -106,6 +112,33 @@ public:
 #pragma endregion
 
 #pragma region Helpers
+  VkImageView createImageView(VkImage image, VkFormat format) {
+    VkImageViewCreateInfo createInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                   //const void*
+      .flags = 0,                                         //VkImageViewCreateFlags
+      .image = image,                                     //VkImage
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,                  //VkImageViewType
+      .format = format,                                   //VkFormat
+      .components = {
+        .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+        .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+        .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+        .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+      },  //VkComponentMapping
+      .subresourceRange = {
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  // VkImageAspectFlags
+        .baseMipLevel = 0,                        // uint32_t
+        .levelCount = 1,                          // uint32_t
+        .baseArrayLayer = 0,                      // uint32_t
+        .layerCount = 1,                          // uint32_t
+      },                                          //VkImageSubresourceRange
+
+    };
+    VkImageView ret;
+    CheckVKRV(vkCreateImageView, "", device(), &createInfo, nullptr, &ret);
+    return ret;
+  }
   uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(physicalDevice(), &props);
@@ -400,18 +433,57 @@ public:
                                                  pimg->data_len_bytes,
                                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    _host->copy_host(pimg->_data, pimg->data_len_bytes, 0, 0, pimg->data_len_bytes);  
+    _host->copy_host(pimg->_data, pimg->data_len_bytes, 0, 0, pimg->data_len_bytes);
 
     //Undefined layout will be discarded.
     transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     copyBufferToImage(pimg);
     transitionImageLayout(img_fmt /*? - transition to the same format?*/, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    //Cleanup host buffer. We are done with it.
+    _host = nullptr;
+
+    //Image view
+    _textureImageView = vulkan()->createImageView(_image, img_fmt);
+
+    //Sampler
+    VkSamplerCreateInfo samplerInfo = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // VkStructureType
+      .pNext = nullptr,                                // const void*
+      .flags = 0,                                      // VkSamplerCreateFlags
+      //Filtering
+      .magFilter = VK_FILTER_LINEAR,                // VkFilter
+      .minFilter = VK_FILTER_LINEAR,                // VkFilter
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,  // VkSamplerMipmapMode
+      //Texture repeat
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+      .mipLodBias = 0,                                  // float
+      .anisotropyEnable = VK_TRUE,                      // VkBool32
+      .maxAnisotropy = 16.0f,                           // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
+      .compareEnable = VK_FALSE,                        // VkBool32
+      .compareOp = VK_COMPARE_OP_ALWAYS,                // VkCompareOp - used for PCF
+      .minLod = 0,                                      // float
+      .maxLod = 0,                                      // float
+      .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,  // VkBorderColor
+      .unnormalizedCoordinates = VK_FALSE,              // VkBool32  [0,width] vs [0,1]
+    };
+    CheckVKR(vkCreateSampler, "", vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
+  }
+  virtual ~VulkanImage() override {
+    vkDestroyImage(vulkan()->device(), _image, nullptr);
+    vkFreeMemory(vulkan()->device(), _textureImageMemory, nullptr);
+    vkDestroyImageView(vulkan()->device(), _textureImageView, nullptr);
+    vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
   }
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
   VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
+  VkImageView _textureImageView = VK_NULL_HANDLE;
+  VkSampler _textureSampler = VK_NULL_HANDLE;
 
   void copyBufferToImage(std::shared_ptr<Img32> pimg) {
     auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
@@ -434,11 +506,35 @@ private:
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
     //https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#synchronization-access-types-supported
+
+    VkAccessFlagBits srcAccessMask;
+    VkAccessFlagBits dstAccessMask;
+    VkPipelineStageFlagBits srcStage;
+    VkPipelineStageFlagBits dstStage;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+      srcAccessMask = (VkAccessFlagBits)0;
+      dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+      srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+      dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;  // Pseudo-stage
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+      srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+      srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+      dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else {
+      throw std::invalid_argument("unsupported layout transition!");
+    }
+
     VkImageMemoryBarrier barrier = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,  //VkStructureType
       .pNext = nullptr,                                 //const void*
-      .srcAccessMask = 0,                               //VkAccessFlags
-      .dstAccessMask = 0,                               //VkAccessFlags
+      .srcAccessMask = srcAccessMask,                   //VkAccessFlags
+      .dstAccessMask = dstAccessMask,                   //VkAccessFlags
       .oldLayout = oldLayout,                           //VkImageLayout
       .newLayout = newLayout,                           //VkImageLayout
       .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t
@@ -453,7 +549,7 @@ private:
       },                                          //VkImageSubresourceRange
     };
     vkCmdPipelineBarrier(commandBuffer,
-                         0, 0,  //Pipeline stages
+                         srcStage, dstStage,  //Pipeline stages
                          0,
                          0, nullptr,
                          0, nullptr,
@@ -1039,7 +1135,10 @@ public:
 
       //**NOTE** deviceFeatures must be modified in the deviceFeatures in
       if (vulkan()->physicalDevice() == VK_NULL_HANDLE) {
-        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && deviceFeatures.geometryShader && deviceFeatures.fillModeNonSolid) {
+        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+            deviceFeatures.geometryShader &&
+            deviceFeatures.fillModeNonSolid &&
+            deviceFeatures.samplerAnisotropy) {
           vulkan()->_physicalDevice = device;
         }
       }
@@ -1276,25 +1375,8 @@ public:
   void createImageViews() {
     BRLogInfo("Creating Image Views.");
     for (size_t i = 0; i < _swapChainImages.size(); i++) {
-      VkImageViewCreateInfo createInfo = {};
-      createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-      createInfo.image = _swapChainImages[i];
-      createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      createInfo.format = _swapChainImageFormat;
-      createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-      createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-      createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-      createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-      //Image view is a contiguous range of image sub-resources.
-      //Subresources are. . ?
-      createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      createInfo.subresourceRange.baseMipLevel = 0;
-      createInfo.subresourceRange.levelCount = 1;
-      createInfo.subresourceRange.baseArrayLayer = 0;
-      createInfo.subresourceRange.layerCount = 1;
-      _swapChainImageViews.push_back(VkImageView{});
-
-      CheckVKR(vkCreateImageView, "", vulkan()->device(), &createInfo, nullptr, &_swapChainImageViews[i]);
+      auto view = vulkan()->createImageView(_swapChainImages[i], _swapChainImageFormat);
+      _swapChainImageViews.push_back(view);
     }
   }
   std::vector<char> readFile(const std::string& file) {
