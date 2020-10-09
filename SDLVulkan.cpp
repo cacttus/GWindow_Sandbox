@@ -58,9 +58,10 @@
 
 namespace VG {
 struct UniformBufferObject {
-  BR2::mat4 model;
-  BR2::mat4 view;
-  BR2::mat4 proj;
+  alignas(16) BR2::vec2 foo;
+  alignas(16) BR2::mat4 model;
+  alignas(16) BR2::mat4 view;
+  alignas(16) BR2::mat4 proj;
 };
 /**
  * @class Vulkan 
@@ -590,6 +591,7 @@ public:
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ub = {
+      .foo = BR2::vec2(0,0),
       .model = (BR2::mat4::translation(BR2::vec3(-0.5,-0.5,-0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
       .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)

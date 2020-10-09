@@ -8,6 +8,8 @@ layout(location = 1) in vec4 inColor;
 layout(location = 0) out vec4 fragColor;
 
 layout(binding = 0) uniform UniformBufferObject {
+//Note: Must be aligned to std120
+    vec2 foo;
     mat4 model;
     mat4 view;
     mat4 proj;
@@ -18,7 +20,7 @@ float a=-1.0, b=1.0;
 //clip space in the example.
 //  -1, -1
 //
-//            1, 1
+//            1, 1/* y */
 vec2 positions[9] = vec2[](
   //2 triangles for background, 1 for foreground
     vec2(a, a),
