@@ -117,36 +117,9 @@ std::string operator+(const std::string& str, const uint64_t& rhs);
 std::string operator+(const std::string& str, const double& rhs);
 std::string operator+(const std::string& str, const float& rhs);
 
-// class vec4 {
-// public:
-//   float x, y, z, w;
-//   vec4() {}
-//   vec4(float dx, float dy, float dz, float dw) {
-//     x = dx;
-//     y = dy;
-//     z = dz;
-//     w = dw;
-//   }
-// };
-// class vec3 {
-// public:
-//   float x, y, z;
-//   vec3() {}
-//   vec3(float dx, float dy, float dz) {
-//     x = dx;
-//     y = dy;
-//     z = dz;
-//   }
-// };
-// class vec2 {
-// public:
-//   float x, y;
-//   vec2() {}
-//   vec2(float dx, float dy) {
-//     x = dx;
-//     y = dy;
-//   }
-// };
+#define VFMT_VEC2 VK_FORMAT_R32G32_SFLOAT
+#define VFMT_VEC3 VK_FORMAT_R32G32B32_SFLOAT
+#define VFMT_VEC4 VK_FORMAT_R32G32B32A32_SFLOAT
 
 //Classes
 class v_v2c4 {
@@ -162,12 +135,12 @@ public:
     std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout location=
-    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].format = VFMT_VEC2;
     attributeDescriptions[0].offset = offsetof(v_v2c4, _pos);
 
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;  // layout location=
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].format = VFMT_VEC4;
     attributeDescriptions[1].offset = offsetof(v_v2c4, _color);
     return attributeDescriptions;
   }
@@ -195,23 +168,15 @@ public:
   }
   static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
     std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-    //Vertex formats use color format enum.
-    //float: VK_FORMAT_R32_SFLOAT
-    //vec2: VK_FORMAT_R32G32_SFLOAT
-    //vec3: VK_FORMAT_R32G32B32_SFLOAT
-    //vec4: VK_FORMAT_R32G32B32A32_SFLOAT
-    //ivec2: VK_FORMAT_R32G32_SINT, a 2-component vector of 32-bit signed integers
-    //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
-    //double: VK_FORMAT_R64_SFLOAT
+  
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout(location=)
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].format = VFMT_VEC3;
     attributeDescriptions[0].offset = offsetof(v_v3c4, _pos);
     
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1; 
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].format = VFMT_VEC4;
     attributeDescriptions[1].offset = offsetof(v_v3c4, _color);
 
     return attributeDescriptions;
@@ -243,27 +208,19 @@ public:
   static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
     std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
 
-    //Vertex formats use color format enum.
-    //float: VK_FORMAT_R32_SFLOAT
-    //vec2: VK_FORMAT_R32G32_SFLOAT
-    //vec3: VK_FORMAT_R32G32B32_SFLOAT
-    //vec4: VK_FORMAT_R32G32B32A32_SFLOAT
-    //ivec2: VK_FORMAT_R32G32_SINT, a 2-component vector of 32-bit signed integers
-    //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
-    //double: VK_FORMAT_R64_SFLOAT
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout(location=)
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].format = VFMT_VEC3;
     attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos);
     
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1; 
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].format = VFMT_VEC4;
     attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color);
 
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].format = VFMT_VEC2;
     attributeDescriptions[2].offset = offsetof(v_v3c4x2, _tcoord);
 
     return attributeDescriptions;

@@ -64,7 +64,7 @@
 
 namespace VG {
 struct UniformBufferObject {
-  alignas(16) BR2::vec2 foo;
+  //alignas(16) BR2::vec2 foo;
   alignas(16) BR2::mat4 model;
   alignas(16) BR2::mat4 view;
   alignas(16) BR2::mat4 proj;
@@ -388,6 +388,23 @@ private:
  * @brief Image residing on the GPU.
  * */
 class VulkanImage : VulkanObject {
+  void flipImage20161206(uint8_t* image, int width, int height) {
+  int rowSiz = width * 4;
+
+  uint8_t* rowTmp1 = new uint8_t[rowSiz];
+  int h2 = height / 2;
+
+  for (int j = 0; j < h2; ++j) {
+    uint8_t* ptRowDst = image + rowSiz * j;
+    uint8_t* ptRowSrc = image + rowSiz * (height - j - 1);
+
+    memcpy(rowTmp1, ptRowDst, rowSiz);
+    memcpy(ptRowDst, ptRowSrc, rowSiz);
+    memcpy(ptRowSrc, rowTmp1, rowSiz);
+  }
+
+  delete[] rowTmp1;
+}
 public:
   VkImageView imageView() { return _textureImageView; }
   VkSampler sampler() { return _textureSampler; }
@@ -397,7 +414,10 @@ public:
 
     //TODO:
     //format, tiling, usage, memory props
-    VkFormat img_fmt = VK_FORMAT_R8G8B8A8_UINT;
+    VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB; //VK_FORMAT_R8G8B8A8_UINT;
+    
+    // this was for OpenGL may not be needed
+    //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
 
     VkImageCreateInfo imageInfo = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,  // VkStructureType
@@ -817,10 +837,11 @@ public:
     CheckVKR(vkAllocateDescriptorSets, "", vulkan()->device(), &allocInfo, _descriptorSets.data());
 
     for (size_t i = 0; i < _swapChainImages.size(); ++i) {
+      //UBO descriptor
       VkDescriptorBufferInfo bufferInfo = {
         .buffer = _uniformBuffers[i]->hostBuffer()->buffer(),         // VkBuffer
         .offset = 0,                                                  // VkDeviceSize
-        .range = _uniformBuffers[i]->hostBuffer()->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
+        .range = sizeof(UniformBufferObject),  // VkDeviceSize OR VK_WHOLE_SIZE
       };
       VkWriteDescriptorSet uboDescriptorWrite = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
@@ -834,8 +855,10 @@ public:
         .pBufferInfo = &bufferInfo,                           //const VkDescriptorBufferInfo*
         .pTexelBufferView = nullptr,                          //const VkBufferView*
       };
+      
+      //Sampler descriptor
       VkDescriptorImageInfo imageInfo = {
-        .sampler = _texture->sampler(),                           //VkSampler
+        .sampler =  _texture->sampler(),                          //VkSampler
         .imageView = _texture->imageView(),                       //VkImageView
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,  //VkImageLayout
       };
@@ -851,6 +874,7 @@ public:
         .pBufferInfo = nullptr,                                       //const VkDescriptorBufferInfo*
         .pTexelBufferView = nullptr,                                  //const VkBufferView*
       };
+
       std::array<VkWriteDescriptorSet, 2> descriptorWrites{ uboDescriptorWrite, samplerDescriptorWrite };
       vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
@@ -871,7 +895,6 @@ public:
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ub = {
-      .foo = BR2::vec2(0, 0),
       .model = (BR2::mat4::translation(BR2::vec3(-0.5, -0.5, -0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
       .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)
@@ -1755,26 +1778,19 @@ public:
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-
+      //You can have multiple vertex layouts with layout(binding=x)
       VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
       VkDeviceSize offsets[] = { 0 };
       vkCmdBindVertexBuffers(_commandBuffers[i], 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(_commandBuffers[i], _indexBuffer->hostBuffer()->buffer(), 0, VK_INDEX_TYPE_UINT32);
-      //_indexBuffer->bind()
-      // VulkanIndexBuffer
-      //    _eType : VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
-
+      vkCmdBindIndexBuffer(_commandBuffers[i], _indexBuffer->hostBuffer()->buffer(), 0, VK_INDEX_TYPE_UINT32); // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
       vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
                               0,  //Layout ID
                               1,
                               &_descriptorSets[i], 0, nullptr);
 
-      //This may be incorrect he's drawing just 1
-      //vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
-      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), static_cast<uint32_t>(_boxInds.size() / 3), 0, 0, 0);
+      //*The 1 is instances - for instanced rendering
+      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), 1, 0, 0, 0);
       //vkCmdDrawIndexedIndirect
-      //vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
-      //vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
       vkCmdEndRenderPass(_commandBuffers[i]);
       CheckVKR(vkEndCommandBuffer, "", _commandBuffers[i]);
     }
@@ -1966,21 +1982,21 @@ public:
     //  0      1
     std::vector<v_v3c4> bv = {
       { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-      { { 1, 0, 0 }, { 0, 0, 1, 1 } },
-      { { 0, 1, 0 }, { 1, 0, 1, 1 } },
-      { { 1, 1, 0 }, { 1, 1, 0, 1 } },
-      { { 0, 0, 1 }, { 0, 0, 1, 1 } },
-      { { 1, 0, 1 }, { 1, 0, 0, 1 } },
-      { { 0, 1, 1 }, { 0, 1, 0, 1 } },
-      { { 1, 1, 1 }, { 1, 0, 1, 1 } },
+      { { 1, 0, 0 }, { 1, 1, 1, 1 } },
+      { { 0, 1, 0 }, { 1, 1, 1, 1 } },
+      { { 1, 1, 0 }, { 1, 1, 1, 1 } },
+      { { 0, 0, 1 }, { 1, 1, 1, 1 } },
+      { { 1, 0, 1 }, { 1, 1, 1, 1 } },
+      { { 0, 1, 1 }, { 1, 1, 1, 1 } },
+      { { 1, 1, 1 }, { 1, 1, 1, 1 } },
     };
     //Construct box from the old box coordintes (no texture)
     //Might be wrong - opengl coordinates.
 #define BV_VFACE(bl, br, tl, tr)              \
-  { bv[bl]._pos, bv[bl]._color, { 0, 0 } },   \
-    { bv[br]._pos, bv[br]._color, { 1, 0 } }, \
-    { bv[tl]._pos, bv[tl]._color, { 0, 1 } }, \
-    { bv[tr]._pos, bv[tr]._color, { 1, 1 } }
+  { bv[bl]._pos, bv[bl]._color, { 0, 1 } },   \
+    { bv[br]._pos, bv[br]._color, { 1, 1 } }, \
+    { bv[tl]._pos, bv[tl]._color, { 0, 0 } }, \
+    { bv[tr]._pos, bv[tr]._color, { 1, 0 } }
 
     _boxVerts = {
       BV_VFACE(0, 1, 2, 3),  //F
@@ -1996,15 +2012,7 @@ public:
 //  |    /
 //  | /
 //  0------>1
-    std::vector<uint32_t> faces = {
-      0, 3, 1, /**/ 0, 2, 3,  //
-      1, 3, 7, /**/ 1, 7, 5,  //
-      5, 7, 6, /**/ 5, 6, 4,  //
-      4, 6, 2, /**/ 4, 2, 0,  //
-      2, 6, 7, /**/ 2, 7, 3,  //
-      4, 0, 1, /**/ 4, 1, 5,  //
-    };
-#define BV_IFACE(idx)  ((idx * 3) + 0), ((idx * 3) + 3), ((idx * 3) + 1), ((idx * 3) + 0), ((idx * 3) + 2), ((idx * 3) + 3)
+#define BV_IFACE(idx)  ((idx * 4) + 0), ((idx * 4) + 3), ((idx * 4) + 1), ((idx * 4) + 0), ((idx * 4) + 2), ((idx * 4) + 3)
     _boxInds = {
       BV_IFACE(0),
       BV_IFACE(1),
@@ -2039,15 +2047,12 @@ public:
   std::shared_ptr<Img32> loadImage(const string_t& img) {
     unsigned char* data = nullptr;  //the raw pixels
     unsigned int width, height;
-    //int err = lodepng_decode32(&image, &width, &height, (unsigned char*)fb->getData().ptr(), fb->getData().count());
+    
+    std::vector<char> image_data = readFile(img);
+    
+    int err = lodepng_decode32(&data, &width, &height, (unsigned char*)image_data.data(), image_data.size());
 
     int required_bytes = 4;
-
-    int err = lodepng_decode_file(&data,
-                                  &width, &height,
-                                  img.c_str(),
-                                  (required_bytes == 4) ? (LodePNGColorType::LCT_RGBA) : (LodePNGColorType::LCT_RGB),
-                                  required_bytes * 8);
 
     if (err != 0) {
       vulkan()->errorExit("LodePNG could not load image, error: " + err);
@@ -2062,8 +2067,8 @@ public:
     return ret;
   }
   void createTextureImage() {
-    auto img = loadImage(App::rootFile("test.png"));
-    //auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
+   // auto img = loadImage(App::rootFile("test.png"));
+    auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
       _texture = std::make_shared<VulkanImage>(vulkan(), img);
     }
