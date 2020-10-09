@@ -4,8 +4,10 @@
 //note dvec3 uses multiple slots.
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
+layout(location = 2) in vec2 inTexCoord;
 
 layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec2 fragTexCoord;
 
 layout(binding = 0) uniform UniformBufferObject {
 //Note: Must be aligned to std120
@@ -62,4 +64,5 @@ void main() {
 
     gl_Position = ubo.proj * ubo.view * ubo.model *vec4(inPosition,1);
     fragColor = inColor;
+    fragTexCoord = inTexCoord;
 }

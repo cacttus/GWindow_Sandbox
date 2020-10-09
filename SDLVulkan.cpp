@@ -389,6 +389,9 @@ private:
  * */
 class VulkanImage : VulkanObject {
 public:
+  VkImageView imageView() { return _textureImageView; }
+  VkSampler sampler() { return _textureSampler; }
+
   VulkanImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg) : VulkanObject(pvulkan) {
     BRLogInfo("Creating Vulkan image");
 
@@ -720,7 +723,6 @@ public:
     createLogicalDevice();
     createCommandPool();
     createVertexBuffer();
-    createTextureImage();
 
     recreateSwapChain();
 
@@ -735,6 +737,7 @@ public:
 
     createSwapChain();
     createUniformBuffers();
+    createTextureImage();
     createDescriptorPool();
     createDescriptorSetLayout();
     createDescriptorSets();
@@ -749,36 +752,51 @@ public:
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   void createDescriptorPool() {
     //Uniform buffer descriptor pool.
-    VkDescriptorPoolSize poolSize = {
+    VkDescriptorPoolSize uboPoolSize = {
       .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
       .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
     };
+    VkDescriptorPoolSize samplerPoolSize = {
+      .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,                  //VkDescriptorType
+      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
+    };
+    std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
     VkDescriptorPoolCreateInfo poolInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,     // VkStructureType
       .pNext = nullptr,                                           // const void*
       .flags = 0,                                                 // VkDescriptorPoolCreateFlags
       .maxSets = static_cast<uint32_t>(_swapChainImages.size()),  // uint32_t
-      .poolSizeCount = 1,                                         // uint32_t
-      .pPoolSizes = &poolSize,                                    // const VkDescriptorPoolSize*
+      .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),   // uint32_t
+      .pPoolSizes = poolSizes.data(),                             // const VkDescriptorPoolSize*
     };
     CheckVKR(vkCreateDescriptorPool, "", vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
   }
   void createDescriptorSetLayout() {
-    VkDescriptorSetLayoutBinding uboBinding = {
+    VkDescriptorSetLayoutBinding uboLayoutBinding = {
       .binding = 0,                                         //uint32_t
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
       .descriptorCount = 1,                                 //uint32_t
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
       .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
     };
+    VkDescriptorSetLayoutBinding samplerLayoutBinding = {
+      .binding = 1,                                                 // uint32_t
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  // VkDescriptorType
+      .descriptorCount = 1,                                         // uint32_t
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,                   // VkShaderStageFlags
+      .pImmutableSamplers = nullptr,                                // const VkSampler*
+    };
+
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+
     //This is duplicated for each UBO bound to the shader program (pipeline) for each swapchain image.
     // This is duplicated in the vkAllocateDescriptorSets area. It essentially should be run for each UBO binding.
     VkDescriptorSetLayoutCreateInfo layoutInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                              //const void*
       .flags = 0,                                                    //VkDescriptorSetLayoutCreateFlags   Some cool stuff can be put here to modify UBO updates.
-      .bindingCount = 1,                                             //uint32_t
-      .pBindings = &uboBinding,                                      //const VkDescriptorSetLayoutBinding*
+      .bindingCount = static_cast<uint32_t>(bindings.size()),        //uint32_t
+      .pBindings = bindings.data(),                                  //const VkDescriptorSetLayoutBinding*
     };
     CheckVKR(vkCreateDescriptorSetLayout, "", vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
   }
@@ -804,7 +822,7 @@ public:
         .offset = 0,                                                  // VkDeviceSize
         .range = _uniformBuffers[i]->hostBuffer()->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
       };
-      VkWriteDescriptorSet descriptorWrite = {
+      VkWriteDescriptorSet uboDescriptorWrite = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
         .pNext = nullptr,                                     //const void*
         .dstSet = _descriptorSets[i],                         //VkDescriptorSet
@@ -816,7 +834,25 @@ public:
         .pBufferInfo = &bufferInfo,                           //const VkDescriptorBufferInfo*
         .pTexelBufferView = nullptr,                          //const VkBufferView*
       };
-      vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+      VkDescriptorImageInfo imageInfo = {
+        .sampler = _texture->sampler(),                           //VkSampler
+        .imageView = _texture->imageView(),                       //VkImageView
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,  //VkImageLayout
+      };
+      VkWriteDescriptorSet samplerDescriptorWrite = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,              //VkStructureType
+        .pNext = nullptr,                                             //const void*
+        .dstSet = _descriptorSets[i],                                 //VkDescriptorSet
+        .dstBinding = 1,                                              //uint32_t
+        .dstArrayElement = 0,                                         //uint32_t
+        .descriptorCount = 1,                                         //uint32_t
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  //VkDescriptorType
+        .pImageInfo = &imageInfo,                                     //const VkDescriptorImageInfo*
+        .pBufferInfo = nullptr,                                       //const VkDescriptorBufferInfo*
+        .pTexelBufferView = nullptr,                                  //const VkBufferView*
+      };
+      std::array<VkWriteDescriptorSet, 2> descriptorWrites{ uboDescriptorWrite, samplerDescriptorWrite };
+      vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
   }
   void createUniformBuffers() {
@@ -1855,9 +1891,9 @@ public:
     //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
   }
 
-  typedef v_v3c4 VertType;
+  typedef v_v3c4x2 VertType;
 
-  std::vector<v_v3c4> _boxVerts;
+  std::vector<v_v3c4x2> _boxVerts;
   std::vector<uint32_t> _boxInds;
   std::vector<v_v2c4> _planeVerts;
   std::vector<uint32_t> _planeInds;
@@ -1900,7 +1936,35 @@ public:
       _planeInds.data(), i_datasize);
   }
   void makeBox() {
-    _boxVerts = {
+    //v_v3c4
+    // _boxVerts = {
+    //   { { 0, 0, 0 }, { 1, 1, 1, 1 } },
+    //   { { 1, 0, 0 }, { 0, 0, 1, 1 } },
+    //   { { 0, 1, 0 }, { 1, 0, 1, 1 } },
+    //   { { 1, 1, 0 }, { 1, 1, 0, 1 } },
+    //   { { 0, 0, 1 }, { 0, 0, 1, 1 } },
+    //   { { 1, 0, 1 }, { 1, 0, 0, 1 } },
+    //   { { 0, 1, 1 }, { 0, 1, 0, 1 } },
+    //   { { 1, 1, 1 }, { 1, 0, 1, 1 } },
+    // };
+    // //      6     7
+    // //  2      3
+    // //      4     5
+    // //  0      1
+    // _boxInds = {
+    //   0, 3, 1, /**/ 0, 2, 3,  //
+    //   1, 3, 7, /**/ 1, 7, 5,  //
+    //   5, 7, 6, /**/ 5, 6, 4,  //
+    //   4, 6, 2, /**/ 4, 2, 0,  //
+    //   2, 6, 7, /**/ 2, 7, 3,  //
+    //   4, 0, 1, /**/ 4, 1, 5,  //
+    // };
+
+    //      6     7
+    //  2      3
+    //      4     5
+    //  0      1
+    std::vector<v_v3c4> bv = {
       { { 0, 0, 0 }, { 1, 1, 1, 1 } },
       { { 1, 0, 0 }, { 0, 0, 1, 1 } },
       { { 0, 1, 0 }, { 1, 0, 1, 1 } },
@@ -1910,11 +1974,29 @@ public:
       { { 0, 1, 1 }, { 0, 1, 0, 1 } },
       { { 1, 1, 1 }, { 1, 0, 1, 1 } },
     };
-    //      6     7
-    //  2      3
-    //      4     5
-    //  0      1
-    _boxInds = {
+    //Construct box from the old box coordintes (no texture)
+    //Might be wrong - opengl coordinates.
+#define BV_VFACE(bl, br, tl, tr)              \
+  { bv[bl]._pos, bv[bl]._color, { 0, 0 } },   \
+    { bv[br]._pos, bv[br]._color, { 1, 0 } }, \
+    { bv[tl]._pos, bv[tl]._color, { 0, 1 } }, \
+    { bv[tr]._pos, bv[tr]._color, { 1, 1 } }
+
+    _boxVerts = {
+      BV_VFACE(0, 1, 2, 3),  //F
+      BV_VFACE(1, 5, 3, 7),  //R
+      BV_VFACE(5, 4, 7, 6),  //A
+      BV_VFACE(4, 0, 6, 2),  //L
+      BV_VFACE(4, 5, 0, 1),  //B
+      BV_VFACE(2, 3, 6, 7)  //T
+    };
+
+//   CW
+//  2------>3
+//  |    /
+//  | /
+//  0------>1
+    std::vector<uint32_t> faces = {
       0, 3, 1, /**/ 0, 2, 3,  //
       1, 3, 7, /**/ 1, 7, 5,  //
       5, 7, 6, /**/ 5, 6, 4,  //
@@ -1922,7 +2004,15 @@ public:
       2, 6, 7, /**/ 2, 7, 3,  //
       4, 0, 1, /**/ 4, 1, 5,  //
     };
-
+#define BV_IFACE(idx)  ((idx * 3) + 0), ((idx * 3) + 3), ((idx * 3) + 1), ((idx * 3) + 0), ((idx * 3) + 2), ((idx * 3) + 3)
+    _boxInds = {
+      BV_IFACE(0),
+      BV_IFACE(1),
+      BV_IFACE(2),
+      BV_IFACE(3),
+      BV_IFACE(4),
+      BV_IFACE(5),
+    };
     size_t v_datasize = sizeof(VertType) * _boxVerts.size();
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
@@ -1972,9 +2062,13 @@ public:
     return ret;
   }
   void createTextureImage() {
-    auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
+    auto img = loadImage(App::rootFile("test.png"));
+    //auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
       _texture = std::make_shared<VulkanImage>(vulkan(), img);
+    }
+    else{
+      vulkan()->errorExit("Could not load test image.");
     }
   }
 #pragma endregion
@@ -1983,6 +2077,7 @@ public:
     _uniformBuffers.resize(0);
     _layouts.resize(0);
     _descriptorSets.resize(0);
+    _texture = nullptr;
     vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
     vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
 

@@ -205,13 +205,15 @@ public:
     //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
     //double: VK_FORMAT_R64_SFLOAT
     attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;  // layout location=
+    attributeDescriptions[0].location = 0;  // layout(location=)
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(v_v3c4, _pos);
+    
     attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;  // layout location=
+    attributeDescriptions[1].location = 1; 
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(v_v3c4, _color);
+
     return attributeDescriptions;
   }
   static VkVertexInputBindingDescription getBindingDescription() {
@@ -222,6 +224,57 @@ public:
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
 
+    };
+
+    return bindingDescription;
+  }
+};
+class v_v3c4x2 {
+public:
+  BR2::vec3 _pos;
+  BR2::vec4 _color;
+  BR2::vec2 _tcoord;
+  v_v3c4x2() {}
+  v_v3c4x2(const BR2::vec3& pos, const BR2::vec4& color, const BR2::vec2& tcoord) {
+    _pos = pos;
+    _color = color;
+    _tcoord = tcoord;
+  }
+  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+
+    //Vertex formats use color format enum.
+    //float: VK_FORMAT_R32_SFLOAT
+    //vec2: VK_FORMAT_R32G32_SFLOAT
+    //vec3: VK_FORMAT_R32G32B32_SFLOAT
+    //vec4: VK_FORMAT_R32G32B32A32_SFLOAT
+    //ivec2: VK_FORMAT_R32G32_SINT, a 2-component vector of 32-bit signed integers
+    //uvec4: VK_FORMAT_R32G32B32A32_UINT, a 4-component vector of 32-bit unsigned integers
+    //double: VK_FORMAT_R64_SFLOAT
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;  // layout(location=)
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos);
+    
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1; 
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color);
+
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(v_v3c4x2, _tcoord);
+
+    return attributeDescriptions;
+  }
+  static VkVertexInputBindingDescription getBindingDescription() {
+    VkVertexInputBindingDescription bindingDescription = {
+      .binding = 0,              // uint32_t         -- this is the layout location
+      .stride = sizeof(v_v3c4x2),  // uint32_t
+      // **Instanced rendering.
+      //**use VK_VERTEX_INPUT_RATE_INSTANCE
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
     };
 
     return bindingDescription;
