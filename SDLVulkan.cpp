@@ -130,69 +130,28 @@ public:
 enum class VulkanBufferType {
   VertexBuffer,
   IndexBuffer,
-  UniformBuffer
+  UniformBuffer,
+  ImageBuffer
 };
-class VulkanBuffer : VulkanObject {
-  VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
-
+//VulkanBuffer
+//  VulkanDeviceBuffer host
+//  VulkanDeviceBuffer gpu = nullptr
+//VulkanImage
+//  VulkanDeviceBuffer host
+//  Custom code for image buffer.
+class VulkanDeviceBuffer : public VulkanObject {
 public:
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged) : VulkanObject(dev) {
-    _bUseStagingBuffer = bStaged;
-    _eType = eType;
-  }
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, VkDeviceSize bufsize, void* data = nullptr, size_t datasize = 0) : VulkanBuffer(dev, eType, bStaged) {
-    //Enable staging for efficiency.
-    //This buffer becomes a staging buffer, and creates a sub-buffer class that represents GPU memory.
-    VkMemoryPropertyFlags bufType = 0;
-
-    if (_eType == VulkanBufferType::IndexBuffer) {
-      bufType = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-    }
-    else if (_eType == VulkanBufferType::VertexBuffer) {
-      bufType = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    }
-    else if (_eType == VulkanBufferType::UniformBuffer) {
-      bufType = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-      if (bStaged == true) {
-        BRLogWarn("Uniform buffer resides in GPU memory. This will cause a performance penalty if the buffer is updated often (per frame).");
-      }
-    }
-    else {
-      BRThrowException(Stz "Invalid buffer type '" + (int)_eType + "'.");
-    }
-
-    if (_bUseStagingBuffer) {
-      //Create a staging buffer for efficiency operations
-      //Staging buffers only make sense for data that resides on the GPu and doesn't get updated per frame.
-      // Uniform data is not a goojd option for staging buffers, but mesh and bone data is a good option.
-      allocate(bufsize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-      _gpuBuffer = std::make_unique<VulkanBuffer>(dev, _eType, false);
-      _gpuBuffer->allocate(bufsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | bufType, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-      _gpuBuffer->_isGpuBuffer = true;
-    }
-    else {
-      //Allocate non-staged
-      allocate(bufsize, bufType, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      //copy_host(data, datasize);
-    }
-
-    if (data != nullptr) {
-      writeData(data, 0, datasize);
-    }
-  }
-  virtual ~VulkanBuffer() override {
-    _gpuBuffer = nullptr;
-    cleanup();
-  }
-
   VkBuffer& buffer() { return _buffer; }  //Returns the buffer for un-staged (host) buffers only.
   VkDeviceMemory bufferMemory() { return _bufferMemory; }
   VkDeviceSize totalSizeBytes() { return _allocatedSize; }
 
-  void allocate(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
+  VulkanDeviceBuffer(std::shared_ptr<Vulkan> pvulkan, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) : VulkanObject(pvulkan) {
     BRLogInfo("Allocating vertex buffer: " + size + "B.");
     _allocatedSize = size;
+
+    if(properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT > 0){
+      _isGpuBuffer = true;
+    }
 
     VkBufferCreateInfo buffer_info = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,  // VkStructureType
@@ -218,33 +177,10 @@ public:
       //host visible: memory is accessible on the CPU side
       .memoryTypeIndex = findMemoryType(mem_inf.memoryTypeBits, properties)  //     uint32_t
     };
+    //Same
     CheckVKR(vkAllocateMemory, "", vulkan()->device(), &allocInfo, nullptr, &_bufferMemory);
     CheckVKR(vkBindBufferMemory, "", vulkan()->device(), _buffer, _bufferMemory, 0);
   }
-  void writeData(void* data, size_t off, size_t datasize) {
-    //Copy data to the GPU
-    AssertOrThrow2(data != nullptr);
-    AssertOrThrow2(off + datasize <= _allocatedSize);
-    copy_host(data, datasize);
-    if (_bUseStagingBuffer) {
-      copy_gpu(data, datasize);
-    }
-  }
-  void cleanup() {
-    vkDestroyBuffer(vulkan()->device(), _buffer, nullptr);
-    vkFreeMemory(vulkan()->device(), _bufferMemory, nullptr);
-    _buffer = VK_NULL_HANDLE;
-    _bufferMemory = VK_NULL_HANDLE;
-  }
-
-private:
-  VkBuffer _buffer = VK_NULL_HANDLE;
-  VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
-  VkDeviceSize _allocatedSize = 0;
-  std::unique_ptr<VulkanBuffer> _gpuBuffer = nullptr;  // If staging is enabled.
-  bool _bUseStagingBuffer = false;
-  bool _isGpuBuffer = false;  //for staged buffers, this class represents the GPU side of the buffer. This buffer resides on the GPU and vkMapMemory can't be called on it.
-
   void copy_host(void* host_buf, size_t host_bufsize,
                  size_t host_buf_offset = 0,
                  size_t gpu_buf_offset = 0,
@@ -263,7 +199,7 @@ private:
     memcpy(gpu_data, host_buf, copy_count);
     vkUnmapMemory(vulkan()->device(), _bufferMemory);
   }
-  void copy_gpu(void* host_buf, size_t host_bufsize,
+  void copy_gpu(std::shared_ptr<VulkanDeviceBuffer> host_buf,
                 size_t host_buf_offset = 0,
                 size_t gpu_buf_offset = 0,
                 size_t copy_count = std::numeric_limits<size_t>::max()) {
@@ -274,7 +210,10 @@ private:
     if (copy_count == std::numeric_limits<size_t>::max()) {
       copy_count = _allocatedSize;
     }
-    AssertOrThrow2(_bUseStagingBuffer == true);
+    AssertOrThrow2(_isGpuBuffer == true);
+    AssertOrThrow2(host_buf != nullptr);
+    AssertOrThrow2(host_buf_offset + copy_count <= host_buf->totalSizeBytes());
+    AssertOrThrow2(gpu_buf_offset + copy_count <= _allocatedSize);
 
     //We must create a command buffer to copy to the GPU and then fence it.
     VkCommandBufferAllocateInfo allocInfo{};
@@ -294,7 +233,7 @@ private:
     copyRegion.srcOffset = host_buf_offset;  // Optional
     copyRegion.dstOffset = gpu_buf_offset;   // Optional
     copyRegion.size = copy_count;
-    vkCmdCopyBuffer(commandBuffer, buffer(), _gpuBuffer->buffer(), 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, host_buf->buffer(), buffer(), 1, &copyRegion);
     CheckVKR(vkEndCommandBuffer, "", commandBuffer);
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -305,6 +244,19 @@ private:
     CheckVKR(vkQueueWaitIdle, "", vulkan()->graphicsQueue());
     vkFreeCommandBuffers(vulkan()->device(), vulkan()->commandPool(), 1, &commandBuffer);
   }
+  void cleanup() {
+    vkDestroyBuffer(vulkan()->device(), _buffer, nullptr);
+    vkFreeMemory(vulkan()->device(), _bufferMemory, nullptr);
+    _buffer = VK_NULL_HANDLE;
+    _bufferMemory = VK_NULL_HANDLE;
+  }
+
+private:
+  VkBuffer _buffer = VK_NULL_HANDLE;  // If a UniformBuffer, VertexBuffer, or IndexBuffer
+  VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
+  VkDeviceSize _allocatedSize = 0;
+  bool _isGpuBuffer = false;  //for staged buffers, this class represents the GPU side of the buffer. This buffer resides on the GPU and vkMapMemory can't be called on it.
+
   uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(vulkan()->physicalDevice(), &props);
@@ -317,6 +269,83 @@ private:
     throw std::runtime_error("Failed to find valid memory type for vt buffer.");
     return 0;
   }
+};
+
+class VulkanBuffer : VulkanObject {
+public:
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged) : VulkanObject(dev) {
+    _bUseStagingBuffer = bStaged;
+    _eType = eType;
+  }
+  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, VkDeviceSize bufsize, void* data = nullptr, size_t datasize = 0) : VulkanBuffer(dev, eType, bStaged) {
+    //Enable staging for efficiency.
+    //This buffer becomes a staging buffer, and creates a sub-buffer class that represents GPU memory.
+    VkMemoryPropertyFlags bufType = 0;
+
+    if (_eType == VulkanBufferType::IndexBuffer) {
+      bufType = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    else if (_eType == VulkanBufferType::VertexBuffer) {
+      bufType = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+    else if (_eType == VulkanBufferType::UniformBuffer) {
+      bufType = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+      if (_bUseStagingBuffer == true) {
+        BRLogWarn("Uniform buffer resides in GPU memory. This will cause a performance penalty if the buffer is updated often (per frame).");
+      }
+    }
+    else {
+      BRThrowException(Stz "Invalid buffer type '" + (int)_eType + "'.");
+    }
+
+    if (_bUseStagingBuffer) {
+      //Create a staging buffer for efficiency operations
+      //Staging buffers only make sense for data that resides on the GPu and doesn't get updated per frame.
+      // Uniform data is not a goojd option for staging buffers, but mesh and bone data is a good option.
+      _hostBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), bufsize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      _gpuBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), bufsize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | bufType, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+    else {
+      //Allocate non-staged
+      _hostBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), bufsize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+
+    if (data != nullptr) {
+      writeData(data, 0, datasize);
+    }
+  }
+  virtual ~VulkanBuffer() override {
+    if (_gpuBuffer) {
+      _gpuBuffer = nullptr;
+    }
+    if (_hostBuffer) {
+      _hostBuffer->cleanup();
+    }
+  }
+  void writeData(void* data, size_t off, size_t datasize) {
+    //Copy data to the GPU
+
+    if (_hostBuffer) {
+      _hostBuffer->copy_host(data, datasize);
+    }
+    if (_gpuBuffer) {
+      _gpuBuffer->copy_gpu(_hostBuffer);
+    }
+  }
+  std::shared_ptr<VulkanDeviceBuffer> hostBuffer() { return _hostBuffer; }
+  std::shared_ptr<VulkanDeviceBuffer> gpuBuffer() { return _gpuBuffer; }
+
+private:
+  std::shared_ptr<VulkanDeviceBuffer> _hostBuffer = nullptr;
+  std::shared_ptr<VulkanDeviceBuffer> _gpuBuffer = nullptr;
+  VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
+  bool _bUseStagingBuffer = false;
+};
+
+class VulkanImage {
+public:
+  std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
+  VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
 };
 
 //This is one of the most important classes as it gives us the "extents" of all our images, buffers and viewports.
@@ -452,6 +481,22 @@ public:
 #pragma endregion
 
 #pragma region Vulkan Initialization
+  unsigned char* loadImage(const string_t& img) {
+    unsigned char* image = nullptr;  //the raw pixels
+    unsigned int width, height;
+    //int err = lodepng_decode32(&image, &width, &height, (unsigned char*)fb->getData().ptr(), fb->getData().count());
+
+    int err = lodepng_decode_file(&image, &width, &height,
+                                  img.c_str(),
+                                  LodePNGColorType::LCT_RGBA, 32);
+
+    if (err != 0) {
+      vulkan()->errorExit("LodePNG could not load image, error: " + err);
+    }
+
+    return image;
+  }
+
   void init() {
     _vulkan = std::make_shared<Vulkan>();
 
@@ -485,7 +530,7 @@ public:
   }
   void recreateSwapChain() {
     vkDeviceWaitIdle(vulkan()->device());
-    
+
     cleanupSwapChain();
     vkDeviceWaitIdle(vulkan()->device());
 
@@ -506,8 +551,8 @@ public:
   void createDescriptorPool() {
     //Uniform buffer descriptor pool.
     VkDescriptorPoolSize poolSize = {
-      . type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
-      . descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
+      .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
+      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
     };
     VkDescriptorPoolCreateInfo poolInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,     // VkStructureType
@@ -517,7 +562,7 @@ public:
       .poolSizeCount = 1,                                         // uint32_t
       .pPoolSizes = &poolSize,                                    // const VkDescriptorPoolSize*
     };
-    CheckVKR(vkCreateDescriptorPool,"",vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
+    CheckVKR(vkCreateDescriptorPool, "", vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
   }
   void createDescriptorSetLayout() {
     VkDescriptorSetLayoutBinding uboBinding = {
@@ -540,7 +585,7 @@ public:
   }
   void createDescriptorSets() {
     _layouts.resize(_swapChainImages.size(), _descriptorSetLayout);
-    
+
     //We are duplicating the descriptor layout we created in createDescriptorSetLayout. In fact we could just duplicate it there..
     VkDescriptorSetAllocateInfo allocInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,               // VkStructureType
@@ -556,9 +601,9 @@ public:
 
     for (size_t i = 0; i < _swapChainImages.size(); ++i) {
       VkDescriptorBufferInfo bufferInfo = {
-        .buffer = _uniformBuffers[i]->buffer(),           // VkBuffer
-        .offset = 0,                                    // VkDeviceSize
-        .range = _uniformBuffers[i]->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
+        .buffer = _uniformBuffers[i]->hostBuffer()->buffer(),                   // VkBuffer
+        .offset = 0,                                                  // VkDeviceSize
+        .range = _uniformBuffers[i]->hostBuffer()->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
       };
       VkWriteDescriptorSet descriptorWrite = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
@@ -591,8 +636,8 @@ public:
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ub = {
-      .foo = BR2::vec2(0,0),
-      .model = (BR2::mat4::translation(BR2::vec3(-0.5,-0.5,-0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
+      .foo = BR2::vec2(0, 0),
+      .model = (BR2::mat4::translation(BR2::vec3(-0.5, -0.5, -0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
       .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)
     };
@@ -1288,7 +1333,7 @@ public:
       .depthClampEnable = VK_FALSE,                                         //VkBool32
       .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
       .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
-      .cullMode =  VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
+      .cullMode = VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
       .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
       .depthBiasEnable = VK_FALSE,                                          //VkBool32
       .depthBiasConstantFactor = 0,                                         //float
@@ -1495,18 +1540,18 @@ public:
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
 
-      VkBuffer vertexBuffers[] = { _vertexBuffer->buffer() };
+      VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
       VkDeviceSize offsets[] = { 0 };
       vkCmdBindVertexBuffers(_commandBuffers[i], 0, 1, vertexBuffers, offsets);
-      vkCmdBindIndexBuffer(_commandBuffers[i], _indexBuffer->buffer(), 0, VK_INDEX_TYPE_UINT32);
+      vkCmdBindIndexBuffer(_commandBuffers[i], _indexBuffer->hostBuffer()->buffer(), 0, VK_INDEX_TYPE_UINT32);
       //_indexBuffer->bind()
       // VulkanIndexBuffer
       //    _eType : VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 
-      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 
-      0, //Layout ID
-      1,
-       &_descriptorSets[i], 0, nullptr);
+      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
+                              0,  //Layout ID
+                              1,
+                              &_descriptorSets[i], 0, nullptr);
 
       //This may be incorrect he's drawing just 1
       //vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
@@ -1673,7 +1718,6 @@ public:
       true,
       i_datasize,
       _planeInds.data(), i_datasize);
-
   }
   void makeBox() {
     _boxVerts = {
@@ -1699,7 +1743,6 @@ public:
       4, 0, 1, /**/ 4, 1, 5,  //
     };
 
-
     size_t v_datasize = sizeof(VertType) * _boxVerts.size();
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
@@ -1716,14 +1759,12 @@ public:
       true,
       i_datasize,
       _boxInds.data(), i_datasize);
-
   }
 
   void createVertexBuffer() {
     makeBox();
 
     //makePlane();
-
   }
 #pragma endregion
 

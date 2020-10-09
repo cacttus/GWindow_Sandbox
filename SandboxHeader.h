@@ -12,6 +12,7 @@
 #include "../VulkanGame/src/math/Vec3x.h"
 #include "../VulkanGame/src/math/Vec2x.h"
 #include "../VulkanGame/src/math/MathAll.h"
+#include "../VulkanGame/src/ext/lodepng.h"
 //
 // #ifdef _WIN32
 // #define BR2_OS_WINDOWS 1

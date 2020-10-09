@@ -53,6 +53,7 @@ SDLVulkan.cpp
 main.cpp 
 SandboxHeader.cpp 
 VulkanDebug.cpp
+~/git/VulkanGame/src/ext/lodepng.cpp
 )
   
 get_arch_config()  
