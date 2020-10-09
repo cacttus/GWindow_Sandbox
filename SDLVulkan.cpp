@@ -590,7 +590,7 @@ public:
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ub = {
-      .model = BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1)),
+      .model = (BR2::mat4::translation(BR2::vec3(-0.5,-0.5,-0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
       .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)
     };
@@ -1214,8 +1214,8 @@ public:
 
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
-    auto binding_desc = v_v2c4::getBindingDescription();
-    auto attr_desc = v_v2c4::getAttributeDescriptions();
+    auto binding_desc = VertType::getBindingDescription();
+    auto attr_desc = VertType::getAttributeDescriptions();
 
     //This is basically a glsl attribute specifying a layout identifier
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
@@ -1507,7 +1507,8 @@ public:
        &_descriptorSets[i], 0, nullptr);
 
       //This may be incorrect he's drawing just 1
-      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
+      //vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
+      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), static_cast<uint32_t>(_boxInds.size() / 3), 0, 0, 0);
       //vkCmdDrawIndexedIndirect
       //vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
       //vkCmdDraw(_commandBuffers[i], 9, 3, 0, 0);
@@ -1627,8 +1628,13 @@ public:
     //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
   }
 
+  typedef v_v3c4 VertType;
+
+  std::vector<v_v3c4> _boxVerts;
+  std::vector<uint32_t> _boxInds;
   std::vector<v_v2c4> _planeVerts;
   std::vector<uint32_t> _planeInds;
+
   void makePlane() {
     //    vec2(0.0, -.5),
     //vec2(.5, .5),
@@ -1648,39 +1654,6 @@ public:
     //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
     //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
     // };
-  }
-
-  std::vector<v_v3c4> _boxVerts;
-  std::vector<uint32_t> _boxInds;
-  void makeBox() {
-    _boxVerts = {
-      { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-      { { 1, 0, 0 }, { 1, 1, 1, 1 } },
-      { { 0, 1, 0 }, { 1, 1, 1, 1 } },
-      { { 1, 1, 0 }, { 1, 1, 1, 1 } },
-      { { 0, 0, 1 }, { 1, 1, 1, 1 } },
-      { { 1, 0, 1 }, { 1, 1, 1, 1 } },
-      { { 0, 1, 1 }, { 1, 1, 1, 1 } },
-      { { 1, 1, 1 }, { 1, 1, 1, 1 } },
-    };
-    //      6     7
-    //  2      3
-    //      4     5
-    //  0      1
-    _boxInds = {
-      0, 3, 1, /**/ 0, 2, 3,  //
-      1, 3, 7, /**/ 1, 7, 5,  //
-      5, 7, 6, /**/ 5, 6, 4,  //
-      4, 6, 2, /**/ 4, 2, 0,  //
-      2, 6, 7, /**/ 2, 7, 3,  //
-      4, 0, 1, /**/ 4, 1, 5,  //
-    };
-  }
-
-  void createVertexBuffer() {
-    //makeBox();
-
-    makePlane();
 
     size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
 
@@ -1698,6 +1671,57 @@ public:
       true,
       i_datasize,
       _planeInds.data(), i_datasize);
+
+  }
+  void makeBox() {
+    _boxVerts = {
+      { { 0, 0, 0 }, { 1, 1, 1, 1 } },
+      { { 1, 0, 0 }, { 0, 0, 1, 1 } },
+      { { 0, 1, 0 }, { 1, 0, 1, 1 } },
+      { { 1, 1, 0 }, { 1, 1, 0, 1 } },
+      { { 0, 0, 1 }, { 0, 0, 1, 1 } },
+      { { 1, 0, 1 }, { 1, 0, 0, 1 } },
+      { { 0, 1, 1 }, { 0, 1, 0, 1 } },
+      { { 1, 1, 1 }, { 1, 0, 1, 1 } },
+    };
+    //      6     7
+    //  2      3
+    //      4     5
+    //  0      1
+    _boxInds = {
+      0, 3, 1, /**/ 0, 2, 3,  //
+      1, 3, 7, /**/ 1, 7, 5,  //
+      5, 7, 6, /**/ 5, 6, 4,  //
+      4, 6, 2, /**/ 4, 2, 0,  //
+      2, 6, 7, /**/ 2, 7, 3,  //
+      4, 0, 1, /**/ 4, 1, 5,  //
+    };
+
+
+    size_t v_datasize = sizeof(VertType) * _boxVerts.size();
+
+    _vertexBuffer = std::make_shared<VulkanBuffer>(
+      vulkan(),
+      VulkanBufferType::VertexBuffer,
+      true,
+      v_datasize,
+      _boxVerts.data(), v_datasize);
+
+    size_t i_datasize = sizeof(uint32_t) * _boxInds.size();
+    _indexBuffer = std::make_shared<VulkanBuffer>(
+      vulkan(),
+      VulkanBufferType::IndexBuffer,
+      true,
+      i_datasize,
+      _boxInds.data(), i_datasize);
+
+  }
+
+  void createVertexBuffer() {
+    makeBox();
+
+    //makePlane();
+
   }
 #pragma endregion
 
