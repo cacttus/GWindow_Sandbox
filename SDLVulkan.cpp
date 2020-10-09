@@ -39,6 +39,10 @@
     Sparse buffer binding
       - Buffer is physically allocated in multiple separate chunks.
       - This may be good for allocating buffer pools as pools are pretty much a requirement.
+    Descriptor sets vs descriptor pools.
+    *Indirect functions - Parameters that would be passed are read by a buffer (UBO) during execution.
+    Tessellation is performed via subdivision of concentric triangles of the input triangles.
+
 */
 
 //Macros
@@ -181,8 +185,9 @@ public:
     cleanup();
   }
 
-  VkBuffer& buffer() { return _buffer; }
+  VkBuffer& buffer() { return _buffer; }  //Returns the buffer for un-staged (host) buffers only.
   VkDeviceMemory bufferMemory() { return _bufferMemory; }
+  VkDeviceSize totalSizeBytes() { return _allocatedSize; }
 
   void allocate(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
     BRLogInfo("Allocating vertex buffer: " + size + "B.");
@@ -235,7 +240,7 @@ private:
   VkBuffer _buffer = VK_NULL_HANDLE;
   VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
   VkDeviceSize _allocatedSize = 0;
-  std::unique_ptr<VulkanBuffer> _gpuBuffer = nullptr;      // If staging is enabled.
+  std::unique_ptr<VulkanBuffer> _gpuBuffer = nullptr;  // If staging is enabled.
   bool _bUseStagingBuffer = false;
   bool _isGpuBuffer = false;  //for staged buffers, this class represents the GPU side of the buffer. This buffer resides on the GPU and vkMapMemory can't be called on it.
 
@@ -337,7 +342,9 @@ public:
   std::shared_ptr<VulkanBuffer> _vertexBuffer;
   std::shared_ptr<VulkanBuffer> _indexBuffer;
   std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
-  VkDescriptorSetLayout _descriptorSetLayout;
+  VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSetLayout> _layouts;
+  std::vector<VkDescriptorSet> _descriptorSets;
 
   int32_t _iConcurrentFrames = 2;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
@@ -477,14 +484,16 @@ public:
   }
   void recreateSwapChain() {
     vkDeviceWaitIdle(vulkan()->device());
-
+    
     cleanupSwapChain();
     vkDeviceWaitIdle(vulkan()->device());
 
     createSwapChain();
     createUniformBuffers();
-    createImageViews();
+    createDescriptorPool();
     createDescriptorSetLayout();
+    createDescriptorSets();
+    createImageViews();
     createGraphicsPipeline();
     createFramebuffers();
     createCommandBuffers();
@@ -492,7 +501,23 @@ public:
 
     _bSwapChainOutOfDate = false;
   }
-
+  VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
+  void createDescriptorPool() {
+    //Uniform buffer descriptor pool.
+    VkDescriptorPoolSize poolSize = {
+      . type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
+      . descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
+    };
+    VkDescriptorPoolCreateInfo poolInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,     // VkStructureType
+      .pNext = nullptr,                                           // const void*
+      .flags = 0,                                                 // VkDescriptorPoolCreateFlags
+      .maxSets = static_cast<uint32_t>(_swapChainImages.size()),  // uint32_t
+      .poolSizeCount = 1,                                         // uint32_t
+      .pPoolSizes = &poolSize,                                    // const VkDescriptorPoolSize*
+    };
+    CheckVKR(vkCreateDescriptorPool,"",vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
+  }
   void createDescriptorSetLayout() {
     VkDescriptorSetLayoutBinding uboBinding = {
       .binding = 0,                                         //uint32_t
@@ -501,7 +526,8 @@ public:
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
       .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
     };
-    //This is for each UBO bound to the shader program (pipeline)
+    //This is duplicated for each UBO bound to the shader program (pipeline) for each swapchain image.
+    // This is duplicated in the vkAllocateDescriptorSets area. It essentially should be run for each UBO binding.
     VkDescriptorSetLayoutCreateInfo layoutInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                              //const void*
@@ -510,6 +536,41 @@ public:
       .pBindings = &uboBinding,                                      //const VkDescriptorSetLayoutBinding*
     };
     CheckVKR(vkCreateDescriptorSetLayout, "", vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
+  }
+  void createDescriptorSets() {
+    _layouts.resize(_swapChainImages.size(), _descriptorSetLayout);
+    //We are duplicating the descriptor layout we created in createDescriptorSetLayout. In fact we could just duplicate it there..
+    VkDescriptorSetAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,               // VkStructureType
+      .pNext = nullptr,                                                      // const void*
+      .descriptorPool = _descriptorPool,                                     // VkDescriptorPool
+      .descriptorSetCount = static_cast<uint32_t>(_swapChainImages.size()),  // uint32_t
+      .pSetLayouts = _layouts.data(),                                        // const VkDescriptorSetLayout*
+    };
+    //Descriptor sets are automatically freed when the descriptor pool is destroyed.
+    _descriptorSets.resize(_swapChainImages.size());
+    CheckVKR(vkAllocateDescriptorSets, "", vulkan()->device(), &allocInfo, _descriptorSets.data());
+
+    for (size_t i = 0; i < _swapChainImages.size(); ++i) {
+      VkDescriptorBufferInfo bufferInfo = {
+        .buffer = _uniformBuffers[i]->buffer(),           // VkBuffer
+        .offset = 0,                                    // VkDeviceSize
+        .range = _uniformBuffers[i]->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
+      };
+      VkWriteDescriptorSet descriptorWrite = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
+        .pNext = nullptr,                                     //const void*
+        .dstSet = _descriptorSets[i],                         //VkDescriptorSet
+        .dstBinding = 0,                                      //uint32_t
+        .dstArrayElement = 0,                                 //uint32_t
+        .descriptorCount = 1,                                 //uint32_t
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
+        .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
+        .pBufferInfo = &bufferInfo,                           //const VkDescriptorBufferInfo*
+        .pTexelBufferView = nullptr,                          //const VkBufferView*
+      };
+      vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+    }
   }
   void createUniformBuffers() {
     for (auto& img : _swapChainImages) {
@@ -529,12 +590,12 @@ public:
     UniformBufferObject ub = {
       .model = BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1)),
       .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, (float)_swapChainExtent.height, 0.1f, 10.0f)
+      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)
     };
 
     _uniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
-
-    // ubo.proj[1][1] *= -1;
+    //The BR2 matrix uses top left coordinates already I guess.
+    // ub.proj._m22 *= -1;
   }
   void printGpuSpecs(const VkPhysicalDeviceFeatures* const features) const {
     // features.
@@ -964,8 +1025,6 @@ public:
   void createSwapChain() {
     BRLogInfo("Creating Swapchain.");
 
-    //VkPresentModeKHR;
-    //VkSurfaceFormatKHR;
     uint32_t formatCount;
     CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, "", vulkan()->physicalDevice(), _main_window_surface, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
@@ -995,7 +1054,7 @@ public:
       }
     }
     //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAX_ENUM_KHR;
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
     for (const auto& availablePresentMode : presentModes) {
       if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
         presentMode = availablePresentMode;
@@ -1225,7 +1284,7 @@ public:
       .depthClampEnable = VK_FALSE,                                         //VkBool32
       .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
       .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
-      .cullMode = VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
+      .cullMode =  VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
       .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
       .depthBiasEnable = VK_FALSE,                                          //VkBool32
       .depthBiasConstantFactor = 0,                                         //float
@@ -1440,6 +1499,12 @@ public:
       // VulkanIndexBuffer
       //    _eType : VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 
+      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 
+      0, //Layout ID
+      1,
+       &_descriptorSets[i], 0, nullptr);
+
+      //This may be incorrect he's drawing just 1
       vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_planeInds.size()), static_cast<uint32_t>(_planeInds.size() / 3), 0, 0, 0);
       //vkCmdDrawIndexedIndirect
       //vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
@@ -1637,6 +1702,7 @@ public:
   void cleanupSwapChain() {
     _uniformBuffers.resize(0);
     vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
+    vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
 
     if (_swapChainFramebuffers.size() > 0) {
       for (auto& v : _swapChainFramebuffers) {
