@@ -94,8 +94,8 @@ static void log_log(const std::string& str) {
 #ifdef AssertOrThrow2
 #undef AssertOrThrow2
 #endif
-#define AssertOrThrow2(x)     \
-  do {                        \
+#define AssertOrThrow2(x)         \
+  do {                            \
     VG::assertOrThrow((bool)(x)); \
   } while (0);
 
@@ -237,8 +237,24 @@ public:
   static string_t formatPath(const string_t& p);
   static string_t getDirectoryNameFromPath(const string_t& pathName);
   static string_t toHex(int value, bool bIncludePrefix);
+  static std::string rootFile(const std::string file) {
+    //Return the filename relative to project root directory.
+#ifdef BR2_OS_LINUX
+    //cmake - /bin
+    return Stz "./../" + file;
+#else
+    //msvc - /bin/debug
+    return Stz "./../../" + file;
+#endif
+  }
 };
-
+class Img32 {
+public:
+  unsigned char* _data = nullptr;
+  std::size_t data_len_bytes = 0;
+  uint32_t _width = 0;
+  uint32_t _height = 0;
+};
 class Os {
 public:
   static string_t newline() {

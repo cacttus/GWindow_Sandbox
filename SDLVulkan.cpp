@@ -104,6 +104,52 @@ public:
     BRThrowException(str);
   }
 #pragma endregion
+
+#pragma region Helpers
+  uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties props;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice(), &props);
+
+    for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
+      if (typeFilter & (1 << i) && (props.memoryTypes[i].propertyFlags & properties) == properties) {
+        return i;
+      }
+    }
+    throw std::runtime_error("Failed to find valid memory type for vt buffer.");
+    return 0;
+  }
+  VkCommandBuffer beginOneTimeGraphicsCommands() {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device(), &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+  }
+  void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue());
+
+    vkFreeCommandBuffers(device(), commandPool(), 1, &commandBuffer);
+  }
+#pragma endregion
 };
 
 /**
@@ -122,23 +168,9 @@ public:
 };
 
 /**
- * @class VulkanBuffer
- * @brief Interface for Vulkan buffers used for vertex and index data.
- *        You're supposed to use buffer pools as there is a maximum buffer allocation limit on the GPU, however this is just a demo.
- *        4096 = Nvidia GPU allocation limit.
- */
-enum class VulkanBufferType {
-  VertexBuffer,
-  IndexBuffer,
-  UniformBuffer,
-  ImageBuffer
-};
-//VulkanBuffer
-//  VulkanDeviceBuffer host
-//  VulkanDeviceBuffer gpu = nullptr
-//VulkanImage
-//  VulkanDeviceBuffer host
-//  Custom code for image buffer.
+ * @class VulkanDeviceBuffer
+ * @brief Represents a buffer that can reside on the host or on the gpu.
+ * */
 class VulkanDeviceBuffer : public VulkanObject {
 public:
   VkBuffer& buffer() { return _buffer; }  //Returns the buffer for un-staged (host) buffers only.
@@ -149,7 +181,7 @@ public:
     BRLogInfo("Allocating vertex buffer: " + size + "B.");
     _allocatedSize = size;
 
-    if(properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT > 0){
+    if (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT > 0) {
       _isGpuBuffer = true;
     }
 
@@ -175,7 +207,7 @@ public:
       .allocationSize = mem_inf.size,
       //host coherent: Memory is automatically "refreshed" between host/gpu when its updated.
       //host visible: memory is accessible on the CPU side
-      .memoryTypeIndex = findMemoryType(mem_inf.memoryTypeBits, properties)  //     uint32_t
+      .memoryTypeIndex = vulkan()->findMemoryType(mem_inf.memoryTypeBits, properties)  //     uint32_t
     };
     //Same
     CheckVKR(vkAllocateMemory, "", vulkan()->device(), &allocInfo, nullptr, &_bufferMemory);
@@ -203,10 +235,7 @@ public:
                 size_t host_buf_offset = 0,
                 size_t gpu_buf_offset = 0,
                 size_t copy_count = std::numeric_limits<size_t>::max()) {
-    //If this buffer is a saged buffer, this copies data to the GPU buffer
-    // If this buffer is staged it executes a command to copy to GPU memory.
-    // Otherwise we do a direct copy to host memory.
-    //In vulkan the CPU is "host" and the GPU is "device"
+    //If this buffer resides on the GPU memory this copies data to GPU
     if (copy_count == std::numeric_limits<size_t>::max()) {
       copy_count = _allocatedSize;
     }
@@ -215,34 +244,14 @@ public:
     AssertOrThrow2(host_buf_offset + copy_count <= host_buf->totalSizeBytes());
     AssertOrThrow2(gpu_buf_offset + copy_count <= _allocatedSize);
 
-    //We must create a command buffer to copy to the GPU and then fence it.
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = vulkan()->commandPool();
-    allocInfo.commandBufferCount = 1;
+    auto buf = vulkan()->beginOneTimeGraphicsCommands();
 
-    VkCommandBuffer commandBuffer;
-    CheckVKR(vkAllocateCommandBuffers, "", vulkan()->device(), &allocInfo, &commandBuffer);
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    CheckVKR(vkBeginCommandBuffer, "", commandBuffer, &beginInfo);
     VkBufferCopy copyRegion{};
     copyRegion.srcOffset = host_buf_offset;  // Optional
     copyRegion.dstOffset = gpu_buf_offset;   // Optional
     copyRegion.size = copy_count;
-    vkCmdCopyBuffer(commandBuffer, host_buf->buffer(), buffer(), 1, &copyRegion);
-    CheckVKR(vkEndCommandBuffer, "", commandBuffer);
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
 
-    CheckVKR(vkQueueSubmit, "", vulkan()->graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-    CheckVKR(vkQueueWaitIdle, "", vulkan()->graphicsQueue());
-    vkFreeCommandBuffers(vulkan()->device(), vulkan()->commandPool(), 1, &commandBuffer);
+    vulkan()->endOneTimeGraphicsCommands(buf);
   }
   void cleanup() {
     vkDestroyBuffer(vulkan()->device(), _buffer, nullptr);
@@ -256,22 +265,22 @@ private:
   VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
   VkDeviceSize _allocatedSize = 0;
   bool _isGpuBuffer = false;  //for staged buffers, this class represents the GPU side of the buffer. This buffer resides on the GPU and vkMapMemory can't be called on it.
-
-  uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties props;
-    vkGetPhysicalDeviceMemoryProperties(vulkan()->physicalDevice(), &props);
-
-    for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
-      if (typeFilter & (1 << i) && (props.memoryTypes[i].propertyFlags & properties) == properties) {
-        return i;
-      }
-    }
-    throw std::runtime_error("Failed to find valid memory type for vt buffer.");
-    return 0;
-  }
 };
-
+/**
+ * @class VulkanBuffer
+ * @brief Interface for Vulkan buffers used for vertex and index data.
+ *        You're supposed to use buffer pools as there is a maximum buffer allocation limit on the GPU, however this is just a demo.
+ *        4096 = Nvidia GPU allocation limit.
+ */
 class VulkanBuffer : VulkanObject {
+public:
+  enum class VulkanBufferType {
+    VertexBuffer,
+    IndexBuffer,
+    UniformBuffer,
+    ImageBuffer
+  };
+
 public:
   VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged) : VulkanObject(dev) {
     _bUseStagingBuffer = bStaged;
@@ -341,11 +350,117 @@ private:
   VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
   bool _bUseStagingBuffer = false;
 };
-
-class VulkanImage {
+/**
+ * @class VulkanImage
+ * @brief Image residing on the GPU.
+ * */
+class VulkanImage : VulkanObject {
 public:
+  VulkanImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg) : VulkanObject(pvulkan) {
+    BRLogInfo("Creating Vulkan image");
+
+    //TODO:
+    //format, tiling, usage, memory props
+    VkFormat img_fmt = VK_FORMAT_R8G8B8A8_UINT;
+
+    VkImageCreateInfo imageInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,  // VkStructureType
+      .pNext = nullptr,                              // const void*
+      .flags = 0,                                    // VkImageCreateFlags
+      .imageType = VK_IMAGE_TYPE_2D,                 // VkImageType
+      .format = img_fmt,                             //,         // VkFormat
+      .extent = {
+        .width = static_cast<uint32_t>(pimg->_width),
+        .height = static_cast<uint32_t>(pimg->_height),
+        .depth = 1 },                                                         // VkExtent3D
+      .mipLevels = 1,                                                         // uint32_t
+      .arrayLayers = 1,                                                       // uint32_t
+      .samples = VK_SAMPLE_COUNT_1_BIT,                                       // VkSampleCountFlagBits
+      .tiling = VK_IMAGE_TILING_OPTIMAL,                                      // VkImageTiling
+      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,  // VkImageUsageFlags
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,                               // VkSharingMode
+      .queueFamilyIndexCount = 0,                                             // uint32_t
+      .pQueueFamilyIndices = nullptr,                                         // const uint32_t*
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,                             // VkImageLayout
+    };
+    CheckVKR(vkCreateImage, "", vulkan()->device(), &imageInfo, nullptr, &_image);
+
+    VkMemoryRequirements mem_req;
+    vkGetImageMemoryRequirements(vulkan()->device(), _image, &mem_req);
+    VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .allocationSize = mem_req.size,
+      .memoryTypeIndex = vulkan()->findMemoryType(mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    CheckVKR(vkAllocateMemory, "", vulkan()->device(), &allocInfo, nullptr, &_textureImageMemory);
+    CheckVKR(vkBindImageMemory, "", vulkan()->device(), _image, _textureImageMemory, 0);
+
+    _host = std::make_shared<VulkanDeviceBuffer>(vulkan(),
+                                                 pimg->data_len_bytes,
+                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    _host->copy_host(pimg->_data, pimg->data_len_bytes, 0, 0, pimg->data_len_bytes);  
+
+    //Undefined layout will be discarded.
+    transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToImage(pimg);
+    transitionImageLayout(img_fmt /*? - transition to the same format?*/, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
+
+private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
+  VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
+
+  void copyBufferToImage(std::shared_ptr<Img32> pimg) {
+    auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
+    VkBufferImageCopy region = {
+      .bufferOffset = 0,       //VkDeviceSize
+      .bufferRowLength = 0,    //uint32_t
+      .bufferImageHeight = 0,  //uint32_t
+      .imageSubresource = {
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,          //VkImageAspectFlags
+        .mipLevel = 0,                                    //uint32_t
+        .baseArrayLayer = 0,                              //uint32_t
+        .layerCount = 1,                                  //uint32_t
+      },                                                  //VkImageSubresourceLayers
+      .imageOffset = { 0, 0, 0 },                         //VkOffset3D
+      .imageExtent = { pimg->_width, pimg->_height, 1 },  //VkExtent3D
+    };
+    vkCmdCopyBufferToImage(commandBuffer, _host->buffer(), _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vulkan()->endOneTimeGraphicsCommands(commandBuffer);
+  }
+  void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
+    //https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#synchronization-access-types-supported
+    VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,  //VkStructureType
+      .pNext = nullptr,                                 //const void*
+      .srcAccessMask = 0,                               //VkAccessFlags
+      .dstAccessMask = 0,                               //VkAccessFlags
+      .oldLayout = oldLayout,                           //VkImageLayout
+      .newLayout = newLayout,                           //VkImageLayout
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t
+      .image = _image,                                  //VkImage
+      .subresourceRange = {
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  //VkImageAspectFlags
+        .baseMipLevel = 0,                        //uint32_t
+        .levelCount = 1,                          //uint32_t
+        .baseArrayLayer = 0,                      //uint32_t
+        .layerCount = 1,                          //uint32_t
+      },                                          //VkImageSubresourceRange
+    };
+    vkCmdPipelineBarrier(commandBuffer,
+                         0, 0,  //Pipeline stages
+                         0,
+                         0, nullptr,
+                         0, nullptr,
+                         1, &barrier);
+    //OldLayout can be VK_IMAGE_LAYOUT_UNDEFINED and the image contents are discarded when the image transition occurs
+    vulkan()->endOneTimeGraphicsCommands(commandBuffer);
+  }
 };
 
 //This is one of the most important classes as it gives us the "extents" of all our images, buffers and viewports.
@@ -408,6 +523,8 @@ public:
 
   std::vector<VkCommandBuffer> _commandBuffers;
   bool _bSwapChainOutOfDate = false;
+
+  std::shared_ptr<VulkanImage> _texture = nullptr;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -481,21 +598,6 @@ public:
 #pragma endregion
 
 #pragma region Vulkan Initialization
-  unsigned char* loadImage(const string_t& img) {
-    unsigned char* image = nullptr;  //the raw pixels
-    unsigned int width, height;
-    //int err = lodepng_decode32(&image, &width, &height, (unsigned char*)fb->getData().ptr(), fb->getData().count());
-
-    int err = lodepng_decode_file(&image, &width, &height,
-                                  img.c_str(),
-                                  LodePNGColorType::LCT_RGBA, 32);
-
-    if (err != 0) {
-      vulkan()->errorExit("LodePNG could not load image, error: " + err);
-    }
-
-    return image;
-  }
 
   void init() {
     _vulkan = std::make_shared<Vulkan>();
@@ -522,6 +624,7 @@ public:
     createLogicalDevice();
     createCommandPool();
     createVertexBuffer();
+    createTextureImage();
 
     recreateSwapChain();
 
@@ -601,7 +704,7 @@ public:
 
     for (size_t i = 0; i < _swapChainImages.size(); ++i) {
       VkDescriptorBufferInfo bufferInfo = {
-        .buffer = _uniformBuffers[i]->hostBuffer()->buffer(),                   // VkBuffer
+        .buffer = _uniformBuffers[i]->hostBuffer()->buffer(),         // VkBuffer
         .offset = 0,                                                  // VkDeviceSize
         .range = _uniformBuffers[i]->hostBuffer()->totalSizeBytes(),  // VkDeviceSize OR VK_WHOLE_SIZE
       };
@@ -624,7 +727,7 @@ public:
     for (auto& img : _swapChainImages) {
       _uniformBuffers.push_back(std::make_shared<VulkanBuffer>(
         vulkan(),
-        VulkanBufferType::UniformBuffer,
+        VulkanBuffer::VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         sizeof(UniformBufferObject), nullptr, 0));
     }
@@ -1217,13 +1320,8 @@ public:
     return ret;
   }
   std::vector<VkPipelineShaderStageCreateInfo> createShaderForPipeline() {
-#ifdef BR2_OS_LINUX
-    std::vector<char> vertShaderCode = readFile(Stz "./../test_vs.spv");
-    std::vector<char> fragShaderCode = readFile(Stz "./../test_fs.spv");
-#else
-    std::vector<char> vertShaderCode = readFile(Stz "./../../test_vs.spv");
-    std::vector<char> fragShaderCode = readFile(Stz "./../../test_fs.spv");
-#endif
+    std::vector<char> vertShaderCode = readFile(App::rootFile("test_vs.spv"));
+    std::vector<char> fragShaderCode = readFile(App::rootFile("test_fs.spv"));
 
     _vertShaderModule = createShaderModule(vertShaderCode);
     _fragShaderModule = createShaderModule(fragShaderCode);
@@ -1410,7 +1508,7 @@ public:
       .storeOp = VK_ATTACHMENT_STORE_OP_STORE,             //VkAttachmentStoreOp
       .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,    //VkAttachmentLoadOp
       .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,  //VkAttachmentStoreOp
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,          //VkImageLayout
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,          //VkImageLayout - discard initial data.
       .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,      //VkImageLayout
     };
 
@@ -1706,7 +1804,7 @@ public:
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
-      VulkanBufferType::VertexBuffer,
+      VulkanBuffer::VulkanBufferType::VertexBuffer,
       true,
       v_datasize,
       _planeVerts.data(), v_datasize);
@@ -1714,7 +1812,7 @@ public:
     size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
     _indexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
-      VulkanBufferType::IndexBuffer,
+      VulkanBuffer::VulkanBufferType::IndexBuffer,
       true,
       i_datasize,
       _planeInds.data(), i_datasize);
@@ -1747,7 +1845,7 @@ public:
 
     _vertexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
-      VulkanBufferType::VertexBuffer,
+      VulkanBuffer::VulkanBufferType::VertexBuffer,
       true,
       v_datasize,
       _boxVerts.data(), v_datasize);
@@ -1755,7 +1853,7 @@ public:
     size_t i_datasize = sizeof(uint32_t) * _boxInds.size();
     _indexBuffer = std::make_shared<VulkanBuffer>(
       vulkan(),
-      VulkanBufferType::IndexBuffer,
+      VulkanBuffer::VulkanBufferType::IndexBuffer,
       true,
       i_datasize,
       _boxInds.data(), i_datasize);
@@ -1765,6 +1863,37 @@ public:
     makeBox();
 
     //makePlane();
+  }
+  std::shared_ptr<Img32> loadImage(const string_t& img) {
+    unsigned char* data = nullptr;  //the raw pixels
+    unsigned int width, height;
+    //int err = lodepng_decode32(&image, &width, &height, (unsigned char*)fb->getData().ptr(), fb->getData().count());
+
+    int required_bytes = 4;
+
+    int err = lodepng_decode_file(&data,
+                                  &width, &height,
+                                  img.c_str(),
+                                  (required_bytes == 4) ? (LodePNGColorType::LCT_RGBA) : (LodePNGColorType::LCT_RGB),
+                                  required_bytes * 8);
+
+    if (err != 0) {
+      vulkan()->errorExit("LodePNG could not load image, error: " + err);
+      return nullptr;
+    }
+    std::shared_ptr<Img32> ret = std::make_shared<Img32>();
+    ret->_width = width;
+    ret->_height = height;
+    ret->_data = data;
+    ret->data_len_bytes = width * height * required_bytes;
+
+    return ret;
+  }
+  void createTextureImage() {
+    auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
+    if (img) {
+      _texture = std::make_shared<VulkanImage>(vulkan(), img);
+    }
   }
 #pragma endregion
 
