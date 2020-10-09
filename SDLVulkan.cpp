@@ -539,6 +539,7 @@ public:
   }
   void createDescriptorSets() {
     _layouts.resize(_swapChainImages.size(), _descriptorSetLayout);
+    
     //We are duplicating the descriptor layout we created in createDescriptorSetLayout. In fact we could just duplicate it there..
     VkDescriptorSetAllocateInfo allocInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,               // VkStructureType
@@ -547,6 +548,7 @@ public:
       .descriptorSetCount = static_cast<uint32_t>(_swapChainImages.size()),  // uint32_t
       .pSetLayouts = _layouts.data(),                                        // const VkDescriptorSetLayout*
     };
+
     //Descriptor sets are automatically freed when the descriptor pool is destroyed.
     _descriptorSets.resize(_swapChainImages.size());
     CheckVKR(vkAllocateDescriptorSets, "", vulkan()->device(), &allocInfo, _descriptorSets.data());
@@ -1701,6 +1703,8 @@ public:
 
   void cleanupSwapChain() {
     _uniformBuffers.resize(0);
+    _layouts.resize(0);
+    _descriptorSets.resize(0);
     vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
     vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
 
