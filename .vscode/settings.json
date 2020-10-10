@@ -6,12 +6,13 @@
   },
   "debug.onTaskErrors": "showErrors",
   "editor.renderWhitespace": "all",
-  "workbench.colorTheme": "Default Dark+", //Ctrl+K Ctrl+T -- Monokai, Quiet Light, Default Light+, Visual Studio Dark, Solarized Dark, Solarized Light, Tomorrow Night Blue
+  "workbench.colorTheme": "Default Light+", //Ctrl+K Ctrl+T -- Monokai, Quiet Light, Default Light+, Visual Studio Dark, Solarized Dark, Solarized Light, Tomorrow Night Blue
   "editor.comments.ignoreEmptyLines": false,
   "editor.copyWithSyntaxHighlighting": false,
   "editor.definitionLinkOpensInPeek": true,
   "editor.detectIndentation": false,
   "editor.tabSize": 2,
+  "editor.codeLens": false,
   "terminal.integrated.automationShell.linux": "",
   "workbench.iconTheme": "material-icon-theme",
   "explorer.confirmDragAndDrop": false,
