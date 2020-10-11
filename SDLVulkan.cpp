@@ -141,7 +141,7 @@ public:
   }
   VkFormat findDepthFormat() {
     return findSupportedFormat(
-      { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
+      { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT },
       VK_IMAGE_TILING_OPTIMAL,
       VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
   }
@@ -456,6 +456,8 @@ protected:
 };
 class VulkanDepthImage : public VulkanImage {
 public:
+  VulkanDepthImage(std::shared_ptr<Vulkan> pvulkan) : VulkanImage(pvulkan) {
+  }
 };
 /**
  * @class VulkanTextureImage
@@ -652,7 +654,7 @@ public:
   std::vector<VkDescriptorSetLayout> _layouts;
   std::vector<VkDescriptorSet> _descriptorSets;
 
-  int32_t _iConcurrentFrames = 2;
+  int32_t _iConcurrentFrames = 3;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
   std::vector<VkSemaphore> _renderFinishedSemaphores;
   size_t _currentFrame = 0;
@@ -686,7 +688,7 @@ public:
   bool _bSwapChainOutOfDate = false;
 
   std::shared_ptr<VulkanTextureImage> _testTexture = nullptr;
-  std::shared_ptr<VulkanTextureImage> _depthTexture = nullptr;
+  std::shared_ptr<VulkanDepthImage> _depthTexture = nullptr;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -810,7 +812,7 @@ public:
 
     createSwapchainImageViews();  // * stays - recreate
     createGraphicsPipeline();
-    // createShaderForPipeline - Move out - create once
+    // --> createShaderForPipeline - Move out - create once
     createFramebuffers();    // *stays - recreate
     createCommandBuffers();  // * stays
     createSyncObjects();     // **Possibly create once
@@ -1919,6 +1921,7 @@ public:
 
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
+    //E.G. game logic
     updateUniformBuffer(imageIndex);
 
     //aquire next image
@@ -1969,6 +1972,8 @@ public:
     //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
     // We add additional threads for async the rendering.
     //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
+
+    _currentFrame = (_currentFrame + 1) % _iConcurrentFrames;
   }
 
   typedef v_v3c4x2 VertType;
