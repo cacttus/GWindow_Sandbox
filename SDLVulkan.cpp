@@ -624,10 +624,30 @@ private:
     delete[] rowTmp1;
   }
 };
+//You can bind multiple pipelines in one command buffer.
+class VulkanPipeline {
+  public:
+};
+class VulkanSwapchainImage {
+  public:
+  //Framebuffer
+  //Uniform buffer
+  //Descriptor sets.
 
+  //VkImage
+  //VkImageView
+  //VkCommandBuffer commands
+  //VkFramebuffer frameBuffers
+};
+//In-Fligth Frames
+//Semaphores.
+//Fences
 //This is one of the most important classes as it gives us the "extents" of all our images, buffers and viewports.
 class VulkanSwapchain {
 public:
+  VkExtent2D _swapChainExtent;
+  VkFormat _swapChainImageFormat;
+  std::vector<VulkanSwapchainImage> _swapchainImages;
   //Should allow the creation and destcuction of swapchain.
   // Vulkan
   //  VulkanSwapchain s(..args)
@@ -639,6 +659,7 @@ public:
 };
 class MeshComponent {
 public:
+
 };
 
 class SDLVulkan_Internal {
@@ -654,12 +675,16 @@ public:
   std::vector<VkDescriptorSetLayout> _layouts;
   std::vector<VkDescriptorSet> _descriptorSets;
 
+
+  //Asynchronous computing depends on the swapchain count.
+  //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
+  //You can't have more than #swapchain images rendering at a time.
   int32_t _iConcurrentFrames = 3;
-  std::vector<VkSemaphore> _imageAvailableSemaphores;
-  std::vector<VkSemaphore> _renderFinishedSemaphores;
   size_t _currentFrame = 0;
   std::vector<VkFence> _inFlightFences;
   std::vector<VkFence> _imagesInFlight;
+    std::vector<VkSemaphore> _imageAvailableSemaphores;
+  std::vector<VkSemaphore> _renderFinishedSemaphores;
 
   SDL_Window* _pSDLWindow = nullptr;
   bool _bEnableValidationLayers = true;
@@ -704,7 +729,7 @@ public:
     bool bFullscreen = false;
     SDL_Window* ret = nullptr;
 
-    int style_flags = 0;
+    int style_flags = SDL_WINDOW_ALLOW_HIGHDPI;
     style_flags |= (show ? SDL_WINDOW_SHOWN : SDL_WINDOW_HIDDEN);
     if (params._type == GraphicsWindowCreateParameters::Wintype_Desktop) {
       style_flags |= SDL_WINDOW_RESIZABLE;
@@ -784,10 +809,11 @@ public:
     createVulkanInstance(title, _pSDLWindow);
     loadExtensions();
     setupDebug();
-    pickPhysicalDevice();
-    createLogicalDevice();
-    createCommandPool();
-    createVertexBuffer();
+    
+    pickPhysicalDevice();// Vulkan
+    createLogicalDevice();//Vulkan
+    createCommandPool(); //Vulkan
+    createVertexBuffer(); //Mesh class
 
     recreateSwapChain();
 
@@ -1615,7 +1641,6 @@ public:
       .attachmentCount = 1,
       .pAttachments = &colorBlendAttachment,
     };
-
     VkPipelineRasterizationStateCreateInfo rasterizer = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                                     //const void*
@@ -1631,14 +1656,12 @@ public:
       .depthBiasSlopeFactor = 0,                                            //float
       .lineWidth = 1,                                                       //float
     };
-
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     std::vector<VkDynamicState> dynamicStates = {
       //Note: if viewport is dynamic then the viewports below are ignored.
       //VK_DYNAMIC_STATE_VIEWPORT,
       //VK_DYNAMIC_STATE_LINE_WIDTH
     };
-
     VkPipelineDynamicStateCreateInfo dynamicState = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                               //const void*
@@ -1659,7 +1682,6 @@ public:
       .alphaToCoverageEnable = false,                                     //VkBool32
       .alphaToOneEnable = false,                                          //VkBool32
     };
-
     VkGraphicsPipelineCreateInfo pipelineInfo = {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                          //const void*
@@ -1843,6 +1865,14 @@ public:
       CheckVKR(vkBeginCommandBuffer, _commandBuffers[i], &beginInfo);
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
+      
+      //VkViewport viewport = vks::initializers::viewport((float)width, (float)height, 0.0f, 1.0f);
+			//vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
+			//VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
+			//vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+      
+      //You can bind multiple pipelines for multiple render passes.
+      //Binding one does not disturb the others.
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
       //You can have multiple vertex layouts with layout(binding=x)
       VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
@@ -1857,6 +1887,8 @@ public:
       //*The 1 is instances - for instanced rendering
       vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), 1, 0, 0, 0);
       //vkCmdDrawIndexedIndirect
+
+      //This is called once when all pipeline rendering is complete
       vkCmdEndRenderPass(_commandBuffers[i]);
       CheckVKR(vkEndCommandBuffer, _commandBuffers[i]);
     }
