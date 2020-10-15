@@ -46,8 +46,6 @@
 
 */
 
-static bool g_bMipmaps_enabled = true;
-
 //Macros
 //Validate a Vk Result.
 #define CheckVKR(fname_, ...)                     \
@@ -566,14 +564,25 @@ private:
 *  @class VulkanTextureImage
 *  @brief Image residing on the GPU.
 */
+enum class MipmapMode {
+  Disabled,
+  Nearest,
+  Linear,
+  MipmapMode_Count
+};
+
+MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
+
 class VulkanTextureImage : public VulkanImage {
 public:
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, bool mipmaps) : VulkanImage(pvulkan) {
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps) : VulkanImage(pvulkan) {
     BRLogInfo("Creating Vulkan image");
     VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
-
     VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
-    if (mipmaps) {
+
+    _mipmap = mipmaps;
+
+    if (_mipmap != MipmapMode::Disabled) {
       _mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(pimg->_width, pimg->_height)))) + 1;
       transfer_src = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  //We need to use this image as a src transfer to fill each mip level.
     }
@@ -591,7 +600,7 @@ public:
 
     copyImageToGPU(pimg, img_fmt);
 
-    if (mipmaps) {
+    if (_mipmap != MipmapMode::Disabled) {
       generateMipmaps();
     }
   }
@@ -605,6 +614,7 @@ private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   VkSampler _textureSampler = VK_NULL_HANDLE;
   uint32_t _mipLevels = 1;
+  MipmapMode _mipmap = MipmapMode::Linear;
 
   bool mipmappingSupported() {
     VkFormatProperties formatProperties;
@@ -634,7 +644,8 @@ private:
                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                       iMipLevel - 1, iMipLevel,
-                      VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_LINEAR);
+                      VK_IMAGE_ASPECT_COLOR_BIT,
+                      (_mipmap == MipmapMode::Nearest) ? (VK_FILTER_NEAREST) : (VK_FILTER_LINEAR));
       cmds->imageTransferBarrier(_image,
                                  VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -969,6 +980,9 @@ public:
 #pragma endregion
 
 #pragma region Vulkan Initialization
+
+  string_t base_title = "Press F1 to toggle Mipmaps";
+
   void init() {
     _vulkan = std::make_shared<Vulkan>();
 
@@ -978,7 +992,7 @@ public:
       vulkan()->errorExit(Stz "SDL could not be initialized: " + SDL_GetError());
     }
 
-    string_t title = "hello vuklkan";
+    string_t title = base_title;
     GraphicsWindowCreateParameters params(
       title, 100, 100, 500, 500,
       GraphicsWindowCreateParameters::Wintype_Desktop, false, true, false,
@@ -2375,7 +2389,7 @@ public:
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
-      _testTexture = std::make_shared<VulkanTextureImage>(vulkan(), img, g_bMipmaps_enabled);
+      _testTexture = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
     }
     else {
       vulkan()->errorExit("Could not load test image.");
@@ -2477,8 +2491,9 @@ void SDLVulkan::init() {
     _pInt->cleanup();
   }
 }
+
 bool SDLVulkan::doInput() {
-    SDL_Event event;
+  SDL_Event event;
   while (SDL_PollEvent(&event)) {
     if (event.type == SDL_QUIT) {
       return true;
@@ -2492,11 +2507,21 @@ bool SDLVulkan::doInput() {
     }
     else if (event.type == SDL_KEYDOWN) {
       if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-        return  true;
+        return true;
         break;
       }
-      else if (event.key.keysym.scancode == SDL_SCANCODE_SPACE) {
-        g_bMipmaps_enabled = !g_bMipmaps_enabled;
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
+        g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
+        
+        string_t mmm = (g_mipmap_mode==MipmapMode::Linear) ? ("Linear") : (
+          (g_mipmap_mode==MipmapMode::Nearest) ? ("Nearest") : (
+            (g_mipmap_mode==MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")
+          )
+        );
+
+        string_t mode = _pInt->base_title + " (" + mmm + ") ";
+
+        SDL_SetWindowTitle(_pInt->_pSDLWindow, mode.c_str());
         _pInt->recreateSwapChain();
         break;
       }
