@@ -1,11 +1,7 @@
 #include "./SDLVulkan.h"
 #include "./VulkanDebug.h"
 /*
-  This is just following the Vulkan Tutorial https://vulkan-tutorial.com.
-
-  Command Buffers vs Command pools
-    command pools batch commands into differnet types like compute vs graphics vs presentation.
-    command buffers exist in command pools and they package a series of dependent rendering commands that cannot be run async (begin, bind buffers, bind uniforms, bind textures, draw.. end)
+  This is following the Vulkan Tutorial https://vulkan-tutorial.com.
 
   Notes
     Aliasing - using the same chunk of memory for multiple resources.
@@ -43,8 +39,20 @@
     *Indirect functions - Parameters that would be passed are read by a buffer (UBO) during execution.
     Tessellation is performed via subdivision of concentric triangles of the input triangles.
     oversampling / undersampling = bilinear filtering / anisotropic filtering
+  Command Buffers vs Command pools
+    command pools batch commands into differnet types like compute vs graphics vs presentation.
+    command buffers exist in command pools and they package a series of dependent rendering commands that cannot be run async (begin, bind buffers, bind uniforms, bind textures, draw.. end)
 
 */
+enum class MipmapMode {
+  Disabled,
+  Nearest,
+  Linear,
+  MipmapMode_Count
+};
+MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
+bool g_samplerate_shading = true;
+
 
 //Macros
 //Validate a Vk Result.
@@ -63,6 +71,9 @@
 #define VkExtFn(_vkFn) PFN_##_vkFn _vkFn = nullptr;
 
 namespace VG {
+
+#pragma region Vulkan Classes
+
 struct UniformBufferObject {
   //alignas(16) BR2::vec2 foo;
   alignas(16) BR2::mat4 model;
@@ -81,6 +92,8 @@ public:
   VkCommandPool _commandPool = VK_NULL_HANDLE;
   VkQueue _graphicsQueue = VK_NULL_HANDLE;  // Device queues are implicitly cleaned up when the device is destroyed, so we don't need to do anything in cleanup.
   VkQueue _presentQueue = VK_NULL_HANDLE;
+  VkSampleCountFlagBits _maxMSAASamples = VK_SAMPLE_COUNT_1_BIT;
+  VkSampleCountFlagBits _msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
   VkPhysicalDevice& physicalDevice() { return _physicalDevice; }
   VkDevice& device() { return _device; }
@@ -112,6 +125,33 @@ public:
 #pragma endregion
 
 #pragma region Helpers
+  VkSampleCountFlagBits getMaxUsableSampleCount() {
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+    vkGetPhysicalDeviceProperties(physicalDevice(), &physicalDeviceProperties);
+
+    VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+    if (counts & VK_SAMPLE_COUNT_64_BIT) {
+      return VK_SAMPLE_COUNT_64_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_32_BIT) {
+      return VK_SAMPLE_COUNT_32_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_16_BIT) {
+      return VK_SAMPLE_COUNT_16_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_8_BIT) {
+      return VK_SAMPLE_COUNT_8_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_4_BIT) {
+      return VK_SAMPLE_COUNT_4_BIT;
+    }
+    if (counts & VK_SAMPLE_COUNT_2_BIT) {
+      return VK_SAMPLE_COUNT_2_BIT;
+    }
+
+    return VK_SAMPLE_COUNT_1_BIT;
+  }
+
   VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels = 1) {
     VkImageViewCreateInfo createInfo = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,  //VkStructureType
@@ -335,7 +375,7 @@ private:
  *        You're supposed to use buffer pools as there is a maximum buffer allocation limit on the GPU, however this is just a demo.
  *        4096 = Nvidia GPU allocation limit.
  */
-class VulkanBuffer : VulkanObject {
+class VulkanBuffer : public VulkanObject {
 public:
   enum class VulkanBufferType {
     VertexBuffer,
@@ -428,7 +468,8 @@ public:
   VkImage image() { return _image; }
 
   void allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                      VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels) {
+                      VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels, 
+                      VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) {
     if (mipLevels < 1) {
       BRLogError("Miplevels was < 1 for image. Setting to 1");
       mipLevels = 1;
@@ -483,6 +524,21 @@ public:
   VulkanDepthImage(std::shared_ptr<Vulkan> pvulkan) : VulkanImage(pvulkan) {
   }
 };
+
+enum class AttachmentType { 
+  ColorAttachment,
+  DepthAttachment
+};
+
+//We should say like RenderPipe->createAttachment .. or sth. It uses the swapchain images.
+class VulkanAttachment : public VulkanImage {
+  public:
+  VulkanAttachment(std::shared_ptr<Vulkan> v, AttachmentType type) : VulkanImage(v) {
+
+  }
+
+};
+
 //Used for graphics commands.
 class VulkanCommands : public VulkanObject {
 public:
@@ -564,15 +620,6 @@ private:
 *  @class VulkanTextureImage
 *  @brief Image residing on the GPU.
 */
-enum class MipmapMode {
-  Disabled,
-  Nearest,
-  Linear,
-  MipmapMode_Count
-};
-
-MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
-
 class VulkanTextureImage : public VulkanImage {
 public:
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps) : VulkanImage(pvulkan) {
@@ -814,9 +861,11 @@ private:
     delete[] rowTmp1;
   }
 };  // namespace VG
+//class VulkanShaderModule
 //You can bind multiple pipelines in one command buffer.
 class VulkanPipeline {
 public:
+  //Shader Pipeline.
   //VkPipeline
   //Shaders
 };
@@ -830,6 +879,8 @@ public:
   //VkImageView
   //VkCommandBuffer commands
   //VkFramebuffer frameBuffers
+
+
 };
 //In-Fligth Frames
 //Semaphores.
@@ -853,6 +904,11 @@ class MeshComponent {
 public:
 };
 
+
+
+#pragma endregion
+
+//Data from Vulkan-Tutorial
 class SDLVulkan_Internal {
 public:
 #pragma region Members
@@ -861,7 +917,6 @@ public:
 
   std::shared_ptr<VulkanBuffer> _vertexBuffer;
   std::shared_ptr<VulkanBuffer> _indexBuffer;
-  std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
   std::vector<VkDescriptorSetLayout> _layouts;
   std::vector<VkDescriptorSet> _descriptorSets;
@@ -875,6 +930,13 @@ public:
   std::vector<VkFence> _imagesInFlight;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
   std::vector<VkSemaphore> _renderFinishedSemaphores;
+  std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
+  VkExtent2D _swapChainExtent;
+  VkFormat _swapChainImageFormat;
+  std::vector<VkImage> _swapChainImages;
+  std::vector<VkImageView> _swapChainImageViews;
+  std::vector<VkFramebuffer> _swapChainFramebuffers;
 
   SDL_Window* _pSDLWindow = nullptr;
   bool _bEnableValidationLayers = true;
@@ -888,18 +950,13 @@ public:
   VkSurfaceKHR _main_window_surface = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
 
-  VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-  VkExtent2D _swapChainExtent;
-  VkFormat _swapChainImageFormat;
-  std::vector<VkImage> _swapChainImages;
-  std::vector<VkImageView> _swapChainImageViews;
+
 
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
   VkShaderModule _vertShaderModule = VK_NULL_HANDLE;
   VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
-  std::vector<VkFramebuffer> _swapChainFramebuffers;
 
   std::vector<VkCommandBuffer> _commandBuffers;
   bool _bSwapChainOutOfDate = false;
@@ -1487,11 +1544,16 @@ public:
 
       //**NOTE** deviceFeatures must be modified in the deviceFeatures in
       if (vulkan()->physicalDevice() == VK_NULL_HANDLE) {
+        //We need to fix this to allow for optional samplerate shading.
         if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             deviceFeatures.geometryShader &&
             deviceFeatures.fillModeNonSolid &&
-            deviceFeatures.samplerAnisotropy) {
+            deviceFeatures.samplerAnisotropy &&
+            deviceFeatures.sampleRateShading) {
           vulkan()->_physicalDevice = device;
+          vulkan()->_maxMSAASamples = vulkan()->getMaxUsableSampleCount();
+          int n=0;
+          n++;
         }
       }
 
@@ -1775,6 +1837,15 @@ public:
     std::vector<VkPipelineShaderStageCreateInfo> inf{ vertShaderStageInfo, fragShaderStageInfo };
     return inf;
   }
+  void createColorResources(){
+    //*So here we need to branch off VulkanImage and create the depth buffer format and the color target format.
+    //  This will be similar to the render formats in the renderPipe.
+    //  This will tie in to the generic RenderPipe attachments.
+    // The final attachment for an MSAA down-sampling is called a "resolve" attachment.
+    //class RenderTarget   
+    //_colorTarget = std::make_shared<VulkanImage>();
+
+  }
   void createGraphicsPipeline() {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
@@ -1891,9 +1962,13 @@ public:
       .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                                   //const void*
       .flags = 0,                                                         //VkPipelineMultisampleStateCreateFlags
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits
-      .sampleShadingEnable = VK_FALSE,                                    //VkBool32
-      .minSampleShading = 0,                                              //float
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits ** Change for MSAA
+
+      //**Note: 
+      //I think this is only available if multisampling is enabled.
+      //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
+      .sampleShadingEnable = g_samplerate_shading ? VK_TRUE : VK_FALSE,   //VkBool32
+      .minSampleShading = 1.0f,                                              //float
       .pSampleMask = nullptr,                                             //const VkSampleMask*
       .alphaToCoverageEnable = false,                                     //VkBool32
       .alphaToOneEnable = false,                                          //VkBool32
@@ -1971,7 +2046,7 @@ public:
       .pInputAttachments = nullptr,                                //const VkAttachmentReference*
       .colorAttachmentCount = 1,                                   //uint32_t
       .pColorAttachments = &colorAttachmentRef,                    //const VkAttachmentReference*
-      .pResolveAttachments = nullptr,                              //const VkAttachmentReference*
+      .pResolveAttachments = nullptr,                              //const VkAttachmentReference* - For MSAA downsampling to final buffer.
       .pDepthStencilAttachment = nullptr /*&depthAttachmentRef*/,  //const VkAttachmentReference*
       .preserveAttachmentCount = 0,                                //uint32_t
       .pPreserveAttachments = nullptr,                             //const uint32_t*
@@ -2459,6 +2534,7 @@ public:
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
 
+    //_pSwapchain = nullptr
     cleanupSwapChain();
 
     vkDestroyCommandPool(vulkan()->device(), vulkan()->commandPool(), nullptr);
@@ -2512,16 +2588,17 @@ bool SDLVulkan::doInput() {
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
         g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
-        
-        string_t mmm = (g_mipmap_mode==MipmapMode::Linear) ? ("Linear") : (
-          (g_mipmap_mode==MipmapMode::Nearest) ? ("Nearest") : (
-            (g_mipmap_mode==MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")
-          )
-        );
+
+        string_t mmm = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")));
 
         string_t mode = _pInt->base_title + " (" + mmm + ") ";
 
         SDL_SetWindowTitle(_pInt->_pSDLWindow, mode.c_str());
+        _pInt->recreateSwapChain();
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
+        g_samplerate_shading = !g_samplerate_shading;
         _pInt->recreateSwapChain();
         break;
       }
