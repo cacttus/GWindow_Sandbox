@@ -52,6 +52,9 @@ add_executable(${VG_TARGET_NAME}
 SDLVulkan.cpp 
 main.cpp 
 SandboxHeader.cpp 
+#Begin vulkan classes.
+Vulkan.cpp
+VulkanClasses.cpp
 VulkanDebug.cpp
 ~/git/VulkanGame/src/ext/lodepng.cpp
 )
