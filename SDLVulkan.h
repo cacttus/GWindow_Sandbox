@@ -17,16 +17,17 @@ namespace VG {
 class SDLVulkan_Internal;
 
 class VirtualMemory {
-  public:
+public:
   VirtualMemory() {}
   virtual ~VirtualMemory() {}
 };
 
 class SDLVulkan : public VirtualMemory {
- public:
+public:
   SDLVulkan();
   virtual ~SDLVulkan() override;
 
+  bool doInput();
   void init();
   void renderLoop();
 

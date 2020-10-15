@@ -90,6 +90,7 @@ static void log_log(const std::string& str) {
 #define BRLogInfo(xx) VG::log_log(Stz xx)
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
+#define BRLogWarnOnce(xx) BRLogWarn(xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
 #ifdef AssertOrThrow2
 #undef AssertOrThrow2

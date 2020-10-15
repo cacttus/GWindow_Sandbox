@@ -46,6 +46,8 @@
 
 */
 
+static bool g_bMipmaps_enabled = true;
+
 //Macros
 //Validate a Vk Result.
 #define CheckVKR(fname_, ...)                     \
@@ -112,7 +114,7 @@ public:
 #pragma endregion
 
 #pragma region Helpers
-  VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
+  VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels = 1) {
     VkImageViewCreateInfo createInfo = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                   //const void*
@@ -129,7 +131,7 @@ public:
       .subresourceRange = {
         .aspectMask = aspectFlags,  // VkImageAspectFlags
         .baseMipLevel = 0,          // uint32_t
-        .levelCount = 1,            // uint32_t
+        .levelCount = mipLevels,    // uint32_t
         .baseArrayLayer = 0,        // uint32_t
         .layerCount = 1,            // uint32_t
       },                            //VkImageSubresourceRange
@@ -173,18 +175,23 @@ public:
     return 0;
   }
   VkCommandBuffer beginOneTimeGraphicsCommands() {
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = commandPool();
-    allocInfo.commandBufferCount = 1;
+    VkCommandBufferAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                         //const void*
+      .commandPool = commandPool(),                             //VkCommandPool
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,                 //VkCommandBufferLevel
+      .commandBufferCount = 1,                                  //uint32_t
+    };
 
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(device(), &allocInfo, &commandBuffer);
 
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkCommandBufferBeginInfo beginInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,  //VkStructureType
+      .pNext = nullptr,                                      //const void*
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,  //VkCommandBufferUsageFlags
+      .pInheritanceInfo = nullptr,                           //const VkCommandBufferInheritanceInfo*
+    };
 
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
@@ -193,10 +200,16 @@ public:
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
     vkEndCommandBuffer(commandBuffer);
 
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
+    VkSubmitInfo submitInfo = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
+      .pNext = nullptr,                        //const void*
+      .pWaitSemaphores = nullptr,              //const VkSemaphore*
+      .pWaitDstStageMask = nullptr,            //const VkPipelineStageFlags*
+      .commandBufferCount = 1,                 //uint32_t
+      .pCommandBuffers = &commandBuffer,       //const VkCommandBuffer*
+      .signalSemaphoreCount = 0,               //uint32_t
+      .pSignalSemaphores = nullptr,            //const VkSemaphore*
+    };
 
     vkQueueSubmit(graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(graphicsQueue());
@@ -406,20 +419,25 @@ class VulkanImage : public VulkanObject {
 public:
   VulkanImage(std::shared_ptr<Vulkan> pvulkan) : VulkanObject(pvulkan) {
   }
+
   virtual ~VulkanImage() override {
     vkDestroyImage(vulkan()->device(), _image, nullptr);
     vkFreeMemory(vulkan()->device(), _textureImageMemory, nullptr);
     vkDestroyImageView(vulkan()->device(), _textureImageView, nullptr);
   }
   VkImageView imageView() { return _textureImageView; }
-
-protected:
-  VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
-  VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
-  VkImageView _textureImageView = VK_NULL_HANDLE;
+  VkFormat format() { return _format; }
+  VkImage image() { return _image; }
 
   void allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                      VkImageUsageFlags usage, VkMemoryPropertyFlags properties) {
+                      VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels) {
+    if (mipLevels < 1) {
+      BRLogError("Miplevels was < 1 for image. Setting to 1");
+      mipLevels = 1;
+    }
+    _width = width;
+    _height = height;
+    _format = format;
     VkImageCreateInfo imageInfo = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,  // VkStructureType
       .pNext = nullptr,                              // const void*
@@ -430,7 +448,7 @@ protected:
         .width = width,
         .height = height,
         .depth = 1 },                              // VkExtent3D
-      .mipLevels = 1,                              // uint32_t
+      .mipLevels = mipLevels,                      // uint32_t
       .arrayLayers = 1,                            // uint32_t
       .samples = VK_SAMPLE_COUNT_1_BIT,            // VkSampleCountFlagBits
       .tiling = tiling,                            // VkImageTiling
@@ -453,42 +471,192 @@ protected:
     CheckVKR(vkAllocateMemory, vulkan()->device(), &allocInfo, nullptr, &_textureImageMemory);
     CheckVKR(vkBindImageMemory, vulkan()->device(), _image, _textureImageMemory, 0);
   }
+
+protected:
+  VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
+  VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
+  VkImageView _textureImageView = VK_NULL_HANDLE;
+  uint32_t _width = 0;
+  uint32_t _height = 0;
+  VkFormat _format = (VkFormat)0;  //Invalid format
 };
 class VulkanDepthImage : public VulkanImage {
 public:
   VulkanDepthImage(std::shared_ptr<Vulkan> pvulkan) : VulkanImage(pvulkan) {
   }
 };
+//Used for graphics commands.
+class VulkanCommands : public VulkanObject {
+public:
+  VulkanCommands(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+  }
+  void begin() {
+    _buf = vulkan()->beginOneTimeGraphicsCommands();
+  }
+  void end() {
+    vulkan()->endOneTimeGraphicsCommands(_buf);
+  }
+  void blitImage(VkImage srcImg,
+                 VkImage dstImg,
+                 const BR2::iext2& srcRegion,
+                 const BR2::iext2& dstRegion,
+                 VkImageLayout srcLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                 VkImageLayout dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 uint32_t srcMipLevel = 0,
+                 uint32_t dstMipLevel = 0,
+                 VkImageAspectFlagBits aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT, VkFilter filter = VK_FILTER_LINEAR) {
+    VkImageBlit blit = {
+      .srcSubresource = {
+        .aspectMask = aspectFlags,                                                                  // VkImageAspectFlags
+        .mipLevel = srcMipLevel,                                                                    // uint32_t
+        .baseArrayLayer = 0,                                                                        // uint32_t
+        .layerCount = 1,                                                                            // uint32_t
+      },                                                                                            // VkImageSubresourceLayers
+      .srcOffsets = { { srcRegion.x, srcRegion.y, 0 }, { srcRegion.width, srcRegion.height, 1 } },  // VkOffset3D
+      .dstSubresource = {
+        .aspectMask = aspectFlags,  // VkImageAspectFlags
+        .mipLevel = dstMipLevel,    // uint32_t
+        .baseArrayLayer = 0,        // uint32_t
+        .layerCount = 1,            // uint32_t
+      },
+      .dstOffsets = { { dstRegion.x, dstRegion.y, 0 }, { dstRegion.width, dstRegion.height, 1 } },  // VkOffset3D
+    };
+    vkCmdBlitImage(_buf,
+                   srcImg, srcLayout,
+                   dstImg, dstLayout,
+                   1, &blit,
+                   filter);
+  }
+  void imageTransferBarrier(VkImage image,
+                            VkAccessFlagBits srcAccessFlags, VkAccessFlagBits dstAccessFlags,
+                            VkImageLayout oldLayout, VkImageLayout newLayout,
+                            uint32_t baseMipLevel = 0,
+                            VkImageAspectFlagBits subresourceMask = VK_IMAGE_ASPECT_COLOR_BIT) {
+    VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .pNext = nullptr,
+      .srcAccessMask = srcAccessFlags,
+      .dstAccessMask = dstAccessFlags,
+      .oldLayout = oldLayout,
+      .newLayout = newLayout,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = image,
+      .subresourceRange = {
+        .aspectMask = subresourceMask,
+        .baseMipLevel = baseMipLevel,
+        .levelCount = 1,
+        .baseArrayLayer = 0,
+        .layerCount = 1,
+      },
+    };
+    vkCmdPipelineBarrier(_buf,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0, nullptr,
+                         0, nullptr,
+                         1, &barrier);
+  }
+
+private:
+  VkCommandBuffer _buf = VK_NULL_HANDLE;
+};
 /**
- * @class VulkanTextureImage
- * @brief Image residing on the GPU.
- * */
+*  @class VulkanTextureImage
+*  @brief Image residing on the GPU.
+*/
 class VulkanTextureImage : public VulkanImage {
 public:
-  VkSampler sampler() { return _textureSampler; }
-
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg) : VulkanImage(pvulkan) {
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, bool mipmaps) : VulkanImage(pvulkan) {
     BRLogInfo("Creating Vulkan image");
     VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
+
+    VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
+    if (mipmaps) {
+      _mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(pimg->_width, pimg->_height)))) + 1;
+      transfer_src = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  //We need to use this image as a src transfer to fill each mip level.
+    }
+    else {
+      _mipLevels = 1;
+    }
 
     allocateMemory(pimg->_width, pimg->_height,
                    img_fmt,
                    VK_IMAGE_TILING_OPTIMAL,
-                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
+                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels);
     // this was for OpenGL may not be needed
     //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
 
     copyImageToGPU(pimg, img_fmt);
+
+    if (mipmaps) {
+      generateMipmaps();
+    }
   }
   virtual ~VulkanTextureImage() override {
     vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
   }
 
+  VkSampler sampler() { return _textureSampler; }
+
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   VkSampler _textureSampler = VK_NULL_HANDLE;
+  uint32_t _mipLevels = 1;
 
+  bool mipmappingSupported() {
+    VkFormatProperties formatProperties;
+    vkGetPhysicalDeviceFormatProperties(vulkan()->physicalDevice(), format(), &formatProperties);
+    bool supported = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    return supported;
+  }
+  void generateMipmaps() {
+    //https://vulkan-tutorial.com/Generating_Mipmaps
+    if (!mipmappingSupported()) {
+      BRLogWarnOnce("Mipmapping is not supported.");
+      return;
+    }
+    std::unique_ptr<VulkanCommands> cmds = std::make_unique<VulkanCommands>(vulkan());
+    cmds->begin();
+
+    int32_t last_level_width = static_cast<int32_t>(_width);
+    int32_t last_level_height = static_cast<int32_t>(_height);
+    for (uint32_t iMipLevel = 1; iMipLevel < this->_mipLevels; ++iMipLevel) {
+      int32_t level_width = last_level_width / 2;
+      int32_t level_height = last_level_height / 2;
+
+      cmds->blitImage(_image,
+                      _image,
+                      { 0, 0, static_cast<int32_t>(last_level_width), static_cast<int32_t>(last_level_height) },
+                      { 0, 0, static_cast<int32_t>(level_width), static_cast<int32_t>(level_height) },
+                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                      iMipLevel - 1, iMipLevel,
+                      VK_IMAGE_ASPECT_COLOR_BIT, VK_FILTER_LINEAR);
+      cmds->imageTransferBarrier(_image,
+                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                 iMipLevel - 1, VK_IMAGE_ASPECT_COLOR_BIT);
+      cmds->imageTransferBarrier(_image,
+                                 VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                 iMipLevel - 1, VK_IMAGE_ASPECT_COLOR_BIT);
+      if (level_width > 1) {
+        last_level_width /= 2;
+      }
+      if (level_height > 1) {
+        last_level_height /= 2;
+      }
+    }
+    //Transfer the last mip level to shader optimal
+    cmds->imageTransferBarrier(_image,
+                               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                               _mipLevels - 1, VK_IMAGE_ASPECT_COLOR_BIT);
+    cmds->end();
+  }
   void copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt) {
     //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
     //For loaded images only.
@@ -498,7 +666,18 @@ private:
                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     _host->copy_host(pimg->_data, pimg->data_len_bytes, 0, 0, pimg->data_len_bytes);
 
-    //Undefined layout will be discarded.
+    //   VkImageLayout src_layout, dst_layout;
+    //
+    //   if(_mipLevels>1){
+    // src_layout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ;
+    // dst_layout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ;
+    //   }
+    //   else{
+    // src_layout=VK_IMAGE_LAYOUT_UNDEFINED ;
+    // dst_layout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ;
+    //   }
+
+    //Undefined layout will be discard image data.
     transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     copyBufferToImage(pimg);
     transitionImageLayout(img_fmt /*? - transition to the same format?*/, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -507,7 +686,7 @@ private:
     _host = nullptr;
 
     //Image view
-    _textureImageView = vulkan()->createImageView(_image, img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
+    _textureImageView = vulkan()->createImageView(_image, img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
 
     //Sampler
     VkSamplerCreateInfo samplerInfo = {
@@ -528,7 +707,7 @@ private:
       .compareEnable = VK_FALSE,                        // VkBool32
       .compareOp = VK_COMPARE_OP_ALWAYS,                // VkCompareOp - used for PCF
       .minLod = 0,                                      // float
-      .maxLod = 0,                                      // float
+      .maxLod = static_cast<float>(_mipLevels),         // float
       .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,  // VkBorderColor
       .unnormalizedCoordinates = VK_FALSE,              // VkBool32  [0,width] vs [0,1]
     };
@@ -592,7 +771,7 @@ private:
       .subresourceRange = {
         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  //VkImageAspectFlags
         .baseMipLevel = 0,                        //uint32_t
-        .levelCount = 1,                          //uint32_t
+        .levelCount = _mipLevels,                 //uint32_t
         .baseArrayLayer = 0,                      //uint32_t
         .layerCount = 1,                          //uint32_t
       },                                          //VkImageSubresourceRange
@@ -623,13 +802,15 @@ private:
 
     delete[] rowTmp1;
   }
-};
+};  // namespace VG
 //You can bind multiple pipelines in one command buffer.
 class VulkanPipeline {
-  public:
+public:
+  //VkPipeline
+  //Shaders
 };
 class VulkanSwapchainImage {
-  public:
+public:
   //Framebuffer
   //Uniform buffer
   //Descriptor sets.
@@ -659,7 +840,6 @@ public:
 };
 class MeshComponent {
 public:
-
 };
 
 class SDLVulkan_Internal {
@@ -675,7 +855,6 @@ public:
   std::vector<VkDescriptorSetLayout> _layouts;
   std::vector<VkDescriptorSet> _descriptorSets;
 
-
   //Asynchronous computing depends on the swapchain count.
   //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
   //You can't have more than #swapchain images rendering at a time.
@@ -683,7 +862,7 @@ public:
   size_t _currentFrame = 0;
   std::vector<VkFence> _inFlightFences;
   std::vector<VkFence> _imagesInFlight;
-    std::vector<VkSemaphore> _imageAvailableSemaphores;
+  std::vector<VkSemaphore> _imageAvailableSemaphores;
   std::vector<VkSemaphore> _renderFinishedSemaphores;
 
   SDL_Window* _pSDLWindow = nullptr;
@@ -697,11 +876,13 @@ public:
 
   VkSurfaceKHR _main_window_surface = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   VkExtent2D _swapChainExtent;
   VkFormat _swapChainImageFormat;
   std::vector<VkImage> _swapChainImages;
   std::vector<VkImageView> _swapChainImageViews;
+
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
@@ -809,11 +990,11 @@ public:
     createVulkanInstance(title, _pSDLWindow);
     loadExtensions();
     setupDebug();
-    
-    pickPhysicalDevice();// Vulkan
-    createLogicalDevice();//Vulkan
-    createCommandPool(); //Vulkan
-    createVertexBuffer(); //Mesh class
+
+    pickPhysicalDevice();   // Vulkan
+    createLogicalDevice();  //Vulkan
+    createCommandPool();    //Vulkan
+    createVertexBuffer();   //Mesh class
 
     recreateSwapChain();
 
@@ -965,16 +1146,37 @@ public:
         sizeof(UniformBufferObject), nullptr, 0));
     }
   }
-  void updateUniformBuffer(uint32_t currentImage) {
-    //Push constants are faster.
+  float pingpong_t01(int durationMs = 5000) {
+    //returns the [0,1] pingpong time.
+    //The duration of each PING and PONG is durationMs / 2
+    // 0...1 ... 0 ... 1
     static auto startTime = std::chrono::high_resolution_clock::now();
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    auto t01ms = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+    float t01 = 0;
+    if (t01ms % durationMs > (durationMs / 2)) {
+      t01 = 1.0f - ((float)(t01ms % durationMs - durationMs / 2) / (float)(durationMs / 2));
+    }
+    else {
+      t01 = ((float)(t01ms % durationMs) / (float)(durationMs / 2));
+    }
+    return t01;
+  }
+  void updateUniformBuffer(uint32_t currentImage) {
+    //Push constants are faster.
+    float t01 = pingpong_t01(10000);
+    float t02 = pingpong_t01(10000);
 
+    BR2::vec3 campos = { 6.0f, 6.0f, 6.0f };
+    BR2::vec3 lookAt = { 0, 0, 0 };
+    BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
+    BR2::vec3 wwf = (lookAt - campos) * 0.1f;
+    BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     UniformBufferObject ub = {
-      .model = (BR2::mat4::translation(BR2::vec3(-0.5, -0.5, -0.5)) * BR2::mat4::rotation(BR2::MathUtils::radians(90) * time, BR2::vec3(0, 0, 1))),
-      .view = BR2::mat4::getLookAt(BR2::vec3(2.0f, 2.0f, 2.0f), BR2::vec3(0.0f, 0.0f, 0.0f), BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 10.0f)
+      .model = (BR2::mat4::translation(origin) * BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) * BR2::mat4::translation(trans)),
+      .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
+      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 100.0f)
     };
 
     _uniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
@@ -1511,7 +1713,7 @@ public:
   void createSwapchainImageViews() {
     BRLogInfo("Creating Image Views.");
     for (size_t i = 0; i < _swapChainImages.size(); i++) {
-      auto view = vulkan()->createImageView(_swapChainImages[i], _swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+      auto view = vulkan()->createImageView(_swapChainImages[i], _swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
       _swapChainImageViews.push_back(view);
     }
   }
@@ -1865,12 +2067,12 @@ public:
       CheckVKR(vkBeginCommandBuffer, _commandBuffers[i], &beginInfo);
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
-      
+
       //VkViewport viewport = vks::initializers::viewport((float)width, (float)height, 0.0f, 1.0f);
-			//vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
-			//VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
-			//vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
-      
+      //vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
+      //VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
+      //vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+
       //You can bind multiple pipelines for multiple render passes.
       //Binding one does not disturb the others.
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
@@ -2173,7 +2375,7 @@ public:
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
-      _testTexture = std::make_shared<VulkanTextureImage>(vulkan(), img);
+      _testTexture = std::make_shared<VulkanTextureImage>(vulkan(), img, g_bMipmaps_enabled);
     }
     else {
       vulkan()->errorExit("Could not load test image.");
@@ -2275,28 +2477,38 @@ void SDLVulkan::init() {
     _pInt->cleanup();
   }
 }
+bool SDLVulkan::doInput() {
+    SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_QUIT) {
+      return true;
+      break;
+    }
+    else if (event.type == SDL_WINDOWEVENT) {
+      if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+        _pInt->recreateSwapChain();
+        break;
+      }
+    }
+    else if (event.type == SDL_KEYDOWN) {
+      if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+        return  true;
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_SPACE) {
+        g_bMipmaps_enabled = !g_bMipmaps_enabled;
+        _pInt->recreateSwapChain();
+        break;
+      }
+    }
+  }
+  return false;
+}
 void SDLVulkan::renderLoop() {
   bool exit = false;
   while (!exit) {
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-      if (event.type == SDL_QUIT) {
-        exit = true;
-        break;
-      }
-      else if (event.type == SDL_WINDOWEVENT) {
-        if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-          _pInt->recreateSwapChain();
-          break;
-        }
-      }
-      else if (event.type == SDL_KEYDOWN) {
-        if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-          exit = true;
-          break;
-        }
-      }
-    }
+    exit = doInput();
     _pInt->drawFrame();
   }
   //This stops all threads before we cleanup.
