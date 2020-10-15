@@ -1217,8 +1217,6 @@ public:
     //_pSwapchain = nullptr
     cleanupSwapChain();
 
-    vkDestroyCommandPool(vulkan()->device(), vulkan()->commandPool(), nullptr);
-
     vkDestroyShaderModule(vulkan()->device(), _vertShaderModule, nullptr);
     vkDestroyShaderModule(vulkan()->device(), _fragShaderModule, nullptr);
 

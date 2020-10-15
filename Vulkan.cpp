@@ -107,6 +107,7 @@ public:
     // You can log every vulkan call to stdout.
   }
   virtual ~Vulkan_Internal() {
+    vkDestroyCommandPool(_device, _commandPool, nullptr);
     vkDestroyDevice(_device, nullptr);
     if (_bEnableValidationLayers) {
       vkDestroyDebugUtilsMessengerEXT(_instance, debugMessenger, nullptr);
