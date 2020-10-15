@@ -365,7 +365,8 @@ public:
     float t01 = pingpong_t01(10000);
     float t02 = pingpong_t01(10000);
 
-    BR2::vec3 campos = { 6.0f, 6.0f, 6.0f };
+    float d = 20;
+    BR2::vec3 campos = { d,d,d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
@@ -380,7 +381,6 @@ public:
     //The BR2 matrix uses top left coordinates already I guess.
     // ub.proj._m22 *= -1;
   }
-
   void createSwapChain() {
     BRLogInfo("Creating Swapchain.");
 
