@@ -83,6 +83,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>C:\git\VulkanGame\ext\SDL2\include;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
+    <LibraryPath>C:\git\VulkanGame\lib;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Lib;$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -118,7 +120,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;_WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -134,24 +136,37 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <FloatingPointModel>Fast</FloatingPointModel>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;SDL2_x64r.lib;winmm.lib;imm32.lib;version.lib;dbghelp.lib;setupapi.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\VulkanGame\src\ext\lodepng.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="SandboxHeader.cpp" />
     <ClCompile Include="SDLVulkan.cpp" />
+    <ClCompile Include="Vulkan.cpp" />
+    <ClCompile Include="VulkanClasses.cpp" />
     <ClCompile Include="VulkanDebug.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\VulkanGame\src\ext\lodepng.h" />
     <ClInclude Include="SandboxHeader.h" />
     <ClInclude Include="SDLVulkan.h" />
+    <ClInclude Include="Vulkan.h" />
+    <ClInclude Include="VulkanClasses.h" />
     <ClInclude Include="VulkanDebug.h" />
+    <ClInclude Include="VulkanHeader.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

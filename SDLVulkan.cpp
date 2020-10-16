@@ -366,7 +366,7 @@ public:
     float t02 = pingpong_t01(10000);
 
     float d = 20;
-    BR2::vec3 campos = { d,d,d };
+    BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
@@ -660,11 +660,11 @@ public:
       //**Note:
       //I think this is only available if multisampling is enabled.
       //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
-      .sampleShadingEnable = g_samplerate_shading ? VK_TRUE : VK_FALSE,  //VkBool32
-      .minSampleShading = 1.0f,                                          //float
-      .pSampleMask = nullptr,                                            //const VkSampleMask*
-      .alphaToCoverageEnable = false,                                    //VkBool32
-      .alphaToOneEnable = false,                                         //VkBool32
+      .sampleShadingEnable = (VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),  //VkBool32
+      .minSampleShading = 1.0f,                                                      //float
+      .pSampleMask = nullptr,                                                        //const VkSampleMask*
+      .alphaToCoverageEnable = false,                                                //VkBool32
+      .alphaToOneEnable = false,                                                     //VkBool32
     };
     VkGraphicsPipelineCreateInfo pipelineInfo = {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
@@ -822,17 +822,16 @@ public:
       VkClearValue clearColor = {
         .color = VkClearColorValue{ 0.0, 0.0, 0.0, 1.0 }
       };
-      VkRenderPassBeginInfo rpbi = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .pNext = nullptr,
-        .renderPass = _renderPass,  //The renderpass we created above.
-        .framebuffer = _swapChainFramebuffers[i],
-        .renderArea = VkRect2D{
-          .offset = VkOffset2D{ .x = 0, .y = 0 },
-          .extent = _swapChainExtent },
-        .clearValueCount = 1,
-        .pClearValues = &clearColor,
-      };
+      VkRenderPassBeginInfo rpbi{};
+      rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      rpbi.pNext = nullptr;
+      rpbi.renderPass = _renderPass;  //The renderpass we created above.
+      rpbi.framebuffer = _swapChainFramebuffers[i];
+      //rpbi.renderArea{};
+      rpbi.renderArea.offset = VkOffset2D{ .x = 0, .y = 0 };
+      rpbi.renderArea.extent = _swapChainExtent;
+      rpbi.clearValueCount = 1;
+      rpbi.pClearValues = &clearColor;
       CheckVKR(vkBeginCommandBuffer, _commandBuffers[i], &beginInfo);
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
@@ -1285,7 +1284,6 @@ bool SDLVulkan::doInput() {
 void SDLVulkan::renderLoop() {
   bool exit = false;
   while (!exit) {
-    SDL_Event event;
     exit = doInput();
     _pInt->drawFrame();
   }
