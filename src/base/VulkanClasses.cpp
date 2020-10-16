@@ -18,7 +18,7 @@ VulkanDeviceBuffer::VulkanDeviceBuffer(std::shared_ptr<Vulkan> pvulkan, VkDevice
   BRLogInfo("Allocating vertex buffer: " + size + "B.");
   _pInt->_allocatedSize = size;
 
-  if (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT > 0) {
+  if ((properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) > 0) {
     _pInt->_isGpuBuffer = true;
   }
 
@@ -264,14 +264,14 @@ void VulkanCommands::blitImage(VkImage srcImg,
                                VkImageAspectFlagBits aspectFlags, VkFilter filter) {
   VkImageBlit blit = {
     .srcSubresource = {
-      .aspectMask = aspectFlags,                                                                  // VkImageAspectFlags
+      .aspectMask = (VkImageAspectFlags)aspectFlags,                                              // VkImageAspectFlags
       .mipLevel = srcMipLevel,                                                                    // uint32_t
       .baseArrayLayer = 0,                                                                        // uint32_t
       .layerCount = 1,                                                                            // uint32_t
     },                                                                                            // VkImageSubresourceLayers
     .srcOffsets = { { srcRegion.x, srcRegion.y, 0 }, { srcRegion.width, srcRegion.height, 1 } },  // VkOffset3D
     .dstSubresource = {
-      .aspectMask = aspectFlags,  // VkImageAspectFlags
+      .aspectMask = (VkImageAspectFlags)aspectFlags,  // VkImageAspectFlags
       .mipLevel = dstMipLevel,    // uint32_t
       .baseArrayLayer = 0,        // uint32_t
       .layerCount = 1,            // uint32_t
@@ -292,15 +292,15 @@ void VulkanCommands::imageTransferBarrier(VkImage image,
   VkImageMemoryBarrier barrier = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     .pNext = nullptr,
-    .srcAccessMask = srcAccessFlags,
-    .dstAccessMask = dstAccessFlags,
+    .srcAccessMask = (VkAccessFlags)srcAccessFlags,
+    .dstAccessMask = (VkAccessFlags)dstAccessFlags,
     .oldLayout = oldLayout,
     .newLayout = newLayout,
     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
     .image = image,
     .subresourceRange = {
-      .aspectMask = subresourceMask,
+      .aspectMask = (VkImageAspectFlags)subresourceMask,
       .baseMipLevel = baseMipLevel,
       .levelCount = 1,
       .baseArrayLayer = 0,
@@ -510,8 +510,8 @@ void VulkanTextureImage::transitionImageLayout(VkFormat format, VkImageLayout ol
   VkImageMemoryBarrier barrier = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,  //VkStructureType
     .pNext = nullptr,                                 //const void*
-    .srcAccessMask = srcAccessMask,                   //VkAccessFlags
-    .dstAccessMask = dstAccessMask,                   //VkAccessFlags
+    .srcAccessMask = (VkAccessFlags)srcAccessMask,                   //VkAccessFlags
+    .dstAccessMask = (VkAccessFlags)dstAccessMask,                   //VkAccessFlags
     .oldLayout = oldLayout,                           //VkImageLayout
     .newLayout = newLayout,                           //VkImageLayout
     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t

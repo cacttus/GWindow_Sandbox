@@ -46,6 +46,7 @@
 #include <optional>
 #include <limits>
 #include <filesystem>
+#include <array>
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
@@ -155,7 +156,6 @@ public:
       // **Instanced rendering.
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
-
     };
 
     return bindingDescription;

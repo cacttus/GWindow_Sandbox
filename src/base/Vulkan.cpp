@@ -73,7 +73,7 @@ public:
     //Validation layers
     std::vector<const char*> layerNames = getValidationLayers();
     if (_bEnableValidationLayers) {
-      createinfo.enabledLayerCount = layerNames.size();
+      createinfo.enabledLayerCount  = static_cast<uint32_t>(layerNames.size());
       createinfo.ppEnabledLayerNames = layerNames.data();
     }
     else {
@@ -83,7 +83,7 @@ public:
 
     //Extensions
     std::vector<const char*> extensionNames = getRequiredExtensionNames(win);
-    createinfo.enabledExtensionCount = extensionNames.size();
+    createinfo.enabledExtensionCount = static_cast<uint32_t>(extensionNames.size());
     createinfo.ppEnabledExtensionNames = extensionNames.data();
 
     populateDebugMessangerCreateInfo();
