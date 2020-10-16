@@ -28,8 +28,10 @@ public:
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
-  VkShaderModule _vertShaderModule = VK_NULL_HANDLE;
-  VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
+  //VkShaderModule _vertShaderModule = VK_NULL_HANDLE;
+  //VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
+  std::shared_ptr<VulkanPipelineShader> _pShader = nullptr;
+
   //**TODO:Pipeline
   //**TODO:Pipeline
 
@@ -147,14 +149,15 @@ public:
     sdl_PrintVideoDiagnostics();
 
     _vulkan = std::make_shared<Vulkan>(title, _pSDLWindow);
-    //createVulkanInstance(title, _pSDLWindow);
-    //loadExtensions();
-    //setupDebug();
 
-    //pickPhysicalDevice();   // Vulkan
-    //createLogicalDevice();  //Vulkan
-    //createCommandPool();    //Vulkan
+    //TODO: we'll move this stuff out later.
     createVertexBuffer();  //Mesh class
+    //Make Shader.
+    _pShader = std::make_shared<VulkanPipelineShader>(_vulkan,
+                                                      "Vulkan-Tutorial-Test-Shader",
+                                                      std::vector{
+                                                        App::rootFile("test_vs.spv"),
+                                                        App::rootFile("test_fs.spv") });
 
     recreateSwapChain();
 
@@ -366,7 +369,7 @@ public:
     float t02 = pingpong_t01(10000);
 
     float d = 20;
-    BR2::vec3 campos = { d,d,d };
+    BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
@@ -487,50 +490,6 @@ public:
       _swapChainImageViews.push_back(view);
     }
   }
-  std::vector<char> readFile(const std::string& file) {
-    string_t file_loc = App::combinePath(App::_appRoot, file);
-    std::cout << "Loading file " << file_loc << std::endl;
-
-    //chdir("~/git/GWindow_Sandbox/");
-    //#endif
-    //::ate avoid seeking to the end. Neat trick.
-    std::ifstream fs(file_loc, std::ios::in | std::ios::binary | std::ios::ate);
-    if (!fs.good() || !fs.is_open()) {
-      vulkan()->errorExit(Stz "Could not open shader file '" + file_loc + "'");
-      return std::vector<char>{};
-    }
-
-    auto size = fs.tellg();
-    fs.seekg(0, std::ios::beg);
-    std::vector<char> ret(size);
-    //ret.reserve(size);
-    fs.read(ret.data(), size);
-
-    fs.close();
-    return ret;
-  }
-  std::vector<VkPipelineShaderStageCreateInfo> createShaderForPipeline() {
-    std::vector<char> vertShaderCode = readFile(App::rootFile("test_vs.spv"));
-    std::vector<char> fragShaderCode = readFile(App::rootFile("test_fs.spv"));
-
-    _vertShaderModule = createShaderModule(vertShaderCode);
-    _fragShaderModule = createShaderModule(fragShaderCode);
-
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vertShaderStageInfo.module = _vertShaderModule;
-    vertShaderStageInfo.pName = "main";
-
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragShaderStageInfo.module = _fragShaderModule;
-    fragShaderStageInfo.pName = "main";
-
-    std::vector<VkPipelineShaderStageCreateInfo> inf{ vertShaderStageInfo, fragShaderStageInfo };
-    return inf;
-  }
   void createColorResources() {
     //*So here we need to branch off VulkanImage and create the depth buffer format and the color target format.
     //  This will be similar to the render formats in the renderPipe.
@@ -555,7 +514,8 @@ public:
 
     CheckVKR(vkCreatePipelineLayout, vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
 
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
+    //std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
     auto binding_desc = VertType::getBindingDescription();
     auto attr_desc = VertType::getAttributeDescriptions();
@@ -758,19 +718,7 @@ public:
     };
     CheckVKR(vkCreateRenderPass, vulkan()->device(), &renderPassInfo, nullptr, &_renderPass);
   }
-  VkShaderModule createShaderModule(const std::vector<char>& code) {
-    VkShaderModuleCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = code.size();
-    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
-    VkShaderModule shaderModule;
-
-    BRLogInfo("Creating shader : " + code.size() + " bytes.");
-    CheckVKR(vkCreateShaderModule, vulkan()->device(), &createInfo, nullptr, &shaderModule);
-
-    return shaderModule;
-  }
   void createFramebuffers() {
     BRLogInfo("Creating Framebuffers.");
 
@@ -1122,7 +1070,7 @@ public:
     unsigned char* data = nullptr;  //the raw pixels
     unsigned int width, height;
 
-    std::vector<char> image_data = readFile(img);
+    std::vector<char> image_data = Gu::readFile(img);
 
     int err = lodepng_decode32(&data, &width, &height, (unsigned char*)image_data.data(), image_data.size());
 
@@ -1217,8 +1165,7 @@ public:
     //_pSwapchain = nullptr
     cleanupSwapChain();
 
-    vkDestroyShaderModule(vulkan()->device(), _vertShaderModule, nullptr);
-    vkDestroyShaderModule(vulkan()->device(), _fragShaderModule, nullptr);
+    _pShader = nullptr;
 
     _vulkan = nullptr;
 

@@ -46,6 +46,7 @@ public:
                 size_t host_buf_offset = 0,
                 size_t gpu_buf_offset = 0,
                 size_t copy_count = std::numeric_limits<size_t>::max());
+
 private:
   void cleanup();
   std::unique_ptr<VulkanDeviceBuffer_Internal> _pInt;
@@ -62,9 +63,10 @@ public:
   VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged);
   VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, VkDeviceSize bufsize, void* data = nullptr, size_t datasize = 0);
   virtual ~VulkanBuffer() override;
-  void writeData(void* data, size_t off, size_t datasize) ;
+  void writeData(void* data, size_t off, size_t datasize);
   std::shared_ptr<VulkanDeviceBuffer> hostBuffer();
-  std::shared_ptr<VulkanDeviceBuffer> gpuBuffer() ;
+  std::shared_ptr<VulkanDeviceBuffer> gpuBuffer();
+
 private:
   std::unique_ptr<VulkanBuffer_Internal> _pInt;
 };
@@ -108,7 +110,7 @@ class VulkanCommands : public VulkanObject {
 public:
   VulkanCommands(std::shared_ptr<Vulkan> v);
   void begin();
-  void end() ;
+  void end();
   void blitImage(VkImage srcImg,
                  VkImage dstImg,
                  const BR2::iext2& srcRegion,
@@ -117,12 +119,13 @@ public:
                  VkImageLayout dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  uint32_t srcMipLevel = 0,
                  uint32_t dstMipLevel = 0,
-                 VkImageAspectFlagBits aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT, VkFilter filter = VK_FILTER_LINEAR) ;
+                 VkImageAspectFlagBits aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT, VkFilter filter = VK_FILTER_LINEAR);
   void imageTransferBarrier(VkImage image,
                             VkAccessFlagBits srcAccessFlags, VkAccessFlagBits dstAccessFlags,
                             VkImageLayout oldLayout, VkImageLayout newLayout,
                             uint32_t baseMipLevel = 0,
                             VkImageAspectFlagBits subresourceMask = VK_IMAGE_ASPECT_COLOR_BIT);
+
 private:
   VkCommandBuffer _buf = VK_NULL_HANDLE;
 };
@@ -317,6 +320,38 @@ public:
 };
 class MeshComponent {
 public:
+};
+
+/**
+ * @class VulkanShaderModule
+ * @brief Shader module with reflection tanks to Spirv-Reflect.
+ * */
+class VulkanShaderModule_Internal;
+class VulkanShaderModule : VulkanObject {
+public:
+  VulkanShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& file);
+  virtual ~VulkanShaderModule() override;
+
+  VkPipelineShaderStageCreateInfo getPipelineStageCreateInfo();
+
+private:
+  std::unique_ptr<VulkanShaderModule_Internal> _pInt;
+};
+
+/**
+ * 
+ * */
+//class VulkanPipelineShader_Internal;
+class VulkanPipelineShader : public VulkanObject {
+public:
+  VulkanPipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
+  virtual ~VulkanPipelineShader() override;
+
+  std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
+
+private:
+  std::vector<std::shared_ptr<VulkanShaderModule>> _modules;
+  string_t _name = "*undefined*";
 };
 
 }  // namespace VG

@@ -7,12 +7,15 @@
 #ifndef __SANDBOXHEADER_160169492510355883169343686315_H__
 #define __SANDBOXHEADER_160169492510355883169343686315_H__
 
-#include "../VulkanGame/src/math/Mat4x.h"
-#include "../VulkanGame/src/math/Vec4x.h"
-#include "../VulkanGame/src/math/Vec3x.h"
-#include "../VulkanGame/src/math/Vec2x.h"
-#include "../VulkanGame/src/math/MathAll.h"
-#include "../VulkanGame/src/ext/lodepng.h"
+#include "../../../VulkanGame/src/math/Mat4x.h"
+#include "../../../VulkanGame/src/math/Vec4x.h"
+#include "../../../VulkanGame/src/math/Vec3x.h"
+#include "../../../VulkanGame/src/math/Vec2x.h"
+#include "../../../VulkanGame/src/math/MathAll.h"
+#include "../../../VulkanGame/src/ext/lodepng.h"
+
+#include "../ext/spirv-reflect/spirv_reflect.h"
+
 //
 // #ifdef _WIN32
 // #define BR2_OS_WINDOWS 1
@@ -169,14 +172,14 @@ public:
   }
   static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
     std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-  
+
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout(location=)
     attributeDescriptions[0].format = VFMT_VEC3;
     attributeDescriptions[0].offset = offsetof(v_v3c4, _pos);
-    
+
     attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1; 
+    attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VFMT_VEC4;
     attributeDescriptions[1].offset = offsetof(v_v3c4, _color);
 
@@ -213,9 +216,9 @@ public:
     attributeDescriptions[0].location = 0;  // layout(location=)
     attributeDescriptions[0].format = VFMT_VEC3;
     attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos);
-    
+
     attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1; 
+    attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VFMT_VEC4;
     attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color);
 
@@ -228,7 +231,7 @@ public:
   }
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription = {
-      .binding = 0,              // uint32_t         -- this is the layout location
+      .binding = 0,                // uint32_t         -- this is the layout location
       .stride = sizeof(v_v3c4x2),  // uint32_t
       // **Instanced rendering.
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
@@ -285,6 +288,7 @@ public:
 class Gu {
 public:
   static void debugBreak();
+  static std::vector<char> readFile(const std::string& file);
 };
 static void assertOrThrow(bool b) {
   if (!b) {

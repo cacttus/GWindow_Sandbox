@@ -554,4 +554,112 @@ void VulkanTextureImage::flipImage20161206(uint8_t* image, int width, int height
 
 #pragma endregion
 
+#pragma region VulkanShaderModule
+class VulkanShaderModule_Internal : VulkanObject {
+public:
+  string_t _name = "*unset*";
+  VkShaderModule _vkShaderModule = nullptr;
+  SpvReflectShaderModule* _spvReflectModule = nullptr;
+  string_t _baseName = "*unset*";
+
+  VulkanShaderModule_Internal(std::shared_ptr<Vulkan> pv) : VulkanObject(pv) {
+  }
+  ~VulkanShaderModule_Internal() {
+    if (_spvReflectModule) {
+      spvReflectDestroyShaderModule(_spvReflectModule);
+    }
+    vkDestroyShaderModule(vulkan()->device(), _vkShaderModule, nullptr);
+  }
+
+  void load(const string_t& file) {
+    auto ch = Gu::readFile(file);
+    createShaderModule(ch);
+  }
+  void getBindings() {
+    //TODO: use Spv-reflect to get bindings.
+    //_spvReflectModule->descriptor_binding_count
+    //p_module->descriptor_bindings[index] if (*p_count != p_module->descriptor_binding_count) {
+    // }
+  }
+  void createShaderModule(const std::vector<char>& code) {
+    if (_vkShaderModule != VK_NULL_HANDLE) {
+      BRLogWarn("Shader was initialized when creating new shader.");
+      vkDestroyShaderModule(vulkan()->device(), _vkShaderModule, nullptr);
+    }
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+    BRLogInfo("Creating shader : " + code.size() + " bytes.");
+    CheckVKR(vkCreateShaderModule, vulkan()->device(), &createInfo, nullptr, &_vkShaderModule);
+
+    //Get Metadata
+    _spvReflectModule = (SpvReflectShaderModule*)malloc(sizeof(SpvReflectShaderModule));
+    SpvReflectResult result = spvReflectCreateShaderModule(code.size(), code.data(), _spvReflectModule);
+    if (result != SPV_REFLECT_RESULT_SUCCESS) {
+      BRThrowException("Spv-Reflect failed to parse shader.");
+    }
+  }
+  VkPipelineShaderStageCreateInfo getPipelineStageCreateInfo() {
+    VkShaderStageFlagBits type;
+
+    if (_spvReflectModule->shader_stage & SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
+      type = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    else if (_spvReflectModule->shader_stage & SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
+      type = VK_SHADER_STAGE_VERTEX_BIT;
+    }
+    else if (_spvReflectModule->shader_stage & SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
+      type = VK_SHADER_STAGE_GEOMETRY_BIT;
+    }
+
+    VkPipelineShaderStageCreateInfo stage = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,  //VkStructureType
+      .pNext = nullptr,                                              //const void*
+      .flags = (VkPipelineShaderStageCreateFlags)0,                  //VkPipelineShaderStageCreateFlags
+      .stage = type,                                                 //VkShaderStageFlagBits
+      .module = _vkShaderModule,                                     //VkShaderModule
+      .pName = _spvReflectModule->entry_point_name,                                        //const char*
+      .pSpecializationInfo = nullptr,                                //const VkSpecializationInfo*
+    };
+    return stage;
+  }
+};
+
+VulkanShaderModule::VulkanShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& files) : VulkanObject(v) {
+  _pInt = std::make_unique<VulkanShaderModule_Internal>(v);
+  _pInt->_baseName = base_name;
+  _pInt->load(files);
+}
+VulkanShaderModule::~VulkanShaderModule() {
+  _pInt = nullptr;
+}
+VkPipelineShaderStageCreateInfo VulkanShaderModule::getPipelineStageCreateInfo() {
+  return _pInt->getPipelineStageCreateInfo();
+}
+
+#pragma endregion
+
+#pragma region VulkanPipelineShader
+
+VulkanPipelineShader::VulkanPipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
+  _name = name;
+  for (auto& str : files) {
+    std::shared_ptr<VulkanShaderModule> mod = std::make_shared<VulkanShaderModule>(v, name, str);
+    _modules.push_back(mod);
+  }
+}
+VulkanPipelineShader::~VulkanPipelineShader() {
+  _modules.clear();
+}
+std::vector<VkPipelineShaderStageCreateInfo> VulkanPipelineShader::getShaderStageCreateInfos() {
+  std::vector<VkPipelineShaderStageCreateInfo> ret;
+  for (auto shader : _modules) {
+    ret.push_back(shader->getPipelineStageCreateInfo());
+  }
+  return ret;
+}
+#pragma endregion
+
 }  // namespace VG

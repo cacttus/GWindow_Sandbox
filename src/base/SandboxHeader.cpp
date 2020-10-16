@@ -13,7 +13,7 @@ string_t App::toHex(int value, bool bIncludePrefix) {
   }
   return ss.str();
 }
-  string_t App::combinePath(const std::string& a, const std::string& b) {
+string_t App::combinePath(const std::string& a, const std::string& b) {
 #if defined(BR2_CPP17)
   //Combining paths on Linux doesn't actually treat the RHS as a path or file if there's no /
   std::string bfmt;
@@ -43,7 +43,7 @@ string_t App::toHex(int value, bool bIncludePrefix) {
   return a + string_t("/") + b;
 #endif
 }
-  string_t App::getFileNameFromPath(const string_t& name) {
+string_t App::getFileNameFromPath(const string_t& name) {
   //Returns the TLD for the path. Either filename, or directory.
   // Does not include the / in the directory.
   // ex ~/files/dir would return dir
@@ -113,6 +113,29 @@ void Gu::debugBreak() {
   OS_NOT_SUPPORTED_ERROR
 #endif
 }
+std::vector<char> Gu::readFile(const std::string& file) {
+  string_t file_loc = App::combinePath(App::_appRoot, file);
+  std::cout << "Loading file " << file_loc << std::endl;
+
+  //chdir("~/git/GWindow_Sandbox/");
+  //#endif
+  //::ate avoid seeking to the end. Neat trick.
+  std::ifstream fs(file_loc, std::ios::in | std::ios::binary | std::ios::ate);
+  if (!fs.good() || !fs.is_open()) {
+    BRThrowException(Stz "Could not open shader file '" + file_loc + "'");
+    return std::vector<char>{};
+  }
+
+  auto size = fs.tellg();
+  fs.seekg(0, std::ios::beg);
+  std::vector<char> ret(size);
+  //ret.reserve(size);
+  fs.read(ret.data(), size);
+
+  fs.close();
+  return ret;
+}
+
 std::string operator+(const std::string& str, const char& rhs) {
   return str + std::to_string(rhs);
 }

@@ -40,7 +40,7 @@ set(VG_BIN_RELEASE_DIR ${VG_BIN_DIR})
 # VG 
 set(VG_PROJECT_VERSION 0.0.1)
 set(VG_TARGET_NAME GWindow_Sandbox)
-project(${VG_TARGET_NAME} VERSION ${VG_PROJECT_VERSION} LANGUAGES CXX)
+project(${VG_TARGET_NAME} VERSION ${VG_PROJECT_VERSION} LANGUAGES CXX C)
 
 if(WIN32) 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/ext/") 
@@ -49,13 +49,14 @@ endif()
 
 # VG
 add_executable(${VG_TARGET_NAME} 
-SDLVulkan.cpp 
-main.cpp 
-SandboxHeader.cpp 
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/SDLVulkan.cpp 
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/main.cpp 
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/SandboxHeader.cpp 
 #Begin vulkan classes.
-Vulkan.cpp
-VulkanClasses.cpp
-VulkanDebug.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/Vulkan.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanClasses.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanDebug.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/ext/spirv-reflect/spirv_reflect.c
 ~/git/VulkanGame/src/ext/lodepng.cpp
 )
   
@@ -127,6 +128,7 @@ target_link_directories(${PROJECT_NAME} PRIVATE ${VG_LIB_DIR})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${VULKAN_LIBRARIES} ${OPENGL_LIBRARIES} ${SDL2_LIBRARIES} ${SDLNET_LIBRARIES} ${VG_ADDL_LIBS} ${X11_LIBRARIES} ${LUA_LIBRARIES})
 
  
+#Compile shaders.
 
 set(shader_path ${CMAKE_CURRENT_LIST_DIR}/)
 file(GLOB shaders RELATIVE ${CMAKE_SOURCE_DIR} "${shader_path}*.vs" "${shader_path}*.fs")
