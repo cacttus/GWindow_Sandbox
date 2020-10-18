@@ -11,13 +11,23 @@ layout(location = 1) out vec2 fragTexCoord;
 
 layout(binding = 0) uniform UniformBufferObject {
 //Note: Must be aligned to std120
-    mat4 model;
     mat4 view;
     mat4 proj;
 } ubo;
 
+struct InstanceData
+{
+    mat4 model;
+};
+layout (binding = 1) uniform Instances {
+  InstanceData instances[100];
+};
+
+
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model *vec4(inPosition,1);
-    fragColor = inColor;
-    fragTexCoord = inTexCoord;
+  //gl_InstanceID
+  //gl_InstanceIndex
+  gl_Position = ubo.proj * ubo.view * instances[gl_InstanceIndex].model * vec4(inPosition,1);
+  fragColor = inColor;
+  fragTexCoord = inTexCoord;
 }

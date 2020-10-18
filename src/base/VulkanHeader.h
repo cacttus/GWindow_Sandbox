@@ -69,10 +69,13 @@ class MeshComponent;
 
 struct UniformBufferObject {
   //alignas(16) BR2::vec2 foo;
-  alignas(16) BR2::mat4 model;
   alignas(16) BR2::mat4 view;
   alignas(16) BR2::mat4 proj;
 };
+struct InstanceUBOData {
+alignas(16) BR2::mat4 model;
+};
+
 }  // namespace VG
 
 /*

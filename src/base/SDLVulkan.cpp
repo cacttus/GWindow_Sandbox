@@ -46,7 +46,9 @@ public:
   std::vector<VkFence> _imagesInFlight;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
   std::vector<VkSemaphore> _renderFinishedSemaphores;
-  std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  int32_t _numInstances = 3;
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   VkExtent2D _swapChainExtent;
   VkFormat _swapChainImageFormat;
@@ -228,6 +230,7 @@ public:
   }
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   void createDescriptorPool() {
+    //One pool per shader with all descriptors needed in the shader.
     //Uniform buffer descriptor pool.
     VkDescriptorPoolSize uboPoolSize = {
       .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
@@ -249,6 +252,8 @@ public:
     CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
   }
   void createDescriptorSetLayout() {
+    //One per swapchain image. Copied to for set.
+    //VkDescriptorPoolCreateInfo::maxSets
     VkDescriptorSetLayoutBinding uboLayoutBinding = {
       .binding = 0,                                         //uint32_t
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
@@ -256,15 +261,22 @@ public:
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
       .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
     };
+    VkDescriptorSetLayoutBinding uboInstanceLayoutBinding = {
+      .binding = 1,                                         //uint32_t
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
+      .descriptorCount = _numInstances,                                 //uint32_t //descriptorCount specifies the number of values in the array
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
+      .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+    };
     VkDescriptorSetLayoutBinding samplerLayoutBinding = {
-      .binding = 1,                                                 // uint32_t
+      .binding = 2,                                                 // uint32_t
       .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  // VkDescriptorType
       .descriptorCount = 1,                                         // uint32_t
       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,                   // VkShaderStageFlags
       .pImmutableSamplers = nullptr,                                // const VkSampler*
     };
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings = { uboLayoutBinding, uboInstanceLayoutBinding, samplerLayoutBinding };
 
     //This is duplicated for each UBO bound to the shader program (pipeline) for each swapchain image.
     // This is duplicated in the vkAllocateDescriptorSets area. It essentially should be run for each UBO binding.
@@ -295,13 +307,14 @@ public:
     CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
 
     for (size_t i = 0; i < _swapChainImages.size(); ++i) {
+      //ShaderSampler.
       //UBO descriptor
-      VkDescriptorBufferInfo bufferInfo = {
-        .buffer = _uniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
-        .offset = 0,                                           // VkDeviceSize
-        .range = sizeof(UniformBufferObject),                  // VkDeviceSize OR VK_WHOLE_SIZE
+      VkDescriptorBufferInfo viewProjBufferInfo = {
+        .buffer = _viewProjUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
+        .offset = 0,                                                   // VkDeviceSize
+        .range = sizeof(UniformBufferObject),                          // VkDeviceSize OR VK_WHOLE_SIZE
       };
-      VkWriteDescriptorSet uboDescriptorWrite = {
+      VkWriteDescriptorSet viewProjUboDescriptorWrite = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
         .pNext = nullptr,                                     //const void*
         .dstSet = _descriptorSets[i],                         //VkDescriptorSet
@@ -310,7 +323,26 @@ public:
         .descriptorCount = 1,                                 //uint32_t
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
         .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
-        .pBufferInfo = &bufferInfo,                           //const VkDescriptorBufferInfo*
+        .pBufferInfo = &viewProjBufferInfo,                   //const VkDescriptorBufferInfo*
+        .pTexelBufferView = nullptr,                          //const VkBufferView*
+      };
+
+      //UBO descriptor
+      VkDescriptorBufferInfo instanceBufferInfo = {
+        .buffer = _instanceUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
+        .offset = 0,                                                   // VkDeviceSize
+        .range = sizeof(InstanceUBOData) * _numInstances,              // VkDeviceSize OR VK_WHOLE_SIZE
+      };
+      VkWriteDescriptorSet instanceUBODescriptorWrite = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
+        .pNext = nullptr,                                     //const void*
+        .dstSet = _descriptorSets[i],                         //VkDescriptorSet
+        .dstBinding = 1,                                      //uint32_t
+        .dstArrayElement = 0,                                 //uint32_t
+        .descriptorCount = 1,                                 //uint32_t
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
+        .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
+        .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
         .pTexelBufferView = nullptr,                          //const VkBufferView*
       };
 
@@ -324,7 +356,7 @@ public:
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,              //VkStructureType
         .pNext = nullptr,                                             //const void*
         .dstSet = _descriptorSets[i],                                 //VkDescriptorSet
-        .dstBinding = 1,                                              //uint32_t
+        .dstBinding = 2,                                              //uint32_t
         .dstArrayElement = 0,                                         //uint32_t
         .descriptorCount = 1,                                         //uint32_t
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  //VkDescriptorType
@@ -333,17 +365,23 @@ public:
         .pTexelBufferView = nullptr,                                  //const VkBufferView*
       };
 
-      std::array<VkWriteDescriptorSet, 2> descriptorWrites{ uboDescriptorWrite, samplerDescriptorWrite };
+      std::array<VkWriteDescriptorSet, 3> descriptorWrites{ viewProjUboDescriptorWrite, instanceUBODescriptorWrite, samplerDescriptorWrite };
       vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
   }
   void createUniformBuffers() {
     for (auto& img : _swapChainImages) {
-      _uniformBuffers.push_back(std::make_shared<VulkanBuffer>(
+      _viewProjUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         sizeof(UniformBufferObject), nullptr, 0));
+      _instanceUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        sizeof(InstanceUBOData) * _numInstances, nullptr, 0));
+
     }
   }
   float pingpong_t01(int durationMs = 5000) {
@@ -363,6 +401,18 @@ public:
     }
     return t01;
   }
+  std::vector<BR2::vec3> offsets;
+  void tryInitializeOffsets() {
+    #define fr01() (-0.5 + ((double)rand() / (double)RAND_MAX))
+    #define rnd(a,b) ((a) + ((b)-(a))*(fr01()))
+    #define rr ((float)rnd(-3,3))
+    if (offsets.size() == 0) {
+      for (size_t i = 0; i < _numInstances; ++i) {
+        offsets.push_back({rr,rr,rr});
+      }
+    }
+  }
+
   void updateUniformBuffer(uint32_t currentImage) {
     //Push constants are faster.
     float t01 = pingpong_t01(10000);
@@ -371,17 +421,26 @@ public:
     float d = 20;
     BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
-    BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     UniformBufferObject ub = {
-      .model = (BR2::mat4::translation(origin) * BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) * BR2::mat4::translation(trans)),
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 100.0f)
     };
+    _viewProjUniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
 
-    _uniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
-    //The BR2 matrix uses top left coordinates already I guess.
+    tryInitializeOffsets();
+
+    BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
+    std::vector<BR2::mat4> mats(_numInstances);
+    for (uint32_t i = 0; i < _numInstances; ++i) {
+      if (i < offsets.size()) {
+        mats[i] = BR2::mat4::translation(origin) *
+                  BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) * 
+                  BR2::mat4::translation(trans + offsets[i]);
+      }
+    }
+    _instanceUniformBuffers[currentImage]->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
     // ub.proj._m22 *= -1;
   }
   void createSwapChain() {
@@ -803,7 +862,7 @@ public:
                               &_descriptorSets[i], 0, nullptr);
 
       //*The 1 is instances - for instanced rendering
-      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), 1, 0, 0, 0);
+      vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_boxInds.size()), _numInstances, 0, 0, 0);
       //vkCmdDrawIndexedIndirect
 
       //This is called once when all pipeline rendering is complete
@@ -1102,7 +1161,7 @@ public:
 #pragma endregion
 
   void cleanupSwapChain() {
-    _uniformBuffers.resize(0);
+    _viewProjUniformBuffers.resize(0);
     _layouts.resize(0);
     _descriptorSets.resize(0);
     _testTexture = nullptr;
