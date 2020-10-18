@@ -1,6 +1,7 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
+//I wonder if you can do multiple vertex bindings.
 //note dvec3 uses multiple slots.
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
