@@ -222,13 +222,14 @@ public:
 #pragma region Members
   SDL_Window* _pSDLWindow = nullptr;
   std::shared_ptr<Vulkan> _vulkan = nullptr;
-
   std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 
-  std::shared_ptr<VulkanTextureImage> _testTexture = nullptr;
+  std::shared_ptr<VulkanTextureImage> _testTexture1 = nullptr;
+  std::shared_ptr<VulkanTextureImage> _testTexture2= nullptr;
   std::shared_ptr<VulkanDepthImage> _depthTexture = nullptr;  //This is not implemented
 
   std::shared_ptr<TestGeometry> _geom = nullptr;
+  std::shared_ptr<VulkanPipelineShader> _pShader = nullptr;
 
   //**TODO:Pipeline
   //**TODO:Pipeline
@@ -237,7 +238,6 @@ public:
   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
   //VkShaderModule _vertShaderModule = VK_NULL_HANDLE;
   //VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
-  std::shared_ptr<VulkanPipelineShader> _pShader = nullptr;
 
   //**TODO:Pipeline
   //**TODO:Pipeline
@@ -1198,23 +1198,29 @@ public:
 
     return ret;
   }
-  void createTextureImage() {
+  void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
-      _testTexture = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
+      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
     }
     else {
-      vulkan()->errorExit("Could not load test image.");
+      vulkan()->errorExit("Could not load test image 1.");
     }
-
+    auto img2 = loadImage(App::rootFile("test.png"));
+    if (img2) {
+      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_mipmap_mode);
+    }
+    else {
+      vulkan()->errorExit("Could not load test image 2.");
+    }
     // _depthTexture = = std::make_shared<VulkanImage>(vulkan(), img);
   }
 #pragma endregion
 
   void allocateShaderMemory() {
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
-    createTextureImage();    // - create once - single creation
+    createTextureImages();    // - create once - single creation
 
     //* Dynamic shaders
     createDescriptorPool();       // - create once - single creation
@@ -1227,7 +1233,8 @@ public:
     _instanceUniformBuffers.resize(0);
     _layouts.resize(0);
     _descriptorSets.resize(0);
-    _testTexture = nullptr;
+    _testTexture1 = nullptr;
+    _testTexture2 = nullptr;
     _depthTexture = nullptr;
     vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
     vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
