@@ -138,6 +138,8 @@ public:
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
+  
+  void recreateMipmaps(MipmapMode mipmaps);
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -161,167 +163,9 @@ public:
   //VkPipeline
   //Shaders
 };
-class VulkanSwapchainImage {
-public:
-  //Framebuffer
-  //Uniform buffer
-  //Descriptor sets.
-
-  //VkImage
-  //VkImageView
-  //VkCommandBuffer commands
-  //VkFramebuffer frameBuffers
-};
-//In-Fligth Frames
-//Semaphores.
-//Fences
-//This is one of the most important classes as it gives us the "extents" of all our images, buffers and viewports.
-class VulkanSwapchain : public VulkanObject {
-public:
-  VkExtent2D _swapChainExtent;
-  VkFormat _swapChainImageFormat;
-  std::vector<VulkanSwapchainImage> _swapchainImages;
-
-  VulkanSwapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
-    //     //void createSwapChain() {
-    //     BRLogInfo("Creating Swapchain.");
-    //
-    //     uint32_t formatCount;
-    //     CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), v->getWindowSurface(), &formatCount, nullptr);
-    //     std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    //     if (formatCount != 0) {
-    //       CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), _main_window_surface, &formatCount, formats.data());
-    //     }
-    //     string_t fmts = "Surface formats: " + Os::newline();
-    //     for (int i = 0; i < formats.size(); ++i) {
-    //       fmts += " Format " + i;
-    //       fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
-    //       fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
-    //     }
-    //
-    //     // How the surfaces are presented from the swapchain.
-    //     uint32_t presentModeCount;
-    //     CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), _main_window_surface, &presentModeCount, nullptr);
-    //     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    //     if (presentModeCount != 0) {
-    //       CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), _main_window_surface, &presentModeCount, presentModes.data());
-    //     }
-    //     //This is cool. Directly query the color space
-    //     VkSurfaceFormatKHR surfaceFormat;
-    //     for (const auto& availableFormat : formats) {
-    //       if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-    //         surfaceFormat = availableFormat;
-    //         break;
-    //       }
-    //     }
-    //     //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-    //     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    //     for (const auto& availablePresentMode : presentModes) {
-    //       if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-    //         presentMode = availablePresentMode;
-    //         break;
-    //       }
-    //     }
-    //     if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
-    //       BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
-    //     }
-    //
-    //     VkSurfaceCapabilitiesKHR caps;
-    //     CheckVKR(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, vulkan()->physicalDevice(), _main_window_surface, &caps);
-    //
-    //     //Image count, double buffer = 2
-    //     uint32_t imageCount = caps.minImageCount + 1;
-    //     if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) {
-    //       imageCount = caps.maxImageCount;
-    //     }
-    //     if (imageCount > 2) {
-    //       BRLogDebug("Supported Swapchain Image count > 2 : " + imageCount);
-    //     }
-    //
-    //     auto m = std::numeric_limits<uint32_t>::max();
-    //
-    //     int win_w = 0, win_h = 0;
-    //     SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
-    //     _swapChainExtent.width = win_w;
-    //     _swapChainExtent.height = win_h;
-    //
-    //     //Extent = Image size
-    //     //Not sure what this as for.
-    //     // if (caps.currentExtent.width != m) {
-    //     //   _swapChainExtent = caps.currentExtent;
-    //     // }
-    //     // else {
-    //     //   VkExtent2D actualExtent = { 0, 0 };
-    //     //   actualExtent.width = std::max(caps.minImageExtent.width, std::min(caps.maxImageExtent.width, actualExtent.width));
-    //     //   actualExtent.height = std::max(caps.minImageExtent.height, std::min(caps.maxImageExtent.height, actualExtent.height));
-    //     //   _swapChainExtent = actualExtent;
-    //     // }
-    //
-    //     //Create swapchain
-    //     VkSwapchainCreateInfoKHR swapChainCreateInfo = {
-    //       .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-    //       .surface = _main_window_surface,
-    //       .minImageCount = imageCount,
-    //       .imageFormat = surfaceFormat.format,
-    //       .imageColorSpace = surfaceFormat.colorSpace,
-    //       .imageExtent = _swapChainExtent,
-    //       .imageArrayLayers = 1,  //more than 1 for stereoscopic application
-    //       .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-    //       .preTransform = caps.currentTransform,
-    //       .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-    //       .presentMode = presentMode,
-    //       .clipped = VK_TRUE,
-    //       .oldSwapchain = VK_NULL_HANDLE,  // ** For window resizing.
-    //     };
-    //
-    //     CheckVKR(vkCreateSwapchainKHR, vulkan()->device(), &swapChainCreateInfo, nullptr, &_swapChain);
-    //     CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, nullptr);
-    //
-    //     _swapChainImages.resize(imageCount);
-    //     CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, _swapChainImages.data());
-    //
-    //     _swapChainImageFormat = surfaceFormat.format;
-    //     //}
-    //     //void createSwapchainImageViews() {
-    //     BRLogInfo("Creating Image Views.");
-    //     for (size_t i = 0; i < _swapChainImages.size(); i++) {
-    //       auto view = vulkan()->createImageView(_swapChainImages[i], _swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-    //       _swapChainImageViews.push_back(view);
-    //     }
-    // }
-  }
-
-  //**Original data directly from the big class
-  // //Asynchronous computing depends on the swapchain count.
-  // //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
-  // //You can't have more than #swapchain images rendering at a time.
-  // int32_t _iConcurrentFrames = 3;
-  // size_t _currentFrame = 0;
-  // std::vector<VkFence> _inFlightFences;
-  // std::vector<VkFence> _imagesInFlight;
-  // std::vector<VkSemaphore> _imageAvailableSemaphores;
-  // std::vector<VkSemaphore> _renderFinishedSemaphores;
-  // std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;  //One per swapchain image since theres multiple frames in flight.
-  // VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-  // VkExtent2D _swapChainExtent;
-  // VkFormat _swapChainImageFormat;
-  // std::vector<VkImage> _swapChainImages;
-  // std::vector<VkImageView> _swapChainImageViews;
-  // std::vector<VkFramebuffer> _swapChainFramebuffers;
-
-  //Should allow the creation and destcuction of swapchain.
-  // Vulkan
-  //  VulkanSwapchain s(..args)
-  // when window is resized.
-  //  _swapchain = new Swapchain
-  // ~VulkanSwapchain
-  //    cleanupSwapchain()
-  // extent() { return _extent (width and height)}
-};
 class MeshComponent {
 public:
 };
-
 /**
  * @class VulkanShaderModule
  * @brief Shader module with reflection tanks to Spirv-Reflect.
@@ -337,7 +181,6 @@ public:
 private:
   std::unique_ptr<VulkanShaderModule_Internal> _pInt;
 };
-
 /**
  * 
  * */
@@ -353,6 +196,57 @@ private:
   std::vector<std::shared_ptr<VulkanShaderModule>> _modules;
   string_t _name = "*undefined*";
 };
+
+//Doing it this way we can dynamically configure the swapchain.
+//But it isn't feasible. We would need to reallocate the descriptor pools since we pool based on swapchain images.
+// class VulkanSwapchain{
+//   public:
+//   int32_t _iConcurrentFrames = 3;
+//   size_t _currentFrame = 0;
+//   std::vector<VkFence> _inFlightFences;
+//   std::vector<VkFence> _imagesInFlight;
+//   std::vector<VkSemaphore> _imageAvailableSemaphores;
+//   std::vector<VkSemaphore> _renderFinishedSemaphores;
+//   std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+//   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+//   int32_t _numInstances = 3;
+//   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
+//   VkExtent2D _swapChainExtent;
+//   VkFormat _swapChainImageFormat;
+//   std::vector<VkImage> _swapChainImages;
+//   std::vector<VkImageView> _swapChainImageViews;
+//   std::vector<VkFramebuffer> _swapChainFramebuffers;
+//   std::vector<VkCommandBuffer> _commandBuffers;
+//   bool _bSwapChainOutOfDate = false;
+// 
+// 
+// 
+//   void createSyncObjects() {
+//     BRLogInfo("Creating Rendering Semaphores.");
+//     _imageAvailableSemaphores.resize(_iConcurrentFrames);
+//     _renderFinishedSemaphores.resize(_iConcurrentFrames);
+//     _inFlightFences.resize(_iConcurrentFrames);
+//     _imagesInFlight.resize(_swapChainImages.size(), VK_NULL_HANDLE);
+// 
+//     for (int i = 0; i < _iConcurrentFrames; ++i) {
+//       VkSemaphoreCreateInfo semaphoreInfo = {
+//         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+//         .pNext = nullptr,
+//         .flags = 0,
+//       };
+//       CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
+//       CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
+// 
+//       VkFenceCreateInfo fenceInfo = {
+//         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+//         .pNext = nullptr,
+//         .flags = VK_FENCE_CREATE_SIGNALED_BIT,  //Fences must always be created in a signaled state.
+//       };
+// 
+//       CheckVKR(vkCreateFence, vulkan()->device(), &fenceInfo, nullptr, &_inFlightFences[i]);
+//     }
+//   }
+// };
 
 }  // namespace VG
 

@@ -40,7 +40,6 @@ public:
   //Asynchronous computing depends on the swapchain count.
   //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
   //You can't have more than #swapchain images rendering at a time.
-  int32_t _iConcurrentFrames = 3;
   size_t _currentFrame = 0;
   std::vector<VkFence> _inFlightFences;
   std::vector<VkFence> _imagesInFlight;
@@ -56,12 +55,17 @@ public:
   std::vector<VkImageView> _swapChainImageViews;
   std::vector<VkFramebuffer> _swapChainFramebuffers;
   std::vector<VkCommandBuffer> _commandBuffers;
+  bool _bSwapChainOutOfDate = false;
 
+  // Shader
+  // Shader
+  // Shader
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
   std::vector<VkDescriptorSetLayout> _layouts;
   std::vector<VkDescriptorSet> _descriptorSets;
+  // Shader
+  // Shader
 
-  bool _bSwapChainOutOfDate = false;
   //**TODO:Swapchain
   //**TODO:Swapchain
 
@@ -209,21 +213,19 @@ public:
     cleanupSwapChain();
     vkDeviceWaitIdle(vulkan()->device());
 
-    createSwapChain();       // * stays - recreate
-    createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
-    createTextureImage();    // - create once - single creation
+    createSwapChain();  // *  - recreate
 
-    //* Dynamic shaders
-    createDescriptorPool();       // - create once - single creation
-    createDescriptorSetLayout();  // - create once - single creation
-    createDescriptorSets();       // - create once - single creation (vkCmdBindDescriptorSets)
-                                  //references texture &c
+    static bool s_bInitialized = false;
+    if (s_bInitialized == false) {
+      s_bInitialized = true;
+      allocateShaderMemory();
+    }
 
-    createSwapchainImageViews();  // * stays - recreate
+    createSwapchainImageViews();  // *  - recreate
     createGraphicsPipeline();
     // --> createShaderForPipeline - Move out - create once
-    createFramebuffers();    // *stays - recreate
-    createCommandBuffers();  // * stays
+    createFramebuffers();    // * - recreate
+    createCommandBuffers();  // *
     createSyncObjects();     // **Possibly create once
 
     _bSwapChainOutOfDate = false;
@@ -264,7 +266,7 @@ public:
     VkDescriptorSetLayoutBinding uboInstanceLayoutBinding = {
       .binding = 1,                                         //uint32_t
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
-      .descriptorCount = _numInstances,                                 //uint32_t //descriptorCount specifies the number of values in the array
+      .descriptorCount = _numInstances,                     //uint32_t //descriptorCount specifies the number of values in the array
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
       .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
     };
@@ -381,7 +383,6 @@ public:
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         sizeof(InstanceUBOData) * _numInstances, nullptr, 0));
-
     }
   }
   float pingpong_t01(int durationMs = 5000) {
@@ -403,12 +404,12 @@ public:
   }
   std::vector<BR2::vec3> offsets;
   void tryInitializeOffsets() {
-    #define fr01() (-0.5 + ((double)rand() / (double)RAND_MAX))
-    #define rnd(a,b) ((a) + ((b)-(a))*(fr01()))
-    #define rr ((float)rnd(-3,3))
+#define fr01() (-0.5 + ((double)rand() / (double)RAND_MAX))
+#define rnd(a, b) ((a) + ((b) - (a)) * (fr01()))
+#define rr ((float)rnd(-3, 3))
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
-        offsets.push_back({rr,rr,rr});
+        offsets.push_back({ rr, rr, rr });
       }
     }
   }
@@ -436,7 +437,7 @@ public:
     for (uint32_t i = 0; i < _numInstances; ++i) {
       if (i < offsets.size()) {
         mats[i] = BR2::mat4::translation(origin) *
-                  BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) * 
+                  BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) *
                   BR2::mat4::translation(trans + offsets[i]);
       }
     }
@@ -486,20 +487,6 @@ public:
       BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
     }
 
-    VkSurfaceCapabilitiesKHR caps;
-    CheckVKR(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &caps);
-
-    //Image count, double buffer = 2
-    uint32_t imageCount = caps.minImageCount + 1;
-    if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) {
-      imageCount = caps.maxImageCount;
-    }
-    if (imageCount > 2) {
-      BRLogDebug("Supported Swapchain Image count > 2 : " + imageCount);
-    }
-
-    auto m = std::numeric_limits<uint32_t>::max();
-
     int win_w = 0, win_h = 0;
     SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
     _swapChainExtent.width = win_w;
@@ -521,13 +508,13 @@ public:
     VkSwapchainCreateInfoKHR swapChainCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
       .surface = vulkan()->windowSurface(),
-      .minImageCount = imageCount,
+      .minImageCount = _vulkan->swapchainImageCount(),
       .imageFormat = surfaceFormat.format,
       .imageColorSpace = surfaceFormat.colorSpace,
       .imageExtent = _swapChainExtent,
       .imageArrayLayers = 1,  //more than 1 for stereoscopic application
       .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-      .preTransform = caps.currentTransform,
+      .preTransform = _vulkan->surfaceCaps().currentTransform,
       .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
       .presentMode = presentMode,
       .clipped = VK_TRUE,
@@ -535,8 +522,25 @@ public:
     };
 
     CheckVKR(vkCreateSwapchainKHR, vulkan()->device(), &swapChainCreateInfo, nullptr, &_swapChain);
-    CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, nullptr);
 
+    //ImageCount must be what we asked for as we use this data to initialize (pretty much everything buffer related).
+    uint32_t imageCount = 0;
+    CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, nullptr);
+    if (imageCount > _vulkan->swapchainImageCount()) {
+      //Not an issue, just use less. This could be a performance improvement, though.
+      BRLogDebug("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
+                 "' greater than what we specified: '" + std::to_string(_vulkan->swapchainImageCount()) + "'.");
+      imageCount = _vulkan->swapchainImageCount();
+    }
+    else if (imageCount < _vulkan->swapchainImageCount()) {
+      //Error: we need at least this many images, not because of any functinoal requirement, but because we use the
+      // image count to pre-initialize the swapchain data.
+      BRLogError("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
+                 "' less than what we specified: '" + std::to_string(_vulkan->swapchainImageCount()) + "'.");
+      _vulkan->errorExit("Minimum swapchain was not satisfied. Could not continue.");
+    }
+
+    //So what is imageCount?
     _swapChainImages.resize(imageCount);
     CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, _swapChainImages.data());
 
@@ -872,12 +876,16 @@ public:
   }
   void createSyncObjects() {
     BRLogInfo("Creating Rendering Semaphores.");
-    _imageAvailableSemaphores.resize(_iConcurrentFrames);
-    _renderFinishedSemaphores.resize(_iConcurrentFrames);
-    _inFlightFences.resize(_iConcurrentFrames);
+    //TODO: replace with _swapchain->imageCount
+    _imageAvailableSemaphores.resize(_vulkan->swapchainImageCount());
+    //TODO: replace with _swapchain->imageCount
+    _renderFinishedSemaphores.resize(_vulkan->swapchainImageCount());
+    //TODO: replace with _swapchain->imageCount
+    _inFlightFences.resize(_vulkan->swapchainImageCount());
     _imagesInFlight.resize(_swapChainImages.size(), VK_NULL_HANDLE);
 
-    for (int i = 0; i < _iConcurrentFrames; ++i) {
+    //TODO: replace with _swapchain->imageCount
+    for (int i = 0; i < _vulkan->swapchainImageCount(); ++i) {
       VkSemaphoreCreateInfo semaphoreInfo = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         .pNext = nullptr,
@@ -982,7 +990,7 @@ public:
     // We add additional threads for async the rendering.
     //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
 
-    _currentFrame = (_currentFrame + 1) % _iConcurrentFrames;
+    _currentFrame = (_currentFrame + 1) % _vulkan->swapchainImageCount();
   }
 
   typedef v_v3c4x2 VertType;
@@ -1160,15 +1168,28 @@ public:
   }
 #pragma endregion
 
-  void cleanupSwapChain() {
+  void allocateShaderMemory() {
+    createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
+    createTextureImage();    // - create once - single creation
+
+    //* Dynamic shaders
+    createDescriptorPool();       // - create once - single creation
+    createDescriptorSetLayout();  // - create once - single creation
+    createDescriptorSets();       // - create once - single creation (vkCmdBindDescriptorSets)
+  }
+
+  void cleanupShaderMemory() {
     _viewProjUniformBuffers.resize(0);
+    _instanceUniformBuffers.resize(0);
     _layouts.resize(0);
     _descriptorSets.resize(0);
     _testTexture = nullptr;
     _depthTexture = nullptr;
     vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
     vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
+  }
 
+  void cleanupSwapChain() {
     if (_swapChainFramebuffers.size() > 0) {
       for (auto& v : _swapChainFramebuffers) {
         if (v != VK_NULL_HANDLE) {
@@ -1222,6 +1243,8 @@ public:
 
     //_pSwapchain = nullptr
     cleanupSwapChain();
+
+    cleanupShaderMemory();
 
     _pShader = nullptr;
 

@@ -46,6 +46,8 @@ public:
   std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
   std::unordered_map<string_t, VkExtensionProperties> _deviceExtensions;
   std::unordered_map<std::string, VkLayerProperties> supported_validation_layers;
+  VkSurfaceCapabilitiesKHR _surfaceCaps;
+  uint32_t _swapchainImageCount=2;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -73,7 +75,7 @@ public:
     //Validation layers
     std::vector<const char*> layerNames = getValidationLayers();
     if (_bEnableValidationLayers) {
-      createinfo.enabledLayerCount  = static_cast<uint32_t>(layerNames.size());
+      createinfo.enabledLayerCount = static_cast<uint32_t>(layerNames.size());
       createinfo.ppEnabledLayerNames = layerNames.data();
     }
     else {
@@ -103,6 +105,7 @@ public:
     setupDebug();
     pickPhysicalDevice();
     createLogicalDevice();
+    getDeviceProperties();
     createCommandPool();
     // You can log every vulkan call to stdout.
   }
@@ -499,6 +502,16 @@ public:
     CheckVKRV(vkCreateCommandPool, _device, &poolInfo, nullptr, &_commandPool);
   }
 
+  void getDeviceProperties() {
+    //Store the props one time.
+    //Image count, double buffer = 2
+    CheckVKRV(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, _physicalDevice, _windowSurface, &_surfaceCaps);
+    _swapchainImageCount = _surfaceCaps.minImageCount + 1;
+    if (_surfaceCaps.maxImageCount > 0 && _swapchainImageCount > _surfaceCaps.maxImageCount) {
+      _swapchainImageCount = _surfaceCaps.maxImageCount;
+    }
+  }
+
 #pragma endregion
 
 #pragma region ErrorHandling
@@ -659,6 +672,12 @@ void Vulkan::endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
   vkQueueWaitIdle(graphicsQueue());
 
   vkFreeCommandBuffers(device(), commandPool(), 1, &commandBuffer);
+}
+uint32_t Vulkan::swapchainImageCount() {
+  return _pInt->_swapchainImageCount;
+}
+VkSurfaceCapabilitiesKHR& Vulkan::surfaceCaps() {
+  return _pInt->_surfaceCaps;
 }
 #pragma endregion
 

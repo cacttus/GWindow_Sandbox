@@ -28,6 +28,8 @@ public:
   VkCommandPool& commandPool();
   VkQueue& graphicsQueue();
   VkQueue& presentQueue();
+  VkSurfaceCapabilitiesKHR& surfaceCaps();
+  uint32_t swapchainImageCount();
 
   //Errors
   void checkErrors();

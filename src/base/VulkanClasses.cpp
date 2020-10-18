@@ -360,6 +360,9 @@ bool VulkanTextureImage::mipmappingSupported() {
   bool supported = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
   return supported;
 }
+void VulkanTextureImage::recreateMipmaps(MipmapMode mipmaps){
+  
+}
 void VulkanTextureImage::generateMipmaps() {
   //https://vulkan-tutorial.com/Generating_Mipmaps
   if (!mipmappingSupported()) {
