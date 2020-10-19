@@ -4,39 +4,27 @@ Sandbox for testing the [VulkanGame](https://github.com/metalmario971/VulkanGame
 # TODO
 * Note: Saved the class files for future reference (_saved)
 
-* Move Geom Vertex info  to Shaders.
+* Move Geom Vertex info to Shaders.
+  * Integrate BR2::VertexFormat
+  * Match Mesh VertexFormat with Shader VertexFormat
+  * Create Pipeline on Shader
+  * Lightweight RenderFrame classes (refactoring)
+    * std::vector<RenderFrame>
+    * Not a HUGE overhaul. Starting small. 
+      * We will abstract Pipeline and Swapchain later.
+    * Move shader data into a RenderFrame.
+      * Uniform buffers (de-array)
+      * Descriptor sets.
+      * Framebuffers (de-array)
+    * Access bindings & UBO's via RenderFrame->getShaderData(_pShader)  
 
-**Test VK_VERTEX_INPUT_RATE_INSTANCE in the attribute binding description
-  * not sure what this does - instancing appears to work without it.
-** Test out attribute input binding order in SpvReflect
+    * Move command buffer creation into RenderFrame.
 
-* RenderFrame Class
-    std::vector<RenderFrame>
-  * Not a HUGE overhaul. Starting small. 
-    * We will abstract Pipeline and Swapchain later.
-  * Move shader data into a RenderFrame.
-    * Uniform buffers (de-array)
-    * Descriptor sets.
-    * Framebuffers (de-array)
-  Access this stuff via Frame->getShaderData(_pShader)
+* Make pipeline a subclass of Shader  this would organize better when we integrate with VG
 
-  * Move command buffer creation into RenderFrame.
-
-* TBH - we could make pipeline a subclass of Shader  this would organize better when we integrate with VG
-
-
-* Problem - shader vertex information isn't the way to go - 
-because input vertexes can be of any format.
-How would we bind a slective vertex buffer to the shader?
-  * just colors & v's ??
-
-* Mesh Class
 * Swapchain
 * Multiple Vulkan Windows.
 * Move pipeline stuff
-
-* Move Descriptors into Shader & Pipeline 
-
 * Separate UBO / Image into ShaderTexture ShaderUniform Classes
 
 ## Backlog
