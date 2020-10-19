@@ -14,7 +14,8 @@ layout(binding = 0) uniform UniformBufferObject {
 //Note: Must be aligned to std120
     mat4 view;
     mat4 proj;
-} ubo;
+} _uboViewProj;//ubo is the name.
+
 
 struct InstanceData
 {
@@ -22,13 +23,20 @@ struct InstanceData
 };
 layout (binding = 1) uniform Instances {
   InstanceData instances[100];
-};
+} _uboInstanceData;
+
+// struct Blah {
+//   vec4 testing_1;
+//   vec4 testing_2;
+// };
+// //GLSL-V only allows arrays of opauqe types
+// layout(binding = 3) uniform sampler2D test_samplers[5];
 
 
 void main() {
   //gl_InstanceID
   //gl_InstanceIndex
-  gl_Position = ubo.proj * ubo.view * instances[gl_InstanceIndex].model * vec4(inPosition,1);
+  gl_Position = _uboViewProj.proj * _uboViewProj.view * _uboInstanceData.instances[gl_InstanceIndex].model * vec4(inPosition,1);
   fragColor = inColor;
   fragTexCoord = inTexCoord;
 }

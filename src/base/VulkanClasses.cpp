@@ -557,16 +557,16 @@ void VulkanTextureImage::flipImage20161206(uint8_t* image, int width, int height
 #pragma endregion
 
 #pragma region VulkanShaderModule
-class VulkanShaderModule_Internal : VulkanObject {
+class ShaderModule_Internal : VulkanObject {
 public:
   string_t _name = "*unset*";
   VkShaderModule _vkShaderModule = nullptr;
   SpvReflectShaderModule* _spvReflectModule = nullptr;
   string_t _baseName = "*unset*";
 
-  VulkanShaderModule_Internal(std::shared_ptr<Vulkan> pv) : VulkanObject(pv) {
+  ShaderModule_Internal(std::shared_ptr<Vulkan> pv) : VulkanObject(pv) {
   }
-  ~VulkanShaderModule_Internal() {
+  ~ShaderModule_Internal() {
     if (_spvReflectModule) {
       spvReflectDestroyShaderModule(_spvReflectModule);
     }
@@ -628,39 +628,257 @@ public:
     return stage;
   }
 };
+SpvReflectShaderModule* ShaderModule::reflectionData() { return _pInt->_spvReflectModule; }
 
-VulkanShaderModule::VulkanShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& files) : VulkanObject(v) {
-  _pInt = std::make_unique<VulkanShaderModule_Internal>(v);
+ShaderModule::ShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& files) : VulkanObject(v) {
+  _pInt = std::make_unique<ShaderModule_Internal>(v);
   _pInt->_baseName = base_name;
   _pInt->load(files);
 }
-VulkanShaderModule::~VulkanShaderModule() {
+ShaderModule::~ShaderModule() {
   _pInt = nullptr;
 }
-VkPipelineShaderStageCreateInfo VulkanShaderModule::getPipelineStageCreateInfo() {
+VkPipelineShaderStageCreateInfo ShaderModule::getPipelineStageCreateInfo() {
   return _pInt->getPipelineStageCreateInfo();
 }
-
+const string_t& ShaderModule::name() {
+  return _pInt->_name;
+}
 #pragma endregion
 
 #pragma region VulkanPipelineShader
 
-VulkanPipelineShader::VulkanPipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
+PipelineShader::PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
   _name = name;
   for (auto& str : files) {
-    std::shared_ptr<VulkanShaderModule> mod = std::make_shared<VulkanShaderModule>(v, name, str);
+    std::shared_ptr<ShaderModule> mod = std::make_shared<ShaderModule>(v, name, str);
     _modules.push_back(mod);
   }
+  createDescriptors();
 }
-VulkanPipelineShader::~VulkanPipelineShader() {
+PipelineShader::~PipelineShader() {
+  cleanupDescriptors();
   _modules.clear();
 }
-std::vector<VkPipelineShaderStageCreateInfo> VulkanPipelineShader::getShaderStageCreateInfos() {
+std::vector<VkPipelineShaderStageCreateInfo> PipelineShader::getShaderStageCreateInfos() {
   std::vector<VkPipelineShaderStageCreateInfo> ret;
   for (auto shader : _modules) {
     ret.push_back(shader->getPipelineStageCreateInfo());
   }
   return ret;
+}
+void PipelineShader::cleanupDescriptors() {
+  vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
+  vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
+}
+void PipelineShader::createDescriptors() {
+  uint32_t _nPool_Samplers = 0;
+  uint32_t _nPool_UBOs = 0;
+
+  //Parse shader metadata
+  for (auto& module : _modules) {
+    for (uint32_t idb = 0; idb < module->reflectionData()->descriptor_binding_count; idb++) {
+      auto& descriptor = module->reflectionData()->descriptor_bindings[idb];
+
+      std::shared_ptr<Descriptor> d = std::make_shared<Descriptor>();
+
+      d->_name = std::string(descriptor.name);
+      if (d->_name.length() == 0) {
+        BRLogWarn("Name of one or more input shader variables was not specified for shader module '" + module->name() + "'");
+      }
+      d->_binding = descriptor.binding;
+      d->_arraySize = 1;
+
+      if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
+        d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
+        d->_stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
+        d->_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+      }
+      else {
+        BRThrowException("Invalid or unsupported shader stage (SpvReflectShaderStage):  " + std::to_string(module->reflectionData()->shader_stage));
+      }
+
+      if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+        d->_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        _nPool_UBOs++;
+
+        if (descriptor.array.dims_count > 0) {
+          //This is an array descriptor. I don't think this is valid in Vulkan-GLSL
+          BRThrowException("Illegal Descriptor array was found.");
+        }
+        if (descriptor.block.member_count > 0) {
+          //This is a block , array size = 0. The actual size of the block is viewed as a single data-chunk.s
+          d->_arraySize = 1;
+          d->_blockSize = descriptor.block.size;
+        }
+      }
+      else if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+        d->_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        _nPool_Samplers++;
+
+        if (descriptor.array.dims_count > 0) {
+          if (descriptor.array.dims_count > 1) {
+            //This is not illegal, just not supported. Update VkDescriptorSetLayoutBinding count to _arraySize for multi-dim arrays
+            BRThrowException("Illegal Descriptor multi-array.");
+          }
+          else {
+            d->_arraySize = descriptor.array.dims[0];
+          }
+        }
+      }
+      else {
+        BRLogError("Shader descriptor not supported - Spirv-Reflect Descriptor: " + descriptor.descriptor_type);
+        Gu::debugBreak();
+      }
+
+      _descriptors.insert(std::make_pair(d->_name, d));
+    }
+  }
+
+  //Allocate Descriptor Pools.
+  VkDescriptorPoolSize uboPoolSize = {
+    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                                                //VkDescriptorType
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_UBOs,  //uint32_t
+  };
+  VkDescriptorPoolSize samplerPoolSize = {
+    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,                                            //VkDescriptorType
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_Samplers,  //uint32_t
+  };
+  std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
+  VkDescriptorPoolCreateInfo poolInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,             // VkStructureType
+    .pNext = nullptr,                                                   // const void*
+    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,   // VkDescriptorPoolCreateFlags
+    .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),  // uint32_t //one set per frame
+    .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),           // uint32_t
+    .pPoolSizes = poolSizes.data(),                                     // const VkDescriptorPoolSize*
+  };
+  CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
+
+  // Create Descriptor Layouts
+  std::vector<VkDescriptorSetLayoutBinding> bindings;
+  for (auto& it : _descriptors) {
+    auto& desc = it.second;
+    bindings.push_back({
+      .binding = desc->_binding,            //uint32_t
+      .descriptorType = desc->_type,        //VkDescriptorType      Can put SSBO here.
+      .descriptorCount = desc->_arraySize,  //uint32_t //descriptorCount specifies the number of values in the array
+      .stageFlags = desc->_stage,           //VkShaderStageFlags
+      .pImmutableSamplers = nullptr,        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+    });
+  }
+
+  VkDescriptorSetLayoutCreateInfo layoutInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
+    .pNext = nullptr,                                              //const void*
+    .flags = 0,                                                    //VkDescriptorSetLayoutCreateFlags   Some cool stuff can be put here to modify UBO updates.
+    .bindingCount = static_cast<uint32_t>(bindings.size()),        //uint32_t
+    .pBindings = bindings.data(),                                  //const VkDescriptorSetLayoutBinding*
+  };
+  CheckVKR(vkCreateDescriptorSetLayout, vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
+
+  std::vector<VkDescriptorSetLayout> _layouts;
+  _layouts.resize(vulkan()->swapchainImageCount(), _descriptorSetLayout);
+
+  //Allocate Descriptor Sets
+  VkDescriptorSetAllocateInfo allocInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,                       // VkStructureType
+    .pNext = nullptr,                                                              // const void*
+    .descriptorPool = _descriptorPool,                                             // VkDescriptorPool
+    .descriptorSetCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()),  // uint32_t
+    .pSetLayouts = _layouts.data(),                                                // const VkDescriptorSetLayout*
+  };
+
+  //Descriptor sets are automatically freed when the descriptor pool is destroyed.
+  _descriptorSets.resize(vulkan()->swapchainImageCount());
+  CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
+}
+std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) {
+  //Returns the descriptor of the given name, or nullptr if not found.
+  std::shared_ptr<Descriptor> ret = nullptr;
+
+  auto it = _descriptors.find(name);
+  if (it != _descriptors.end()) {
+    ret = it->second;
+  }
+  return ret;
+}
+bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
+  //Binds a shader Uniform to this shader for the given swapchain image.
+  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  if (desc == nullptr) {
+    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
+    Gu::debugBreak();
+    return false;
+  }
+
+  VkDescriptorBufferInfo bufferInfo = {
+    .buffer = buffer->hostBuffer()->buffer(),
+    .offset = offset,
+    .range = range,
+  };
+  VkWriteDescriptorSet descWrite = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .pNext = nullptr,
+    .dstSet = _descriptorSets[swapchainImage],
+    .dstBinding = desc->_binding,
+    .dstArrayElement = 0,
+    .descriptorCount = 1,
+    .descriptorType = desc->_type,
+    .pImageInfo = nullptr,
+    .pBufferInfo = &bufferInfo,
+    .pTexelBufferView = nullptr,
+  };
+  vkUpdateDescriptorSets(vulkan()->device(), 1, &descWrite, 0, nullptr);
+
+  return true;
+}
+bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanTextureImage> texture, VkDeviceSize arrayIndex) {
+  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  if (desc == nullptr) {
+    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
+    Gu::debugBreak();
+    return false;
+  }
+
+  VkDescriptorImageInfo imageInfo = {
+    .sampler = texture->sampler(),
+    .imageView = texture->imageView(),
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  };
+  VkWriteDescriptorSet descriptorWrite = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .pNext = nullptr,
+    .dstSet = _descriptorSets[swapchainImage],
+    .dstBinding = desc->_binding,
+    .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
+    .descriptorCount = 1,
+    .descriptorType = desc->_type,
+    .pImageInfo = &imageInfo,
+    .pBufferInfo = nullptr,
+    .pTexelBufferView = nullptr,
+  };
+
+  desc->_isBound = true;
+
+  vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+  return true;
+}
+void PipelineShader::bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline) {
+  for (auto desc : _descriptors) {
+    if (desc.second->_isBound == false) {
+      BRLogWarnOnce("Descriptor '" + desc.second->_name + "' was not bound before invoking shader '" + this->name() + "'");
+    }
+  }
+
+  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline,
+                          0,  //Layout ID
+                          1,
+                          &_descriptorSets[swapchainImageIndex], 0, nullptr);
 }
 #pragma endregion
 

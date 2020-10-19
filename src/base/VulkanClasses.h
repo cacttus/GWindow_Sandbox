@@ -138,7 +138,7 @@ public:
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
-  
+
   void recreateMipmaps(MipmapMode mipmaps);
 
 private:
@@ -155,49 +155,65 @@ private:
   void flipImage20161206(uint8_t* image, int width, int height);
 
 };  // namespace VG
-//class VulkanShaderModule
-//You can bind multiple pipelines in one command buffer.
-class VulkanPipeline {
-public:
-  //Shader Pipeline.
-  //VkPipeline
-  //Shaders
-};
-class MeshComponent {
-public:
-};
 /**
  * @class VulkanShaderModule
  * @brief Shader module with reflection tanks to Spirv-Reflect.
  * */
-class VulkanShaderModule_Internal;
-class VulkanShaderModule : VulkanObject {
+class ShaderModule_Internal;
+class ShaderModule : VulkanObject {
 public:
-  VulkanShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& file);
-  virtual ~VulkanShaderModule() override;
+  ShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& file);
+  virtual ~ShaderModule() override;
 
   VkPipelineShaderStageCreateInfo getPipelineStageCreateInfo();
+  SpvReflectShaderModule* reflectionData();
+  const string_t& name();
 
 private:
-  std::unique_ptr<VulkanShaderModule_Internal> _pInt;
+  std::unique_ptr<ShaderModule_Internal> _pInt;
+};
+class Descriptor {
+public:
+  string_t _name = "";
+  VkDescriptorType _type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+  uint32_t _binding = 0;  //The acutal binding index.
+  uint32_t _arraySize = 0;
+  uint32_t _blockSize = 0;
+  VkShaderStageFlags _stage;
+  bool _isBound = false;
 };
 /**
  * 
  * */
 //class VulkanPipelineShader_Internal;
-class VulkanPipelineShader : public VulkanObject {
+class PipelineShader : public VulkanObject {
 public:
-  VulkanPipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
-  virtual ~VulkanPipelineShader() override;
+  PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
+  virtual ~PipelineShader() override;
 
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
+  bool bindUBO(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
+  bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, VkDeviceSize arrayIndex = 0);
+  void bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline);
+
+  const string_t& name() { return _name; }
+
+  VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
 
 private:
-  std::vector<std::shared_ptr<VulkanShaderModule>> _modules;
+  void createDescriptors();
+  void cleanupDescriptors();
+
+  std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
+
+  VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
+  VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> _descriptorSets;
+
+  std::vector<std::shared_ptr<ShaderModule>> _modules;
   string_t _name = "*undefined*";
+  std::unordered_map<string_t, std::shared_ptr<Descriptor>> _descriptors;
 };
-
-
 enum class RenderMode {
   TriangleList
 };
@@ -226,6 +242,7 @@ public:
   void makePlane();
   void drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount);
   void bindBuffers(VkCommandBuffer& cmd);
+
 private:
   std::vector<v_v3c4x2> _boxVerts;
   std::vector<uint32_t> _boxInds;
@@ -244,7 +261,6 @@ private:
   std::vector<VkVertexInputAttributeDescription> _attribDesc;
 
   std::shared_ptr<MaterialDummy> _material = nullptr;
-
 
   //VkPipelineVertexInputStateCreateInfo getVertexInputInfo();
   //VkPipelineInputAssemblyStateCreateInfo getInputAssembly();

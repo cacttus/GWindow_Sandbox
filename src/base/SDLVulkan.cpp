@@ -36,7 +36,7 @@ public:
   std::shared_ptr<VulkanTextureImage> _testTexture2 = nullptr;
   std::shared_ptr<VulkanDepthImage> _depthTexture = nullptr;  //This is not implemented
 
-  std::shared_ptr<VulkanPipelineShader> _pShader = nullptr;
+  std::shared_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
 
   //**TODO:Pipeline
@@ -44,8 +44,6 @@ public:
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
-  //VkShaderModule _vertShaderModule = VK_NULL_HANDLE;
-  //VkShaderModule _fragShaderModule = VK_NULL_HANDLE;
 
   //**TODO:Pipeline
   //**TODO:Pipeline
@@ -72,17 +70,6 @@ public:
   std::vector<VkFramebuffer> _swapChainFramebuffers;
   std::vector<VkCommandBuffer> _commandBuffers;
   bool _bSwapChainOutOfDate = false;
-
-  // Shader
-  // Shader
-  // Shader
-  VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
-  VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
-  std::vector<VkDescriptorSetLayout> _layouts;
-  std::vector<VkDescriptorSet> _descriptorSets;
-  // Shader
-  // Shader
-
   //**TODO:Swapchain
   //**TODO:Swapchain
 
@@ -180,7 +167,7 @@ public:
     _game->_mesh2->makeBox();
 
     //Make Shader.
-    _pShader = std::make_shared<VulkanPipelineShader>(_vulkan,
+    _pShader = std::make_shared<PipelineShader>(_vulkan,
                                                       "Vulkan-Tutorial-Test-Shader",
                                                       std::vector{
                                                         App::rootFile("test_vs.spv"),
@@ -244,160 +231,12 @@ public:
     }
 
     createSwapchainImageViews();
-    createGraphicsPipeline(_game->_mesh1);
+    createGraphicsPipeline(_game->_mesh1, _pShader);
     createFramebuffers();
     createCommandBuffers();
 
     _bSwapChainOutOfDate = false;
   }
-  void createDescriptorPool() {
-    //One pool per shader with all descriptors needed in the shader.
-    //Uniform buffer descriptor pool.
-    VkDescriptorPoolSize uboPoolSize = {
-      .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                              //VkDescriptorType
-      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()) * 2,  //uint32_t
-    };
-    VkDescriptorPoolSize samplerPoolSize = {
-      .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,                  //VkDescriptorType
-      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
-    };
-    std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
-    VkDescriptorPoolCreateInfo poolInfo = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,            // VkStructureType
-      .pNext = nullptr,                                                  // const void*
-      .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,  // VkDescriptorPoolCreateFlags
-      .maxSets = static_cast<uint32_t>(_swapChainImages.size()),         // uint32_t //one set per frame
-      .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),          // uint32_t
-      .pPoolSizes = poolSizes.data(),                                    // const VkDescriptorPoolSize*
-    };
-    CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
-  }
-  void createDescriptorSetLayout() {
-    //One per swapchain image. Copied to for set.
-    //VkDescriptorPoolCreateInfo::maxSets
-    VkDescriptorSetLayoutBinding uboLayoutBinding = {
-      .binding = 0,                                         //uint32_t
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
-      .descriptorCount = 1,                                 //uint32_t
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
-      .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-    };
-    VkDescriptorSetLayoutBinding uboInstanceLayoutBinding = {
-      .binding = 1,                                         //uint32_t
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType      Can put SSBO here.
-      .descriptorCount = _numInstances,                     //uint32_t //descriptorCount specifies the number of values in the array
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,             //VkShaderStageFlags
-      .pImmutableSamplers = nullptr,                        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-    };
-    VkDescriptorSetLayoutBinding samplerLayoutBinding = {
-      .binding = 2,                                                 // uint32_t
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  // VkDescriptorType
-      .descriptorCount = 1,                                         // uint32_t
-      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,                   // VkShaderStageFlags
-      .pImmutableSamplers = nullptr,                                // const VkSampler*
-    };
-
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings = { uboLayoutBinding, uboInstanceLayoutBinding, samplerLayoutBinding };
-
-    //This is duplicated for each UBO bound to the shader program (pipeline) for each swapchain image.
-    // This is duplicated in the vkAllocateDescriptorSets area. It essentially should be run for each UBO binding.
-    VkDescriptorSetLayoutCreateInfo layoutInfo = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                              //const void*
-      .flags = 0,                                                    //VkDescriptorSetLayoutCreateFlags   Some cool stuff can be put here to modify UBO updates.
-      .bindingCount = static_cast<uint32_t>(bindings.size()),        //uint32_t
-      .pBindings = bindings.data(),                                  //const VkDescriptorSetLayoutBinding*
-    };
-    CheckVKR(vkCreateDescriptorSetLayout, vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
-  }
-  void createDescriptorSets() {
-    //This is for vkCmdBindDescriptorSets
-    _layouts.resize(_swapChainImages.size(), _descriptorSetLayout);
-
-    //We are duplicating the descriptor layout we created in createDescriptorSetLayout. In fact we could just duplicate it there..
-    VkDescriptorSetAllocateInfo allocInfo = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,               // VkStructureType
-      .pNext = nullptr,                                                      // const void*
-      .descriptorPool = _descriptorPool,                                     // VkDescriptorPool
-      .descriptorSetCount = static_cast<uint32_t>(_swapChainImages.size()),  // uint32_t
-      .pSetLayouts = _layouts.data(),                                        // const VkDescriptorSetLayout*
-    };
-
-    //Descriptor sets are automatically freed when the descriptor pool is destroyed.
-    _descriptorSets.resize(_swapChainImages.size());
-    CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
-
-    for (size_t i = 0; i < _swapChainImages.size(); ++i) {
-      //Testing dynamic descriptor update.
-      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
-      updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
-      updateViewProjDescriptor(_descriptorSets[i], _viewProjUniformBuffers[i]);
-    }
-  }
-  void updateViewProjDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanBuffer> buffer) {
-    VkDescriptorBufferInfo viewProjBufferInfo = {
-      .buffer = buffer->hostBuffer()->buffer(),
-      .offset = 0,
-      .range = sizeof(UniformBufferObject),
-    };
-    VkWriteDescriptorSet viewProjUboDescriptorWrite = {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .pNext = nullptr,
-      .dstSet = descriptorSet,
-      .dstBinding = 0,
-      .dstArrayElement = 0,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-      .pImageInfo = nullptr,
-      .pBufferInfo = &viewProjBufferInfo,
-      .pTexelBufferView = nullptr,
-    };
-
-    std::array<VkWriteDescriptorSet, 1> descriptorWrites{ viewProjUboDescriptorWrite };
-    vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-  }
-  void updateSamplerDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanTextureImage> texture) {
-    VkDescriptorImageInfo imageInfo = {
-      .sampler = texture->sampler(),
-      .imageView = texture->imageView(),
-      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    };
-    VkWriteDescriptorSet descriptorWrite = {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .pNext = nullptr,
-      .dstSet = descriptorSet,
-      .dstBinding = 2,
-      .dstArrayElement = 0,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-      .pImageInfo = &imageInfo,
-      .pBufferInfo = nullptr,
-      .pTexelBufferView = nullptr,
-    };
-
-    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
-  }
-  void updateInstanceDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanBuffer> instanceUBO) {
-    VkDescriptorBufferInfo instanceBufferInfo = {
-      .buffer = instanceUBO->hostBuffer()->buffer(),
-      .offset = 0,
-      .range = sizeof(InstanceUBOData) * _numInstances,  // VkDeviceSize OR VK_WHOLE_SIZE
-    };
-    VkWriteDescriptorSet descriptorWrite = {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .pNext = nullptr,
-      .dstSet = descriptorSet,
-      .dstBinding = 1,
-      .dstArrayElement = 0,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-      .pImageInfo = nullptr,
-      .pBufferInfo = &instanceBufferInfo,
-      .pTexelBufferView = nullptr,
-    };
-    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
-  }
-
   void createUniformBuffers() {
     for (auto& img : _swapChainImages) {
       _viewProjUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
@@ -455,7 +294,7 @@ public:
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
         rots_delta.push_back(rnd(-M_2PI, M_2PI));  //rotation delta.
-        rots_ini.push_back(rnd(-M_2PI, M_2PI));                // Initial rotation, and also the value of current rotation.
+        rots_ini.push_back(rnd(-M_2PI, M_2PI));    // Initial rotation, and also the value of current rotation.
       }
     }
   }
@@ -604,15 +443,16 @@ public:
     //class RenderTarget
     //_colorTarget = std::make_shared<VulkanImage>();
   }
-  void createGraphicsPipeline(std::shared_ptr<Mesh> geom) {
+  void createGraphicsPipeline(std::shared_ptr<Mesh> geom, std::shared_ptr<PipelineShader> shader) {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
 
+    auto descriptorLayout = shader->getVkDescriptorSetLayout();
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
       //These are the buffer descriptors - UBO - SSBO -
-      .setLayoutCount = 1,                   // uint32_t
-      .pSetLayouts = &_descriptorSetLayout,  // VkDescriptorSetLayout
+      .setLayoutCount = 1,               // uint32_t
+      .pSetLayouts = &descriptorLayout,  // VkDescriptorSetLayout
       //Constants to pass to shaders.
       .pushConstantRangeCount = 0,    // uint32_t
       .pPushConstantRanges = nullptr  // VkPushConstantRange
@@ -873,25 +713,23 @@ public:
       //Binding one does not disturb the others.
 
       //Instanced Mesh1 -> Shader1
-      updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
-      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
+      //updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
+      //updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
+      _pShader->bindUBO("_uboViewProj", i, _viewProjUniformBuffers[i]);
+      _pShader->bindSampler("_ufTexture0", i, _testTexture1);
+      _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers1[i]);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
       _game->_mesh1->bindBuffers(_commandBuffers[i]);
-      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
-                              0,  //Layout ID
-                              1,
-                              &_descriptorSets[i], 0, nullptr);
+      _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
 
       _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
 
       //Instanced Mesh2 ->Shader1
-      updateSamplerDescriptor(_descriptorSets[i], _testTexture2);
-      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers2[i]);
+      _pShader->bindSampler("_ufTexture0", i, _testTexture2);
+      _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers2[i]);
+
       _game->_mesh2->bindBuffers(_commandBuffers[i]);
-      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
-                              0,  //Layout ID
-                              1,
-                              &_descriptorSets[i], 0, nullptr);
+      _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
 
       _game->_mesh2->drawIndexed(_commandBuffers[i], _numInstances);
 
@@ -1069,24 +907,15 @@ public:
   void allocateShaderMemory() {
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
     createTextureImages();   // - create once - single creation
-
-    //* Dynamic shaders
-    createDescriptorPool();       // - create once - single creation
-    createDescriptorSetLayout();  // - create once - single creation
-    createDescriptorSets();       // - create once - single creation (vkCmdBindDescriptorSets)
   }
 
   void cleanupShaderMemory() {
     _viewProjUniformBuffers.resize(0);
     _instanceUniformBuffers1.resize(0);
     _instanceUniformBuffers2.resize(0);
-    _layouts.resize(0);
-    _descriptorSets.resize(0);
     _testTexture1 = nullptr;
     _testTexture2 = nullptr;
     _depthTexture = nullptr;
-    vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
-    vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
   }
 
   void cleanupSwapChain() {
