@@ -639,37 +639,22 @@ public:
     CheckVKR(vkCreatePipelineLayout, vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
 
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
-    //std::vector<VkPipelineShaderStageCreateInfo> shaderStages = createShaderForPipeline();
 
     auto vertexInputInfo = geom->getVertexInputInfo();
     auto inputAssembly = geom->getInputAssembly();
 
-    VkViewport viewport = {
-      .x = 0,
-      .y = 0,
-      .width = (float)_swapChainExtent.width,
-      .height = (float)_swapChainExtent.height,
-      .minDepth = 0,
-      .maxDepth = 1,
-    };
-
-    VkRect2D scissor{};
-    scissor.offset = { 0, 0 };
-    scissor.extent = _swapChainExtent;
+    //Create render pass for pipeline
+    createRenderPass();
 
     VkPipelineViewportStateCreateInfo viewportState = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,  //VkStructureType
       .pNext = nullptr,                                                //const void*
       .flags = 0,                                                      //VkPipelineViewportStateCreateFlags
-      .viewportCount = 1,                                              //uint32_t
-      .pViewports = &viewport,                                         //const VkViewport*
-      .scissorCount = 1,                                               //uint32_t
-      .pScissors = &scissor,                                           //const VkRect2D*
+      .viewportCount = 0,                                              //uint32_t
+      .pViewports = nullptr,                                         //const VkViewport*
+      .scissorCount = 0,                                               //uint32_t
+      .pScissors = nullptr,                                           //const VkRect2D*
     };
-
-    //Create render pass for pipeline
-    createRenderPass();
-
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {
       .blendEnable = VK_TRUE,                                                                                                       //VkBool32
       .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,                                                                             //VkBlendFactor
@@ -703,16 +688,16 @@ public:
     };
     //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     std::vector<VkDynamicState> dynamicStates = {
-      //Note: if viewport is dynamic then the viewports below are ignored.
-      //VK_DYNAMIC_STATE_VIEWPORT,
+      VK_DYNAMIC_STATE_VIEWPORT,
+      VK_DYNAMIC_STATE_SCISSOR,
       //VK_DYNAMIC_STATE_LINE_WIDTH
     };
     VkPipelineDynamicStateCreateInfo dynamicState = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                               //const void*
-      .flags = 0,                                                     //VkPipelineDynamicStateCreateFlags
-      .dynamicStateCount = (uint32_t)dynamicStates.size(),            //uint32_t
-      .pDynamicStates = dynamicStates.data(),                         //const VkDynamicState*
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,     //VkStructureType
+      .pNext = nullptr,                                                  //const void*
+      .flags = 0,                                                        //VkPipelineDynamicStateCreateFlags
+      .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),  //uint32_t
+      .pDynamicStates = dynamicStates.data(),                            //const VkDynamicState*
     };
 
     //*Multisampling
@@ -745,7 +730,7 @@ public:
       .pMultisampleState = &multisampling,                       //const VkPipelineMultisampleStateCreateInfo*
       .pDepthStencilState = nullptr,                             //const VkPipelineDepthStencilStateCreateInfo*
       .pColorBlendState = &colorBlending,                        //const VkPipelineColorBlendStateCreateInfo*
-      .pDynamicState = nullptr,                                  //const VkPipelineDynamicStateCreateInfo*
+      .pDynamicState = &dynamicState,                            //const VkPipelineDynamicStateCreateInfo*
       .layout = _pipelineLayout,                                 //VkPipelineLayout
       .renderPass = _renderPass,                                 //VkRenderPass
       .subpass = 0,                                              //uint32_t
@@ -889,13 +874,25 @@ public:
 
       vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
 
-      //VkViewport viewport = vks::initializers::viewport((float)width, (float)height, 0.0f, 1.0f);
-      //vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
-      //VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
-      //vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+      VkViewport viewport = {
+        .x = 0,
+        .y = 0,
+        .width = (float)_swapChainExtent.width,
+        .height = (float)_swapChainExtent.height,
+        .minDepth = 0,
+        .maxDepth = 1,
+      };
+
+      VkRect2D scissor{};
+      scissor.offset = { 0, 0 };
+      scissor.extent = _swapChainExtent;
+      vkCmdSetViewport(_commandBuffers[i], 0, 1, &viewport);
+      vkCmdSetScissor(_commandBuffers[i], 0, 1, &scissor);
 
       //You can bind multiple pipelines for multiple render passes.
       //Binding one does not disturb the others.
+
+      //Instanced Mesh1 -> Shader1
       updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
       _game->_mesh1->bindBuffers(_commandBuffers[i]);
@@ -906,7 +903,7 @@ public:
 
       _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
 
-
+      //Instanced Mesh2 ->Shader1
       updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers2[i]);
       _game->_mesh2->bindBuffers(_commandBuffers[i]);
       vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
