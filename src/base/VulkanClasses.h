@@ -197,56 +197,63 @@ private:
   string_t _name = "*undefined*";
 };
 
-//Doing it this way we can dynamically configure the swapchain.
-//But it isn't feasible. We would need to reallocate the descriptor pools since we pool based on swapchain images.
-// class VulkanSwapchain{
-//   public:
-//   int32_t _iConcurrentFrames = 3;
-//   size_t _currentFrame = 0;
-//   std::vector<VkFence> _inFlightFences;
-//   std::vector<VkFence> _imagesInFlight;
-//   std::vector<VkSemaphore> _imageAvailableSemaphores;
-//   std::vector<VkSemaphore> _renderFinishedSemaphores;
-//   std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
-//   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
-//   int32_t _numInstances = 3;
-//   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-//   VkExtent2D _swapChainExtent;
-//   VkFormat _swapChainImageFormat;
-//   std::vector<VkImage> _swapChainImages;
-//   std::vector<VkImageView> _swapChainImageViews;
-//   std::vector<VkFramebuffer> _swapChainFramebuffers;
-//   std::vector<VkCommandBuffer> _commandBuffers;
-//   bool _bSwapChainOutOfDate = false;
-// 
-// 
-// 
-//   void createSyncObjects() {
-//     BRLogInfo("Creating Rendering Semaphores.");
-//     _imageAvailableSemaphores.resize(_iConcurrentFrames);
-//     _renderFinishedSemaphores.resize(_iConcurrentFrames);
-//     _inFlightFences.resize(_iConcurrentFrames);
-//     _imagesInFlight.resize(_swapChainImages.size(), VK_NULL_HANDLE);
-// 
-//     for (int i = 0; i < _iConcurrentFrames; ++i) {
-//       VkSemaphoreCreateInfo semaphoreInfo = {
-//         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-//         .pNext = nullptr,
-//         .flags = 0,
-//       };
-//       CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
-//       CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
-// 
-//       VkFenceCreateInfo fenceInfo = {
-//         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-//         .pNext = nullptr,
-//         .flags = VK_FENCE_CREATE_SIGNALED_BIT,  //Fences must always be created in a signaled state.
-//       };
-// 
-//       CheckVKR(vkCreateFence, vulkan()->device(), &fenceInfo, nullptr, &_inFlightFences[i]);
-//     }
-//   }
-// };
+
+enum class RenderMode {
+  TriangleList
+};
+enum class IndexType {
+  IndexTypeUint16,
+  IndexTypeUint32
+};
+/**
+ * @class Mesh
+ * */
+class Mesh : public VulkanObject {
+public:
+  typedef v_v3c4x2 VertType;
+
+public:
+  Mesh(std::shared_ptr<Vulkan> v);
+  virtual ~Mesh() override;
+
+  VkPipelineVertexInputStateCreateInfo getVertexInputInfo();
+  VkPipelineInputAssemblyStateCreateInfo getInputAssembly();
+
+  std::shared_ptr<MaterialDummy>& material() { return _material; }
+
+  uint32_t maxRenderInstances();
+  void makeBox();
+  void makePlane();
+  void drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount);
+  void bindBuffers(VkCommandBuffer& cmd);
+private:
+  std::vector<v_v3c4x2> _boxVerts;
+  std::vector<uint32_t> _boxInds;
+  std::vector<v_v2c4> _planeVerts;
+  std::vector<uint32_t> _planeInds;
+
+  std::shared_ptr<VulkanBuffer> _vertexBuffer = nullptr;
+  std::shared_ptr<VulkanBuffer> _indexBuffer = nullptr;
+
+  RenderMode _renderMode = RenderMode::TriangleList;
+  IndexType _indexType = IndexType::IndexTypeUint32;
+
+  uint32_t _maxRenderInstances;
+
+  VkVertexInputBindingDescription _bindingDesc;
+  std::vector<VkVertexInputAttributeDescription> _attribDesc;
+
+  std::shared_ptr<MaterialDummy> _material = nullptr;
+
+
+  //VkPipelineVertexInputStateCreateInfo getVertexInputInfo();
+  //VkPipelineInputAssemblyStateCreateInfo getInputAssembly();
+};
+
+class MaterialDummy {
+public:
+  std::shared_ptr<VulkanTextureImage> _texture = nullptr;
+};
 
 }  // namespace VG
 

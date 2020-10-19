@@ -9,212 +9,20 @@ namespace VG {
 static MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
 static bool g_samplerate_shading = true;
 
-enum class RenderMode {
-  TriangleList
-};
-enum class IndexType {
-  IndexTypeUint16,
-  IndexTypeUint32
-};
-class TestGeometry {
+#pragma region GameDummy
+
+//A dummy game with meshes &c to test command buffer rendering
+class GameDummy {
 public:
-  typedef v_v3c4x2 VertType;
-
-  std::vector<v_v3c4x2> _boxVerts;
-  std::vector<uint32_t> _boxInds;
-  std::vector<v_v2c4> _planeVerts;
-  std::vector<uint32_t> _planeInds;
-
-  std::shared_ptr<VulkanBuffer> _vertexBuffer = nullptr;
-  std::shared_ptr<VulkanBuffer> _indexBuffer = nullptr;
-
-  RenderMode _renderMode = RenderMode::TriangleList;
-  IndexType _indexType = IndexType::IndexTypeUint32;
-
-  VkVertexInputBindingDescription _bindingDesc;
-  std::vector<VkVertexInputAttributeDescription> _attribDesc;
-
-  void drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount) {
-    vkCmdDrawIndexed(cmd, static_cast<uint32_t>(_boxInds.size()), instanceCount, 0, 0, 0);
-  }
-  void bindBuffers(VkCommandBuffer& cmd) {
-    VkIndexType idxType = VK_INDEX_TYPE_UINT32;
-    if (_indexType == IndexType::IndexTypeUint32) {
-      idxType = VK_INDEX_TYPE_UINT32;
-    }
-    else if (_indexType == IndexType::IndexTypeUint16) {
-      idxType = VK_INDEX_TYPE_UINT16;
-    }
-
-    //You can have multiple vertex layouts with layout(binding=x)
-    VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(cmd, _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
-  }
-  VkPipelineVertexInputStateCreateInfo getVertexInputInfo() {
-    _bindingDesc = VertType::getBindingDescription();
-    _attribDesc = VertType::getAttributeDescriptions();
-
-    //This is basically a glsl attribute specifying a layout identifier
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-      .vertexBindingDescriptionCount = 1,
-      .pVertexBindingDescriptions = &_bindingDesc,
-      .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attribDesc.size()),
-      .pVertexAttributeDescriptions = _attribDesc.data(),
-    };
-
-    return vertexInputInfo;
-  }
-  VkPipelineInputAssemblyStateCreateInfo getInputAssembly() {
-    VkPrimitiveTopology mode = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    if (_renderMode == RenderMode::TriangleList) {
-      mode = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    }
-    else {
-      BRLogError("Invalid or unsupported rendering mode: " + std::to_string((int)_renderMode));
-    }
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                      //const void*
-      .flags = 0,                                                            //VkPipelineInputAssemblyStateCreateFlags
-      .topology = mode,                                                      //VkPrimitiveTopology
-      .primitiveRestartEnable = VK_FALSE,                                    //VkBool32
-    };
-    return inputAssembly;
-  }
-
-  void makePlane(std::shared_ptr<Vulkan> vulkan) {
-    //    vec2(0.0, -.5),
-    //vec2(.5, .5),
-    //vec2(-.5, .5)
-    _planeVerts = {
-      { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
-      { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
-      { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
-      { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
-    };
-    _planeInds = {
-      0, 1, 2, 2, 3, 0
-    };
-
-    // _planeVerts = {
-    //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
-    //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
-    //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
-    // };
-
-    size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
-
-    _vertexBuffer = std::make_shared<VulkanBuffer>(
-      vulkan,
-      VulkanBufferType::VertexBuffer,
-      true,
-      v_datasize,
-      _planeVerts.data(), v_datasize);
-
-    size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
-    _indexBuffer = std::make_shared<VulkanBuffer>(
-      vulkan,
-      VulkanBufferType::IndexBuffer,
-      true,
-      i_datasize,
-      _planeInds.data(), i_datasize);
-  }
-  void makeBox(std::shared_ptr<Vulkan> vulkan) {
-    //v_v3c4
-    // _boxVerts = {
-    //   { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-    //   { { 1, 0, 0 }, { 0, 0, 1, 1 } },
-    //   { { 0, 1, 0 }, { 1, 0, 1, 1 } },
-    //   { { 1, 1, 0 }, { 1, 1, 0, 1 } },
-    //   { { 0, 0, 1 }, { 0, 0, 1, 1 } },
-    //   { { 1, 0, 1 }, { 1, 0, 0, 1 } },
-    //   { { 0, 1, 1 }, { 0, 1, 0, 1 } },
-    //   { { 1, 1, 1 }, { 1, 0, 1, 1 } },
-    // };
-    // //      6     7
-    // //  2      3
-    // //      4     5
-    // //  0      1
-    // _boxInds = {
-    //   0, 3, 1, /**/ 0, 2, 3,  //
-    //   1, 3, 7, /**/ 1, 7, 5,  //
-    //   5, 7, 6, /**/ 5, 6, 4,  //
-    //   4, 6, 2, /**/ 4, 2, 0,  //
-    //   2, 6, 7, /**/ 2, 7, 3,  //
-    //   4, 0, 1, /**/ 4, 1, 5,  //
-    // };
-
-    //      6     7
-    //  2      3
-    //      4     5
-    //  0      1
-    std::vector<v_v3c4> bv = {
-      { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-      { { 1, 0, 0 }, { 1, 1, 1, 1 } },
-      { { 0, 1, 0 }, { 1, 1, 1, 1 } },
-      { { 1, 1, 0 }, { 1, 1, 1, 1 } },
-      { { 0, 0, 1 }, { 1, 1, 1, 1 } },
-      { { 1, 0, 1 }, { 1, 1, 1, 1 } },
-      { { 0, 1, 1 }, { 1, 1, 1, 1 } },
-      { { 1, 1, 1 }, { 1, 1, 1, 1 } },
-    };
-    //Construct box from the old box coordintes (no texture)
-    //Might be wrong - opengl coordinates.
-#define BV_VFACE(bl, br, tl, tr)              \
-  { bv[bl]._pos, bv[bl]._color, { 0, 1 } },   \
-    { bv[br]._pos, bv[br]._color, { 1, 1 } }, \
-    { bv[tl]._pos, bv[tl]._color, { 0, 0 } }, \
-  {                                           \
-    bv[tr]._pos, bv[tr]._color, { 1, 0 }      \
-  }
-
-    _boxVerts = {
-      BV_VFACE(0, 1, 2, 3),  //F
-      BV_VFACE(1, 5, 3, 7),  //R
-      BV_VFACE(5, 4, 7, 6),  //A
-      BV_VFACE(4, 0, 6, 2),  //L
-      BV_VFACE(4, 5, 0, 1),  //B
-      BV_VFACE(2, 3, 6, 7)   //T
-    };
-
-//   CW
-//  2------>3
-//  |    /
-//  | /
-//  0------>1
-#define BV_IFACE(idx) ((idx * 4) + 0), ((idx * 4) + 3), ((idx * 4) + 1), ((idx * 4) + 0), ((idx * 4) + 2), ((idx * 4) + 3)
-    _boxInds = {
-      BV_IFACE(0),
-      BV_IFACE(1),
-      BV_IFACE(2),
-      BV_IFACE(3),
-      BV_IFACE(4),
-      BV_IFACE(5),
-    };
-    size_t v_datasize = sizeof(VertType) * _boxVerts.size();
-
-    _vertexBuffer = std::make_shared<VulkanBuffer>(
-      vulkan,
-      VulkanBufferType::VertexBuffer,
-      true,
-      v_datasize,
-      _boxVerts.data(), v_datasize);
-
-    size_t i_datasize = sizeof(uint32_t) * _boxInds.size();
-    _indexBuffer = std::make_shared<VulkanBuffer>(
-      vulkan,
-      VulkanBufferType::IndexBuffer,
-      true,
-      i_datasize,
-      _boxInds.data(), i_datasize);
+  std::shared_ptr<Mesh> _mesh1 = nullptr;
+  std::shared_ptr<Mesh> _mesh2 = nullptr;
+  void update(double time) {
   }
 };
+
+#pragma endregion
+
+#pragma region SDLVulkan_Internal
 
 //Data from Vulkan-Tutorial
 class SDLVulkan_Internal {
@@ -225,11 +33,11 @@ public:
   std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 
   std::shared_ptr<VulkanTextureImage> _testTexture1 = nullptr;
-  std::shared_ptr<VulkanTextureImage> _testTexture2= nullptr;
+  std::shared_ptr<VulkanTextureImage> _testTexture2 = nullptr;
   std::shared_ptr<VulkanDepthImage> _depthTexture = nullptr;  //This is not implemented
 
-  std::shared_ptr<TestGeometry> _geom = nullptr;
   std::shared_ptr<VulkanPipelineShader> _pShader = nullptr;
+  std::shared_ptr<GameDummy> _game = nullptr;
 
   //**TODO:Pipeline
   //**TODO:Pipeline
@@ -252,8 +60,9 @@ public:
   std::vector<VkFence> _imagesInFlight;
   std::vector<VkSemaphore> _imageAvailableSemaphores;
   std::vector<VkSemaphore> _renderFinishedSemaphores;
-  std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
-  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers;  //One per swapchain image since theres multiple frames in flight.
+  std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;   //One per swapchain image since theres multiple frames in flight.
+  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers1;  //One per swapchain image since theres multiple frames in flight.
+  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers2;  //One per swapchain image since theres multiple frames in flight.
   int32_t _numInstances = 3;
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   VkExtent2D _swapChainExtent;
@@ -364,9 +173,12 @@ public:
 
     _vulkan = std::make_shared<Vulkan>(title, _pSDLWindow);
 
-    //TODO: we'll move this stuff out later.
-    _geom = std::make_shared<TestGeometry>();
-    _geom->makeBox(_vulkan);
+    _game = std::make_shared<GameDummy>();
+    _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
+    _game->_mesh1->makeBox();
+    _game->_mesh2 = std::make_shared<Mesh>(_vulkan);
+    _game->_mesh2->makeBox();
+
     //Make Shader.
     _pShader = std::make_shared<VulkanPipelineShader>(_vulkan,
                                                       "Vulkan-Tutorial-Test-Shader",
@@ -432,7 +244,7 @@ public:
     }
 
     createSwapchainImageViews();
-    createGraphicsPipeline(_geom);
+    createGraphicsPipeline(_game->_mesh1);
     createFramebuffers();
     createCommandBuffers();
 
@@ -536,29 +348,29 @@ public:
         .pTexelBufferView = nullptr,                          //const VkBufferView*
       };
 
-      //UBO descriptor
-      VkDescriptorBufferInfo instanceBufferInfo = {
-        .buffer = _instanceUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
-        .offset = 0,                                                   // VkDeviceSize
-        .range = sizeof(InstanceUBOData) * _numInstances,              // VkDeviceSize OR VK_WHOLE_SIZE
-      };
-      VkWriteDescriptorSet instanceUBODescriptorWrite = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
-        .pNext = nullptr,                                     //const void*
-        .dstSet = _descriptorSets[i],                         //VkDescriptorSet
-        .dstBinding = 1,                                      //uint32_t
-        .dstArrayElement = 0,                                 //uint32_t
-        .descriptorCount = 1,                                 //uint32_t
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
-        .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
-        .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
-        .pTexelBufferView = nullptr,                          //const VkBufferView*
-      };
+      // //UBO descriptor
+      // VkDescriptorBufferInfo instanceBufferInfo = {
+      //   .buffer = _instanceUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
+      //   .offset = 0,                                                   // VkDeviceSize
+      //   .range = sizeof(InstanceUBOData) * _numInstances,              // VkDeviceSize OR VK_WHOLE_SIZE
+      // };
+      // VkWriteDescriptorSet instanceUBODescriptorWrite = {
+      //   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
+      //   .pNext = nullptr,                                     //const void*
+      //   .dstSet = _descriptorSets[i],                         //VkDescriptorSet
+      //   .dstBinding = 1,                                      //uint32_t
+      //   .dstArrayElement = 0,                                 //uint32_t
+      //   .descriptorCount = 1,                                 //uint32_t
+      //   .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
+      //   .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
+      //   .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
+      //   .pTexelBufferView = nullptr,                          //const VkBufferView*
+      // };
 
       //Sampler descriptor
       VkDescriptorImageInfo imageInfo = {
-        .sampler = _testTexture->sampler(),                       //VkSampler
-        .imageView = _testTexture->imageView(),                   //VkImageView
+        .sampler = _testTexture1->sampler(),                      //VkSampler
+        .imageView = _testTexture1->imageView(),                  //VkImageView
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,  //VkImageLayout
       };
       VkWriteDescriptorSet samplerDescriptorWrite = {
@@ -574,10 +386,36 @@ public:
         .pTexelBufferView = nullptr,                                  //const VkBufferView*
       };
 
-      std::array<VkWriteDescriptorSet, 3> descriptorWrites{ viewProjUboDescriptorWrite, instanceUBODescriptorWrite, samplerDescriptorWrite };
+      std::array<VkWriteDescriptorSet, 2> descriptorWrites{ viewProjUboDescriptorWrite, samplerDescriptorWrite };
       vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+
+      //Testing dynamic descriptor update.
+      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
     }
   }
+  void updateInstanceDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanBuffer> instanceUBO) {
+    //This should work as long as dstBinding is correct.
+    //UBO descriptor
+    VkDescriptorBufferInfo instanceBufferInfo = {
+      .buffer = instanceUBO->hostBuffer()->buffer(),     // VkBuffer
+      .offset = 0,                                       // VkDeviceSize
+      .range = sizeof(InstanceUBOData) * _numInstances,  // VkDeviceSize OR VK_WHOLE_SIZE
+    };
+    VkWriteDescriptorSet instanceUBODescriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
+      .pNext = nullptr,                                     //const void*
+      .dstSet = descriptorSet,                              //VkDescriptorSet
+      .dstBinding = 1,                                      //uint32_t
+      .dstArrayElement = 0,                                 //uint32_t
+      .descriptorCount = 1,                                 //uint32_t
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
+      .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
+      .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
+      .pTexelBufferView = nullptr,                          //const VkBufferView*
+    };
+    vkUpdateDescriptorSets(vulkan()->device(), 1, &instanceUBODescriptorWrite, 0, nullptr);
+  }
+
   void createUniformBuffers() {
     for (auto& img : _swapChainImages) {
       _viewProjUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
@@ -585,7 +423,12 @@ public:
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         sizeof(UniformBufferObject), nullptr, 0));
-      _instanceUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
+      _instanceUniformBuffers1.push_back(std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        sizeof(InstanceUBOData) * _numInstances, nullptr, 0));
+      _instanceUniformBuffers2.push_back(std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
@@ -609,11 +452,14 @@ public:
     }
     return t01;
   }
-  std::vector<BR2::vec3> offsets;
-  void tryInitializeOffsets() {
+
 #define fr01() (-0.5 + ((double)rand() / (double)RAND_MAX))
 #define rnd(a, b) ((a) + ((b) - (a)) * (fr01()))
 #define rr ((float)rnd(-3, 3))
+  std::vector<BR2::vec3> offsets1;
+  std::vector<BR2::vec3> offsets2;
+
+  void tryInitializeOffsets(std::vector<BR2::vec3>& offsets) {
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
@@ -621,10 +467,9 @@ public:
     }
   }
 
-  void updateUniformBuffer(uint32_t currentImage) {
+  void updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
     //Push constants are faster.
     float t01 = pingpong_t01(10000);
-    float t02 = pingpong_t01(10000);
 
     float d = 20;
     BR2::vec3 campos = { d, d, d };
@@ -635,9 +480,18 @@ public:
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 100.0f)
     };
-    _viewProjUniformBuffers[currentImage]->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
+    viewProjBuffer->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
+  }
+  void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets) {
+    float t01 = pingpong_t01(10000);
+    float t02 = pingpong_t01(10000);
+    tryInitializeOffsets(offsets);
 
-    tryInitializeOffsets();
+    float d = 20;
+    BR2::vec3 campos = { d, d, d };
+    BR2::vec3 lookAt = { 0, 0, 0 };
+    BR2::vec3 wwf = (lookAt - campos) * 0.1f;
+    BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
 
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     std::vector<BR2::mat4> mats(_numInstances);
@@ -648,7 +502,7 @@ public:
                   BR2::mat4::translation(trans + offsets[i]);
       }
     }
-    _instanceUniformBuffers[currentImage]->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
+    instanceBuffer->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
     // ub.proj._m22 *= -1;
   }
   void createSwapChain() {
@@ -768,7 +622,7 @@ public:
     //class RenderTarget
     //_colorTarget = std::make_shared<VulkanImage>();
   }
-  void createGraphicsPipeline(std::shared_ptr<TestGeometry> geom) {
+  void createGraphicsPipeline(std::shared_ptr<Mesh> geom) {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
 
@@ -1042,14 +896,26 @@ public:
 
       //You can bind multiple pipelines for multiple render passes.
       //Binding one does not disturb the others.
+      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-      _geom->bindBuffers(_commandBuffers[i]);
+      _game->_mesh1->bindBuffers(_commandBuffers[i]);
       vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
                               0,  //Layout ID
                               1,
                               &_descriptorSets[i], 0, nullptr);
 
-      _geom->drawIndexed(_commandBuffers[i], _numInstances);
+      _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
+
+
+      updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers2[i]);
+      _game->_mesh2->bindBuffers(_commandBuffers[i]);
+      vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
+                              0,  //Layout ID
+                              1,
+                              &_descriptorSets[i], 0, nullptr);
+
+      _game->_mesh2->drawIndexed(_commandBuffers[i], _numInstances);
+
       //*The 1 is instances - for instanced rendering
       //vkCmdDrawIndexedIndirect
 
@@ -1123,7 +989,10 @@ public:
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
     //E.G. game logic
-    updateUniformBuffer(imageIndex);
+    //updateUniformBuffer(imageIndex);
+    updateViewProjUniformBuffer(_viewProjUniformBuffers[imageIndex]);
+    updateInstanceUniformBuffer(_instanceUniformBuffers1[imageIndex], offsets1);
+    updateInstanceUniformBuffer(_instanceUniformBuffers2[imageIndex], offsets2);
 
     //aquire next image
     VkSubmitInfo submitInfo = {
@@ -1220,7 +1089,7 @@ public:
 
   void allocateShaderMemory() {
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
-    createTextureImages();    // - create once - single creation
+    createTextureImages();   // - create once - single creation
 
     //* Dynamic shaders
     createDescriptorPool();       // - create once - single creation
@@ -1230,7 +1099,8 @@ public:
 
   void cleanupShaderMemory() {
     _viewProjUniformBuffers.resize(0);
-    _instanceUniformBuffers.resize(0);
+    _instanceUniformBuffers1.resize(0);
+    _instanceUniformBuffers2.resize(0);
     _layouts.resize(0);
     _descriptorSets.resize(0);
     _testTexture1 = nullptr;
@@ -1308,7 +1178,9 @@ public:
   }
 };  // namespace VG
 
-//////////////////////
+#pragma endregion
+
+#pragma region SDLVulkan
 
 SDLVulkan::SDLVulkan() {
   _pInt = std::make_unique<SDLVulkan_Internal>();
@@ -1374,5 +1246,7 @@ void SDLVulkan::renderLoop() {
   vkDeviceWaitIdle(_pInt->vulkan()->device());
   _pInt->cleanup();
 }
+
+#pragma endregion
 
 }  // namespace VG

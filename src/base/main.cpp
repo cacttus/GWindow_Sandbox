@@ -10,13 +10,14 @@
       GSurface
       GWindow
 
-  * What is the point of running update async anyway, if we can't render
+  * No point of running update async anyway, if we can't render
   asynchronously (without real intervention).
 
 */
 
 #include "./SandboxHeader.h"
 #include "./SDLVulkan.h"
+#include "./SandboxHeader.h"
 
 typedef std::string string_t;
 
@@ -89,13 +90,7 @@ void doHardWork_Frame(float f) {
   int ms = FPS60_IN_MS(f);
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
-int64_t getMilliseconds() {
-  int64_t ret = 0;
-  std::chrono::nanoseconds ns =
-      std::chrono::high_resolution_clock::now().time_since_epoch();
-  ret = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
-  return ret / 1000;
-}
+
 //////////////////////////////////////////////////////
 
 class GObject;
@@ -180,7 +175,7 @@ class AsyncEngineComponent
           ua->update();
           count++;
 
-          int64_t cur = getMilliseconds();
+          int64_t cur = VG::Gu::getMilliseconds();
           ua->elapsed += (cur - ua->last);
           ua->last = cur;
           if (ua->elapsed > 2000) {
@@ -204,7 +199,7 @@ class AsyncEngineComponent
 
  protected:
   virtual void update() = 0;
-  int64_t last = getMilliseconds();
+  int64_t last = VG::Gu::getMilliseconds();
   int64_t elapsed = 0;
 
   // std::condition_variable _cv;
@@ -278,12 +273,12 @@ class GScene : public AsyncEngineComponent {
   std::vector<std::shared_ptr<GObject>> _objs;
 };
 void RenderWindow::renderScene() {
-  int64_t elapsed = (getMilliseconds() - _last);
+  int64_t elapsed = (VG::Gu::getMilliseconds() - _last);
   if (elapsed > 2000) {
     Cout::print(_name + " rendered " + std::to_string(_render_count) +
                 " times in 2s.. last window family frame took " +
                 std::to_string(elapsed) + "ms" + "\n");
-    _last = getMilliseconds();
+    _last = VG::Gu::getMilliseconds();
     _render_count = 0;
   }
   if (_scene) {

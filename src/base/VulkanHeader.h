@@ -57,10 +57,17 @@ class VulkanDepthImage;
 class VulkanAttachment;
 class VulkanCommands;
 class VulkanTextureImage;
-class VulkanSwapchain;
-class VulkanSwapchainImage;
-class VulkanPipeline;
+
+class PipelineShader;
+class Swapchain;
+class RenderFrame;
+class Mesh;
+
 class MeshComponent;
+
+//Dummies
+class MaterialDummy;
+class GameDummy;
 
 /////////////////////////////////////////////////////////////////////////////////
 //Typedefs

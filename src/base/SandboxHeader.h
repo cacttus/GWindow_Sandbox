@@ -289,6 +289,8 @@ class Gu {
 public:
   static void debugBreak();
   static std::vector<char> readFile(const std::string& file);
+  static int64_t getMilliseconds();
+  static int64_t getMicroseconds();
 };
 static void assertOrThrow(bool b) {
   if (!b) {
@@ -298,8 +300,7 @@ static void assertOrThrow(bool b) {
 }
 class GraphicsWindowCreateParameters {
 public:
-  static constexpr int Wintype_Desktop = 0;  // X11 doesn't encourage disabling buttons like win32, so we're going
-                                             // with 'window types' instead of disabling properties.
+  static constexpr int Wintype_Desktop = 0;  // X11 doesn't encourage disabling buttons like win32, so we're going with 'window types' instead of disabling properties.
   static constexpr int Wintype_Utility = 1;
   static constexpr int Wintype_Noborder = 2;
 
@@ -330,6 +331,7 @@ public:
     _type = type;
   }
 };
+
 
 }  // namespace VG
 

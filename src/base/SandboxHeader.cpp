@@ -135,7 +135,20 @@ std::vector<char> Gu::readFile(const std::string& file) {
   fs.close();
   return ret;
 }
-
+int64_t Gu::getMilliseconds() {
+  int64_t ret = 0;
+  std::chrono::nanoseconds ns =
+      std::chrono::high_resolution_clock::now().time_since_epoch();
+  ret = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
+  return ret / 1000;
+}
+int64_t Gu::getMicroseconds() {
+  int64_t ret = 0;
+  std::chrono::nanoseconds ns =
+      std::chrono::high_resolution_clock::now().time_since_epoch();
+  ret = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
+  return ret;
+}
 std::string operator+(const std::string& str, const char& rhs) {
   return str + std::to_string(rhs);
 }
