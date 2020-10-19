@@ -13,6 +13,7 @@
 #include "../../../VulkanGame/src/math/Vec2x.h"
 #include "../../../VulkanGame/src/math/MathAll.h"
 #include "../../../VulkanGame/src/ext/lodepng.h"
+#include "../../../VulkanGame/src/model/VertexFormat.h"
 
 #include "../ext/spirv-reflect/spirv_reflect.h"
 
@@ -105,8 +106,19 @@ static void log_log(const std::string& str) {
     VG::assertOrThrow((bool)(x)); \
   } while (0);
 
-//BRLogWarn("oops") expands to
-//VG::log_log(std::string("") + (std::string("") + "Warning: " + (std::string("") + "oops")))
+//Dummy
+class StringUtil {
+public:
+  static bool isNotEmpty(const string_t& st) {
+    return st != "";
+  }
+    static bool equals(const string_t& a, const string_t& b) {
+    return !(a.compare(b));
+  }
+  static string_t trim(const string_t& rhs){
+    return rhs;
+  }
+};
 
 //String
 typedef std::string string_t;
@@ -332,7 +344,6 @@ public:
     _type = type;
   }
 };
-
 
 }  // namespace VG
 

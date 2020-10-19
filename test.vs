@@ -3,9 +3,10 @@
 
 //I wonder if you can do multiple vertex bindings.
 //note dvec3 uses multiple slots.
-layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec4 inColor;
-layout(location = 2) in vec2 inTexCoord;
+//SPV-Reflect puts these in order (by location) for us
+layout(location = 0) in vec3 _v301;
+layout(location = 1) in vec4 _c401;
+layout(location = 2) in vec2 _x201;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
@@ -36,7 +37,7 @@ layout (binding = 1) uniform Instances {
 void main() {
   //gl_InstanceID
   //gl_InstanceIndex
-  gl_Position = _uboViewProj.proj * _uboViewProj.view * _uboInstanceData.instances[gl_InstanceIndex].model * vec4(inPosition,1);
-  fragColor = inColor;
-  fragTexCoord = inTexCoord;
+  gl_Position = _uboViewProj.proj * _uboViewProj.view * _uboInstanceData.instances[gl_InstanceIndex].model * vec4(_v301,1);
+  fragColor = _c401;
+  fragTexCoord = _x201;
 }

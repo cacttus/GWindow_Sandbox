@@ -182,6 +182,19 @@ public:
   VkShaderStageFlags _stage;
   bool _isBound = false;
 };
+//TODO: this may not be necessary - BR2::VertexFormat
+class VertexAttribute {
+public:
+  string_t _name = "";
+  uint32_t _componentSizeBytes = 0;  //Size of EACH component
+  uint32_t _componentCount = 0;
+  uint32_t _matrixSize = 0;  //Number of entries 4, 9, 16 ..
+  //VkFormat _format; // FYI Attribute formats use colors.
+  VkVertexInputAttributeDescription _desc;
+  SpvReflectTypeFlags _typeFlags;
+  size_t _totalSizeBytes = 0;
+  BR2::VertexUserType _userType;
+};
 /**
  * 
  * */
@@ -193,26 +206,38 @@ public:
 
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   bool bindUBO(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
-  bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, VkDeviceSize arrayIndex = 0);
+  bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
   void bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline);
 
   const string_t& name() { return _name; }
 
   VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
+  VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
+  VkPipelineInputAssemblyStateCreateInfo getInputAssembly(VkPrimitiveTopology topo = VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
 private:
+  void createInputs();
   void createDescriptors();
   void cleanupDescriptors();
+  BR2::VertexUserType parseUserType(const string_t& err);
 
+  string_t _name = "*undefined*";
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
 
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> _descriptorSets;
 
+  //VkPipelineVertexInputStateCreateInfo  _vkPipelineInputState
+  //VkPipelineInputAssemblyStateCreateInfo
+
+  std::vector<VkVertexInputAttributeDescription> _attribDescriptions;
+  VkVertexInputBindingDescription _bindingDesc ;
+
   std::vector<std::shared_ptr<ShaderModule>> _modules;
-  string_t _name = "*undefined*";
   std::unordered_map<string_t, std::shared_ptr<Descriptor>> _descriptors;
+  std::vector<std::shared_ptr<VertexAttribute>> _attributes;
+  bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
 };
 enum class RenderMode {
   TriangleList
@@ -231,9 +256,6 @@ public:
 public:
   Mesh(std::shared_ptr<Vulkan> v);
   virtual ~Mesh() override;
-
-  VkPipelineVertexInputStateCreateInfo getVertexInputInfo();
-  VkPipelineInputAssemblyStateCreateInfo getInputAssembly();
 
   std::shared_ptr<MaterialDummy>& material() { return _material; }
 
@@ -262,8 +284,7 @@ private:
 
   std::shared_ptr<MaterialDummy> _material = nullptr;
 
-  //VkPipelineVertexInputStateCreateInfo getVertexInputInfo();
-  //VkPipelineInputAssemblyStateCreateInfo getInputAssembly();
+  std::shared_ptr<BR2::VertexFormat> _vertexFormat;
 };
 
 class MaterialDummy {

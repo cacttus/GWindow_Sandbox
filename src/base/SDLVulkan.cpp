@@ -168,10 +168,10 @@ public:
 
     //Make Shader.
     _pShader = std::make_shared<PipelineShader>(_vulkan,
-                                                      "Vulkan-Tutorial-Test-Shader",
-                                                      std::vector{
-                                                        App::rootFile("test_vs.spv"),
-                                                        App::rootFile("test_fs.spv") });
+                                                "Vulkan-Tutorial-Test-Shader",
+                                                std::vector{
+                                                  App::rootFile("test_vs.spv"),
+                                                  App::rootFile("test_fs.spv") });
 
     recreateSwapChain();
 
@@ -231,7 +231,9 @@ public:
     }
 
     createSwapchainImageViews();
-    createGraphicsPipeline(_game->_mesh1, _pShader);
+    //Technically we need multiple pipelines
+    createGraphicsPipeline(_game->_mesh1, _pShader, VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    //_pShader->createGraphicsPipeline()
     createFramebuffers();
     createCommandBuffers();
 
@@ -443,7 +445,7 @@ public:
     //class RenderTarget
     //_colorTarget = std::make_shared<VulkanImage>();
   }
-  void createGraphicsPipeline(std::shared_ptr<Mesh> geom, std::shared_ptr<PipelineShader> shader) {
+  void createGraphicsPipeline(std::shared_ptr<Mesh> mesh, std::shared_ptr<PipelineShader> shader, VkPrimitiveTopology topo) {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
 
@@ -462,8 +464,12 @@ public:
 
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
 
-    auto vertexInputInfo = geom->getVertexInputInfo();
-    auto inputAssembly = geom->getInputAssembly();
+//TODO:
+//TODO:
+    std::shared_ptr<BR2::VertexFormat> fmt = nullptr;
+
+    auto vertexInputInfo = shader->getVertexInputInfo(fmt);
+    auto inputAssembly = shader->getInputAssembly(topo);
 
     //Create render pass for pipeline
     createRenderPass();
@@ -712,25 +718,23 @@ public:
       //You can bind multiple pipelines for multiple render passes.
       //Binding one does not disturb the others.
 
-      //Instanced Mesh1 -> Shader1
-      //updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
-      //updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
+      vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
+
+      //Bind Viewproj Info
       _pShader->bindUBO("_uboViewProj", i, _viewProjUniformBuffers[i]);
+
+      //Mesh 1
       _pShader->bindSampler("_ufTexture0", i, _testTexture1);
       _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers1[i]);
-      vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
       _game->_mesh1->bindBuffers(_commandBuffers[i]);
       _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
-
       _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
 
-      //Instanced Mesh2 ->Shader1
+      //Mesh 2
       _pShader->bindSampler("_ufTexture0", i, _testTexture2);
       _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers2[i]);
-
       _game->_mesh2->bindBuffers(_commandBuffers[i]);
       _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
-
       _game->_mesh2->drawIndexed(_commandBuffers[i], _numInstances);
 
       //*The 1 is instances - for instanced rendering

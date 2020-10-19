@@ -45,6 +45,9 @@ public:
   VkCommandBuffer beginOneTimeGraphicsCommands();
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer);
 
+  VkPhysicalDeviceProperties deviceProperties();
+  VkPhysicalDeviceFeatures deviceFeatures();
+
 private:
   std::unique_ptr<Vulkan_Internal> _pInt;
 };

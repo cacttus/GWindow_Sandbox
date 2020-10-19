@@ -572,16 +572,9 @@ public:
     }
     vkDestroyShaderModule(vulkan()->device(), _vkShaderModule, nullptr);
   }
-
   void load(const string_t& file) {
     auto ch = Gu::readFile(file);
     createShaderModule(ch);
-  }
-  void getBindings() {
-    //TODO: use Spv-reflect to get bindings.
-    //_spvReflectModule->descriptor_binding_count
-    //p_module->descriptor_bindings[index] if (*p_count != p_module->descriptor_binding_count) {
-    // }
   }
   void createShaderModule(const std::vector<char>& code) {
     if (_vkShaderModule != VK_NULL_HANDLE) {
@@ -654,12 +647,225 @@ PipelineShader::PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, 
     std::shared_ptr<ShaderModule> mod = std::make_shared<ShaderModule>(v, name, str);
     _modules.push_back(mod);
   }
+  createInputs();
   createDescriptors();
 }
 PipelineShader::~PipelineShader() {
   cleanupDescriptors();
   _modules.clear();
 }
+void PipelineShader::createInputs() {
+  std::shared_ptr<ShaderModule> mod = nullptr;
+  for (auto module : _modules) {
+    if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
+      mod = module;
+      break;
+    }
+  }
+  if (mod == nullptr) {
+    BRThrowException("Could not find vertex shader module for shader '" + name() + "'");
+  }
+
+  int maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
+  int maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
+
+  if (mod->reflectionData()->input_variable_count >= maxinputs) {
+    BRThrowException("Error creating shader '" + name() + "' - too many input variables");
+  }
+
+  int iBindingIndex = 0;
+  size_t iOffset = 0;
+  for (int ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
+    auto& iv = mod->reflectionData()->input_variables[ii];
+    std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
+    attrib->_name = std::string(iv.name);
+
+    //Attrib Size
+    attrib->_componentCount = iv.numeric.vector.component_count;
+    attrib->_componentSizeBytes = iv.numeric.scalar.width / 8;
+    attrib->_matrixSize = iv.numeric.matrix.column_count * iv.numeric.matrix.row_count;
+    attrib->_totalSizeBytes = (attrib->_componentCount + attrib->_matrixSize) * attrib->_componentSizeBytes;
+
+    if ((iv.numeric.matrix.column_count != iv.numeric.matrix.row_count)) {
+      BRThrowException("Failure - non-square matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+    else if ((iv.numeric.matrix.column_count > 0) &&
+             (iv.numeric.matrix.column_count != 2) &&
+             (iv.numeric.matrix.column_count != 3) &&
+             (iv.numeric.matrix.column_count != 4)) {
+      BRThrowException("Failure - invalid matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+    else if (iv.numeric.matrix.stride > 0) {
+      BRThrowException("Failure - nonzero stride for matrix vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+
+    if (attrib->_matrixSize > 0 && attrib->_componentCount > 0) {
+      BRThrowException("Failure - matrix and vector dimensions present in attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+
+    //Attrib type.
+    //Note type_description.typeFlags is the int,scal,mat type.
+
+#define CpySpvReflectFmtToVulkanFmt(x)       \
+  if (iv.format == SPV_REFLECT_FORMAT_##x) { \
+    fmt = VK_FORMAT_##x;                     \
+  }
+    VkFormat fmt;
+    CpySpvReflectFmtToVulkanFmt(R32_SFLOAT);
+    CpySpvReflectFmtToVulkanFmt(R32G32_SFLOAT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32_SFLOAT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SFLOAT);
+    CpySpvReflectFmtToVulkanFmt(R32_UINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32_UINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32_UINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32A32_UINT);
+    CpySpvReflectFmtToVulkanFmt(R32_SINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32_SINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32_SINT);
+    CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SINT);
+
+    attrib->_typeFlags = iv.type_description->type_flags;
+
+    attrib->_userType = parseUserType(attrib->_name);
+
+    attrib->_desc.binding = 0;
+    attrib->_desc.location = iBindingIndex;
+    attrib->_desc.format = fmt;
+    attrib->_desc.offset = iOffset;
+
+    //I'm guessing this correctly comes in order that the attributes are bound..
+    // The location also appears within the word_offset.location bytes, however the gl_InstanceIndex appers to take up non-uniform space, along with other stuff,
+    // so that could be unreliable.
+    //uint32_t location = iv.word_offset.location;
+    if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
+      //The instance index is added to the binding apparently, but it is implicit in the vulkan API. I guess it accounts for it.
+      _bInstanced = true;
+    }
+    else {
+      iOffset += attrib->_totalSizeBytes;
+      iBindingIndex++;
+      _attributes.push_back(attrib);
+    }
+  }
+
+  //I don't believe inputs are std430 aligned, however ..
+  // We need to create a new pipeline per new vertex input via the specification.
+  /*
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;  // layout(location=)
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos); 0
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color); 16 - std430
+
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(v_v3c4x2, _tcoor 32 - std430
+*/
+  uint32_t size = 0;
+  _attribDescriptions.clear();
+  for (auto& attr : _attributes) {
+    _attribDescriptions.push_back(attr->_desc);
+    size += static_cast<uint32_t>(attr->_totalSizeBytes);
+  }
+
+  VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  if (_bInstanced) {
+    //**TODO: test this.
+    //inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+  }
+  _bindingDesc = {
+    .binding = 0,
+    .stride = size,
+    .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+  };
+}
+BR2::VertexUserType PipelineShader::parseUserType(const string_t& zname) {
+  BR2::VertexUserType ret;
+  //TODO: integrate with the code in VG
+
+  string_t name = StringUtil::trim(zname);
+
+  //**In the old system we had a more generic approach to this, but here we just hard code it.
+  if (StringUtil::equals(name, "gl_InstanceIndex")) {
+    ret = BR2::VertexUserType::gl_InstanceIndex;
+  }
+  else if (StringUtil::equals(name, "gl_InstanceID")) {
+    ret = BR2::VertexUserType::gl_InstanceID;
+  }
+  else if (StringUtil::equals(name, "_v201")) {
+    ret = BR2::VertexUserType::v2_01;
+  }
+  else if (StringUtil::equals(name, "_v301")) {
+    ret = BR2::VertexUserType::v3_01;
+  }
+  else if (StringUtil::equals(name, "_v401")) {
+    ret = BR2::VertexUserType::v4_01;
+  }
+  else if (StringUtil::equals(name, "_v402")) {
+    ret = BR2::VertexUserType::v4_02;
+  }
+  else if (StringUtil::equals(name, "_v403")) {
+    ret = BR2::VertexUserType::v4_03;
+  }
+  else if (StringUtil::equals(name, "_n301")) {
+    ret = BR2::VertexUserType::n3_01;
+  }
+  else if (StringUtil::equals(name, "_c301")) {
+    ret = BR2::VertexUserType::c3_01;
+  }
+  else if (StringUtil::equals(name, "_c401")) {
+    ret = BR2::VertexUserType::c4_01;
+  }
+  else if (StringUtil::equals(name, "_x201")) {
+    ret = BR2::VertexUserType::x2_01;
+  }
+  else if (StringUtil::equals(name, "_i201")) {
+    ret = BR2::VertexUserType::i2_01;
+  }
+  else if (StringUtil::equals(name, "_u201")) {
+    ret = BR2::VertexUserType::u2_01;
+  }
+  else {
+    //Wer're going to hit this in the beginning because we can have a lot of different attrib types.
+    BRLogInfo("  Unrecognized vertex attribute '" + name + "'.");
+    Gu::debugBreak();
+  }
+  return ret;
+}
+VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt) {
+  //This is basically a glsl attribute specifying a layout identifier
+  //So we need to match the input descriptions with the input vertex info.
+
+  //AssertOrThrow2(fmt != nullptr);
+
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .vertexBindingDescriptionCount = 1,
+    .pVertexBindingDescriptions = &_bindingDesc,
+    .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attribDescriptions.size()),
+    .pVertexAttributeDescriptions = _attribDescriptions.data(),
+  };
+
+  return vertexInputInfo;
+}
+VkPipelineInputAssemblyStateCreateInfo PipelineShader::getInputAssembly(VkPrimitiveTopology topo) {
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .topology = topo,
+    .primitiveRestartEnable = VK_FALSE,
+  };
+  return inputAssembly;
+}
+
 std::vector<VkPipelineShaderStageCreateInfo> PipelineShader::getShaderStageCreateInfos() {
   std::vector<VkPipelineShaderStageCreateInfo> ret;
   for (auto shader : _modules) {
@@ -837,7 +1043,7 @@ bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std:
 
   return true;
 }
-bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanTextureImage> texture, VkDeviceSize arrayIndex) {
+bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
   std::shared_ptr<Descriptor> desc = getDescriptor(name);
   if (desc == nullptr) {
     BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
@@ -908,41 +1114,7 @@ void Mesh::bindBuffers(VkCommandBuffer& cmd) {
   vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
   vkCmdBindIndexBuffer(cmd, _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 }
-VkPipelineVertexInputStateCreateInfo Mesh::getVertexInputInfo() {
-  _bindingDesc = VertType::getBindingDescription();
-  _attribDesc = VertType::getAttributeDescriptions();
 
-  //This is basically a glsl attribute specifying a layout identifier
-  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-    .pNext = nullptr,
-    .flags = 0,
-    .vertexBindingDescriptionCount = 1,
-    .pVertexBindingDescriptions = &_bindingDesc,
-    .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attribDesc.size()),
-    .pVertexAttributeDescriptions = _attribDesc.data(),
-  };
-
-  return vertexInputInfo;
-}
-VkPipelineInputAssemblyStateCreateInfo Mesh::getInputAssembly() {
-  VkPrimitiveTopology mode = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  if (_renderMode == RenderMode::TriangleList) {
-    mode = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  }
-  else {
-    BRLogError("Invalid or unsupported rendering mode: " + std::to_string((int)_renderMode));
-  }
-
-  VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,  //VkStructureType
-    .pNext = nullptr,                                                      //const void*
-    .flags = 0,                                                            //VkPipelineInputAssemblyStateCreateFlags
-    .topology = mode,                                                      //VkPrimitiveTopology
-    .primitiveRestartEnable = VK_FALSE,                                    //VkBool32
-  };
-  return inputAssembly;
-}
 
 void Mesh::makePlane() {
   //    vec2(0.0, -.5),

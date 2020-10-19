@@ -47,7 +47,7 @@ public:
   std::unordered_map<string_t, VkExtensionProperties> _deviceExtensions;
   std::unordered_map<std::string, VkLayerProperties> supported_validation_layers;
   VkSurfaceCapabilitiesKHR _surfaceCaps;
-  uint32_t _swapchainImageCount=2;
+  uint32_t _swapchainImageCount = 2;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -56,6 +56,8 @@ public:
   VkExtFn(vkDestroyDebugUtilsMessengerEXT);
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+  VkPhysicalDeviceProperties _deviceProperties;
+  VkPhysicalDeviceFeatures _deviceFeatures;
 
 #pragma endregion
 
@@ -329,6 +331,8 @@ public:
             deviceFeatures.sampleRateShading) {
           _physicalDevice = device;
           _maxMSAASamples = getMaxUsableSampleCount();
+          _deviceProperties = deviceProperties;
+          _deviceFeatures = deviceFeatures;
           int n = 0;
           n++;
         }
@@ -554,6 +558,9 @@ VkInstance& Vulkan::instance() { return _pInt->_instance; }
 VkCommandPool& Vulkan::commandPool() { return _pInt->_commandPool; }
 VkQueue& Vulkan::graphicsQueue() { return _pInt->_graphicsQueue; }
 VkQueue& Vulkan::presentQueue() { return _pInt->_presentQueue; }
+
+VkPhysicalDeviceProperties Vulkan::deviceProperties() { return _pInt->_deviceProperties; }
+VkPhysicalDeviceFeatures Vulkan::deviceFeatures() { return _pInt->_deviceFeatures; }
 
 #pragma region Errors
 void Vulkan::checkErrors() {
