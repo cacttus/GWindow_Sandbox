@@ -328,92 +328,74 @@ public:
     CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
 
     for (size_t i = 0; i < _swapChainImages.size(); ++i) {
-      //ShaderSampler.
-      //UBO descriptor
-      VkDescriptorBufferInfo viewProjBufferInfo = {
-        .buffer = _viewProjUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
-        .offset = 0,                                                   // VkDeviceSize
-        .range = sizeof(UniformBufferObject),                          // VkDeviceSize OR VK_WHOLE_SIZE
-      };
-      VkWriteDescriptorSet viewProjUboDescriptorWrite = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
-        .pNext = nullptr,                                     //const void*
-        .dstSet = _descriptorSets[i],                         //VkDescriptorSet
-        .dstBinding = 0,                                      //uint32_t
-        .dstArrayElement = 0,                                 //uint32_t
-        .descriptorCount = 1,                                 //uint32_t
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
-        .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
-        .pBufferInfo = &viewProjBufferInfo,                   //const VkDescriptorBufferInfo*
-        .pTexelBufferView = nullptr,                          //const VkBufferView*
-      };
-
-      // //UBO descriptor
-      // VkDescriptorBufferInfo instanceBufferInfo = {
-      //   .buffer = _instanceUniformBuffers[i]->hostBuffer()->buffer(),  // VkBuffer
-      //   .offset = 0,                                                   // VkDeviceSize
-      //   .range = sizeof(InstanceUBOData) * _numInstances,              // VkDeviceSize OR VK_WHOLE_SIZE
-      // };
-      // VkWriteDescriptorSet instanceUBODescriptorWrite = {
-      //   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
-      //   .pNext = nullptr,                                     //const void*
-      //   .dstSet = _descriptorSets[i],                         //VkDescriptorSet
-      //   .dstBinding = 1,                                      //uint32_t
-      //   .dstArrayElement = 0,                                 //uint32_t
-      //   .descriptorCount = 1,                                 //uint32_t
-      //   .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
-      //   .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
-      //   .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
-      //   .pTexelBufferView = nullptr,                          //const VkBufferView*
-      // };
-
-      //Sampler descriptor
-      VkDescriptorImageInfo imageInfo = {
-        .sampler = _testTexture1->sampler(),                      //VkSampler
-        .imageView = _testTexture1->imageView(),                  //VkImageView
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,  //VkImageLayout
-      };
-      VkWriteDescriptorSet samplerDescriptorWrite = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,              //VkStructureType
-        .pNext = nullptr,                                             //const void*
-        .dstSet = _descriptorSets[i],                                 //VkDescriptorSet
-        .dstBinding = 2,                                              //uint32_t
-        .dstArrayElement = 0,                                         //uint32_t
-        .descriptorCount = 1,                                         //uint32_t
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  //VkDescriptorType
-        .pImageInfo = &imageInfo,                                     //const VkDescriptorImageInfo*
-        .pBufferInfo = nullptr,                                       //const VkDescriptorBufferInfo*
-        .pTexelBufferView = nullptr,                                  //const VkBufferView*
-      };
-
-      std::array<VkWriteDescriptorSet, 2> descriptorWrites{ viewProjUboDescriptorWrite, samplerDescriptorWrite };
-      vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-
       //Testing dynamic descriptor update.
       updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
+      updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
+      updateViewProjDescriptor(_descriptorSets[i], _viewProjUniformBuffers[i]);
     }
   }
+  void updateViewProjDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanBuffer> buffer) {
+    VkDescriptorBufferInfo viewProjBufferInfo = {
+      .buffer = buffer->hostBuffer()->buffer(),
+      .offset = 0,
+      .range = sizeof(UniformBufferObject),
+    };
+    VkWriteDescriptorSet viewProjUboDescriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = descriptorSet,
+      .dstBinding = 0,
+      .dstArrayElement = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .pImageInfo = nullptr,
+      .pBufferInfo = &viewProjBufferInfo,
+      .pTexelBufferView = nullptr,
+    };
+
+    std::array<VkWriteDescriptorSet, 1> descriptorWrites{ viewProjUboDescriptorWrite };
+    vkUpdateDescriptorSets(vulkan()->device(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+  }
+  void updateSamplerDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanTextureImage> texture) {
+    VkDescriptorImageInfo imageInfo = {
+      .sampler = texture->sampler(),
+      .imageView = texture->imageView(),
+      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = descriptorSet,
+      .dstBinding = 2,
+      .dstArrayElement = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .pImageInfo = &imageInfo,
+      .pBufferInfo = nullptr,
+      .pTexelBufferView = nullptr,
+    };
+
+    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+  }
   void updateInstanceDescriptor(VkDescriptorSet descriptorSet, std::shared_ptr<VulkanBuffer> instanceUBO) {
-    //This should work as long as dstBinding is correct.
-    //UBO descriptor
     VkDescriptorBufferInfo instanceBufferInfo = {
-      .buffer = instanceUBO->hostBuffer()->buffer(),     // VkBuffer
-      .offset = 0,                                       // VkDeviceSize
+      .buffer = instanceUBO->hostBuffer()->buffer(),
+      .offset = 0,
       .range = sizeof(InstanceUBOData) * _numInstances,  // VkDeviceSize OR VK_WHOLE_SIZE
     };
-    VkWriteDescriptorSet instanceUBODescriptorWrite = {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,      //VkStructureType
-      .pNext = nullptr,                                     //const void*
-      .dstSet = descriptorSet,                              //VkDescriptorSet
-      .dstBinding = 1,                                      //uint32_t
-      .dstArrayElement = 0,                                 //uint32_t
-      .descriptorCount = 1,                                 //uint32_t
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  //VkDescriptorType
-      .pImageInfo = nullptr,                                //const VkDescriptorImageInfo*
-      .pBufferInfo = &instanceBufferInfo,                   //const VkDescriptorBufferInfo*
-      .pTexelBufferView = nullptr,                          //const VkBufferView*
+    VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = descriptorSet,
+      .dstBinding = 1,
+      .dstArrayElement = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .pImageInfo = nullptr,
+      .pBufferInfo = &instanceBufferInfo,
+      .pTexelBufferView = nullptr,
     };
-    vkUpdateDescriptorSets(vulkan()->device(), 1, &instanceUBODescriptorWrite, 0, nullptr);
+    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
   }
 
   void createUniformBuffers() {
@@ -553,18 +535,6 @@ public:
     _swapChainExtent.width = win_w;
     _swapChainExtent.height = win_h;
 
-    //Extent = Image size
-    //Not sure what this as for.
-    // if (caps.currentExtent.width != m) {
-    //   _swapChainExtent = caps.currentExtent;
-    // }
-    // else {
-    //   VkExtent2D actualExtent = { 0, 0 };
-    //   actualExtent.width = std::max(caps.minImageExtent.width, std::min(caps.maxImageExtent.width, actualExtent.width));
-    //   actualExtent.height = std::max(caps.minImageExtent.height, std::min(caps.maxImageExtent.height, actualExtent.height));
-    //   _swapChainExtent = actualExtent;
-    // }
-
     //Create swapchain
     VkSwapchainCreateInfoKHR swapChainCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -651,9 +621,9 @@ public:
       .pNext = nullptr,                                                //const void*
       .flags = 0,                                                      //VkPipelineViewportStateCreateFlags
       .viewportCount = 0,                                              //uint32_t
-      .pViewports = nullptr,                                         //const VkViewport*
+      .pViewports = nullptr,                                           //const VkViewport*
       .scissorCount = 0,                                               //uint32_t
-      .pScissors = nullptr,                                           //const VkRect2D*
+      .pScissors = nullptr,                                            //const VkRect2D*
     };
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {
       .blendEnable = VK_TRUE,                                                                                                       //VkBool32
@@ -686,11 +656,9 @@ public:
       .depthBiasSlopeFactor = 0,                                            //float
       .lineWidth = 1,                                                       //float
     };
-    //Pipeline dynamic state. - Change states in the pipeline without rebuilding the pipeline.
     std::vector<VkDynamicState> dynamicStates = {
       VK_DYNAMIC_STATE_VIEWPORT,
       VK_DYNAMIC_STATE_SCISSOR,
-      //VK_DYNAMIC_STATE_LINE_WIDTH
     };
     VkPipelineDynamicStateCreateInfo dynamicState = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,     //VkStructureType
@@ -893,6 +861,7 @@ public:
       //Binding one does not disturb the others.
 
       //Instanced Mesh1 -> Shader1
+      updateSamplerDescriptor(_descriptorSets[i], _testTexture1);
       updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers1[i]);
       vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
       _game->_mesh1->bindBuffers(_commandBuffers[i]);
@@ -904,6 +873,7 @@ public:
       _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
 
       //Instanced Mesh2 ->Shader1
+      updateSamplerDescriptor(_descriptorSets[i], _testTexture2);
       updateInstanceDescriptor(_descriptorSets[i], _instanceUniformBuffers2[i]);
       _game->_mesh2->bindBuffers(_commandBuffers[i]);
       vkCmdBindDescriptorSets(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout,
