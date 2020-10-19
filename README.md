@@ -2,10 +2,22 @@
 Sandbox for testing the [VulkanGame](https://github.com/metalmario971/VulkanGame) window system.
 
 # TODO
-* Doing this whole pipeline thing at once is too much.
 * Saved the class files for future reference (_saved)
-  * First: we must move Geom Vertex info and Descriptors to Shaders.
-  
+
+(x) Kronecker
+(+) Direct sum = lined up, zeroed new dimensions
+A = { 0 1 } B = {2 3 4}
+A (+) B = 0 1 2 3 4
+Det(a (+) b ) = Det(a)*Det(b)
+Tr(a (+) b) = Tr(a)+Tr(b)
+Tensor Product = Kronecker product
+Particles move as waves, not linearly. (Matter-waves)
+
+
+* Move Geom Vertex info and Descriptors to Shaders.
+* Shader -> descriptor creation.
+* Descriptor writes within shader.
+
 * Mesh Class
 * Swapchain
 * Multiple Vulkan Windows.

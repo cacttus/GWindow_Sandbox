@@ -254,8 +254,8 @@ public:
     //One pool per shader with all descriptors needed in the shader.
     //Uniform buffer descriptor pool.
     VkDescriptorPoolSize uboPoolSize = {
-      .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                          //VkDescriptorType
-      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()),  //uint32_t
+      .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                              //VkDescriptorType
+      .descriptorCount = static_cast<uint32_t>(_swapChainImages.size()) * 2,  //uint32_t
     };
     VkDescriptorPoolSize samplerPoolSize = {
       .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,                  //VkDescriptorType
@@ -435,16 +435,27 @@ public:
     return t01;
   }
 
-#define fr01() (-0.5 + ((double)rand() / (double)RAND_MAX))
+  void init_rand() {
+  }
+  //auto now = std::chrono::system_clock::now().time_since_epoch().count();
+  std::mt19937 _rnd_engine;
+  std::uniform_real_distribution<double> _rnd_distribution;  //0,1
+//#define fr01() (((double)rand() / (double)RAND_MAX))
+#define fr01() (_rnd_distribution(_rnd_engine))
 #define rnd(a, b) ((a) + ((b) - (a)) * (fr01()))
 #define rr ((float)rnd(-3, 3))
   std::vector<BR2::vec3> offsets1;
   std::vector<BR2::vec3> offsets2;
-
-  void tryInitializeOffsets(std::vector<BR2::vec3>& offsets) {
+  std::vector<float> rots_delta1;
+  std::vector<float> rots_delta2;
+  std::vector<float> rots_ini1;
+  std::vector<float> rots_ini2;
+  void tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini) {
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
+        rots_delta.push_back(rnd(-M_2PI, M_2PI));  //rotation delta.
+        rots_ini.push_back(rnd(-M_2PI, M_2PI));                // Initial rotation, and also the value of current rotation.
       }
     }
   }
@@ -464,10 +475,10 @@ public:
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
   }
-  void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets) {
+  void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt) {
     float t01 = pingpong_t01(10000);
     float t02 = pingpong_t01(10000);
-    tryInitializeOffsets(offsets);
+    tryInitializeOffsets(offsets, rots_delta, rots_ini);
 
     float d = 20;
     BR2::vec3 campos = { d, d, d };
@@ -479,8 +490,9 @@ public:
     std::vector<BR2::mat4> mats(_numInstances);
     for (uint32_t i = 0; i < _numInstances; ++i) {
       if (i < offsets.size()) {
+        rots_ini[i] += rots_delta[i] * dt;
         mats[i] = BR2::mat4::translation(origin) *
-                  BR2::mat4::rotation(BR2::MathUtils::radians(360) * t02, BR2::vec3(0, 0, 1)) *
+                  BR2::mat4::rotation(rots_ini[i], BR2::vec3(0, 0, 1)) *
                   BR2::mat4::translation(trans + offsets[i]);
       }
     }
@@ -924,7 +936,7 @@ public:
 
 #pragma region Vulkan Rendering
 
-  void drawFrame() {
+  void drawFrame(double dt) {
     vkWaitForFences(vulkan()->device(), 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
     //one command buffer per framebuffer,
     //acquire the image form teh swapchain (which is our framebuffer)
@@ -958,8 +970,8 @@ public:
     //E.G. game logic
     //updateUniformBuffer(imageIndex);
     updateViewProjUniformBuffer(_viewProjUniformBuffers[imageIndex]);
-    updateInstanceUniformBuffer(_instanceUniformBuffers1[imageIndex], offsets1);
-    updateInstanceUniformBuffer(_instanceUniformBuffers2[imageIndex], offsets2);
+    updateInstanceUniformBuffer(_instanceUniformBuffers1[imageIndex], offsets1, rots_delta1, rots_ini1, dt);
+    updateInstanceUniformBuffer(_instanceUniformBuffers2[imageIndex], offsets2, rots_delta2, rots_ini2, dt);
 
     //aquire next image
     VkSubmitInfo submitInfo = {
@@ -1205,9 +1217,12 @@ bool SDLVulkan::doInput() {
 }
 void SDLVulkan::renderLoop() {
   bool exit = false;
+  auto last_time = std::chrono::high_resolution_clock::now();
   while (!exit) {
     exit = doInput();
-    _pInt->drawFrame();
+    double t01ms = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
+    last_time = std::chrono::high_resolution_clock::now();
+    _pInt->drawFrame(t01ms);
   }
   //This stops all threads before we cleanup.
   vkDeviceWaitIdle(_pInt->vulkan()->device());
