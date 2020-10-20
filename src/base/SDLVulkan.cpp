@@ -3,24 +3,12 @@
 #include "./Vulkan.h"
 #include "./VulkanDebug.h"
 #include "./VulkanClasses.h"
+#include "./GameClasses.h"
 
 namespace VG {
 
 static MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
 static bool g_samplerate_shading = true;
-
-#pragma region GameDummy
-
-//A dummy game with meshes &c to test command buffer rendering
-class GameDummy {
-public:
-  std::shared_ptr<Mesh> _mesh1 = nullptr;
-  std::shared_ptr<Mesh> _mesh2 = nullptr;
-  void update(double time) {
-  }
-};
-
-#pragma endregion
 
 #pragma region SDLVulkan_Internal
 
@@ -245,7 +233,7 @@ public:
         vulkan(),
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
-        sizeof(UniformBufferObject), nullptr, 0));
+        sizeof(ViewProjUBOData), nullptr, 0));
       _instanceUniformBuffers1.push_back(std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
@@ -310,11 +298,11 @@ public:
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
-    UniformBufferObject ub = {
+    ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 100.0f)
     };
-    viewProjBuffer->writeData((void*)&ub, 0, sizeof(UniformBufferObject));
+    viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
   }
   void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt) {
     float t01 = pingpong_t01(10000);

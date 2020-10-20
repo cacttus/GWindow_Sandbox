@@ -1,5 +1,6 @@
 #include "./VulkanClasses.h"
 #include "./Vulkan.h"
+#include "./VulkanDebug.h"
 namespace VG {
 
 #pragma region VulkanDeviceBuffer
@@ -775,7 +776,7 @@ void PipelineShader::createInputs() {
 
   VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
   if (_bInstanced) {
-    //**TODO: test this.
+    //**This doesn't seem to make a difference on my Nvidia 1660 driver
     //inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
   }
   _bindingDesc = {
@@ -840,8 +841,6 @@ BR2::VertexUserType PipelineShader::parseUserType(const string_t& zname) {
 VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt) {
   //This is basically a glsl attribute specifying a layout identifier
   //So we need to match the input descriptions with the input vertex info.
-
-  //AssertOrThrow2(fmt != nullptr);
 
   VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -1088,159 +1087,299 @@ void PipelineShader::bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapch
 }
 #pragma endregion
 
-#pragma region Mesh
+#pragma region RenderFrame
 
-Mesh::Mesh(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img) : VulkanObject(v) {
+  _pSwapchain = ps;
+  _image = img;
+  _frameIndex = frameIndex;
+
+  auto view = vulkan()->createImageView(img, ps->imageFormat(), VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  createSyncObjects();
 }
-Mesh::~Mesh() {
+RenderFrame::~RenderFrame() {
+  //Cleanup
+  cleanupSyncObjects();
+
+  vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
 }
-uint32_t Mesh::maxRenderInstances() { return _maxRenderInstances; }
-
-void Mesh::drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount) {
-  vkCmdDrawIndexed(cmd, static_cast<uint32_t>(_boxInds.size()), instanceCount, 0, 0, 0);
-}
-void Mesh::bindBuffers(VkCommandBuffer& cmd) {
-  VkIndexType idxType = VK_INDEX_TYPE_UINT32;
-  if (_indexType == IndexType::IndexTypeUint32) {
-    idxType = VK_INDEX_TYPE_UINT32;
-  }
-  else if (_indexType == IndexType::IndexTypeUint16) {
-    idxType = VK_INDEX_TYPE_UINT16;
-  }
-
-  //You can have multiple vertex layouts with layout(binding=x)
-  VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
-  VkDeviceSize offsets[] = { 0 };
-  vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-  vkCmdBindIndexBuffer(cmd, _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
-}
-
-
-void Mesh::makePlane() {
-  //    vec2(0.0, -.5),
-  //vec2(.5, .5),
-  //vec2(-.5, .5)
-  _planeVerts = {
-    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
-    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
-    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
-    { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
+void RenderFrame::createSyncObjects() {
+  VkSemaphoreCreateInfo semaphoreInfo = {
+    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
   };
-  _planeInds = {
-    0, 1, 2, 2, 3, 0
+  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailable);
+  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinished);
+
+  VkFenceCreateInfo fenceInfo = {
+    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = VK_FENCE_CREATE_SIGNALED_BIT,  //Fences must always be created in a signaled state.
   };
 
-  // _planeVerts = {
-  //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
-  //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
-  //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
-  // };
-
-  size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
-
-  _vertexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::VertexBuffer,
-    true,
-    v_datasize,
-    _planeVerts.data(), v_datasize);
-
-  size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
-  _indexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::IndexBuffer,
-    true,
-    i_datasize,
-    _planeInds.data(), i_datasize);
+  CheckVKR(vkCreateFence, vulkan()->device(), &fenceInfo, nullptr, &_inFlightFence);
 }
-void Mesh::makeBox() {
-  //v_v3c4
-  // _boxVerts = {
-  //   { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-  //   { { 1, 0, 0 }, { 0, 0, 1, 1 } },
-  //   { { 0, 1, 0 }, { 1, 0, 1, 1 } },
-  //   { { 1, 1, 0 }, { 1, 1, 0, 1 } },
-  //   { { 0, 0, 1 }, { 0, 0, 1, 1 } },
-  //   { { 1, 0, 1 }, { 1, 0, 0, 1 } },
-  //   { { 0, 1, 1 }, { 0, 1, 0, 1 } },
-  //   { { 1, 1, 1 }, { 1, 0, 1, 1 } },
-  // };
-  // //      6     7
-  // //  2      3
-  // //      4     5
-  // //  0      1
-  // _boxInds = {
-  //   0, 3, 1, /**/ 0, 2, 3,  //
-  //   1, 3, 7, /**/ 1, 7, 5,  //
-  //   5, 7, 6, /**/ 5, 6, 4,  //
-  //   4, 6, 2, /**/ 4, 2, 0,  //
-  //   2, 6, 7, /**/ 2, 7, 3,  //
-  //   4, 0, 1, /**/ 4, 1, 5,  //
-  // };
+void RenderFrame::cleanupSyncObjects() {
+  vkDestroySemaphore(vulkan()->device(), _imageAvailable, nullptr);
+  vkDestroySemaphore(vulkan()->device(), _renderFinished, nullptr);
+  vkDestroyFence(vulkan()->device(), _inFlightFence, nullptr);
+}
+// void RenderFrame::bindPipeline() {
+//   //Create Framebuffer from pipeline
+//   //Create command buffer.
+// }
+void RenderFrame::beginFrame() {
+  //I feel like the async aspect of RenderFrame might need to be a separate DispatchedFrame structure or..
 
-  //      6     7
-  //  2      3
-  //      4     5
-  //  0      1
-  std::vector<v_v3c4> bv = {
-    { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-    { { 1, 0, 0 }, { 1, 1, 1, 1 } },
-    { { 0, 1, 0 }, { 1, 1, 1, 1 } },
-    { { 1, 1, 0 }, { 1, 1, 1, 1 } },
-    { { 0, 0, 1 }, { 1, 1, 1, 1 } },
-    { { 1, 0, 1 }, { 1, 1, 1, 1 } },
-    { { 0, 1, 1 }, { 1, 1, 1, 1 } },
-    { { 1, 1, 1 }, { 1, 1, 1, 1 } },
-  };
-  //Construct box from the old box coordintes (no texture)
-  //Might be wrong - opengl coordinates.
-#define BV_VFACE(bl, br, tl, tr)              \
-  { bv[bl]._pos, bv[bl]._color, { 0, 1 } },   \
-    { bv[br]._pos, bv[br]._color, { 1, 1 } }, \
-    { bv[tl]._pos, bv[tl]._color, { 0, 0 } }, \
-  {                                           \
-    bv[tr]._pos, bv[tr]._color, { 1, 0 }      \
+  //Wait forever TODO: we can keep updating the game in case the rendering isn't available.
+  vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, UINT64_MAX);
+
+  //one command buffer per framebuffer,
+  //acquire the image form teh swapchain (which is our framebuffer)
+  //signal the semaphore.
+  //uint32_t  = 0;
+  VkResult res;
+  res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), UINT64_MAX, _imageAvailable, VK_NULL_HANDLE, &_currentRenderingImageIndex);
+  if (res != VK_SUCCESS) {
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+      _pSwapchain->outOfDate();
+      return;
+    }
+    else if (res == VK_SUBOPTIMAL_KHR) {
+      _pSwapchain->outOfDate();
+      return;
+    }
+    else {
+      vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
+    }
   }
 
-  _boxVerts = {
-    BV_VFACE(0, 1, 2, 3),  //F
-    BV_VFACE(1, 5, 3, 7),  //R
-    BV_VFACE(5, 4, 7, 6),  //A
-    BV_VFACE(4, 0, 6, 2),  //L
-    BV_VFACE(4, 5, 0, 1),  //B
-    BV_VFACE(2, 3, 6, 7)   //T
+  _pSwapchain->waitImage(_currentRenderingImageIndex, _inFlightFence);
+}
+void RenderFrame::endFrame() {
+  VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
+  BRLogError("Update uniform buffer");
+  // updateUniformBuffer(imageIndex);
+
+  BRLogError("ERROR");
+  //**TODO
+  VkCommandBuffer cmd = 0;  //_pSwapchain->pipelines()[imageIndex];
+  //->commandBuffer();
+
+  //aquire next image
+  VkSubmitInfo submitInfo = {
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
+    .pNext = nullptr,                        //const void*
+    //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
+    //to finish rendering, or just wait for the framebuffer output.
+    .waitSemaphoreCount = 1,              //uint32_t
+    .pWaitSemaphores = &_imageAvailable,  //const VkSemaphore*
+    .pWaitDstStageMask = waitStages,      //const VkPipelineStageFlags*
+    .commandBufferCount = 1,              //uint32_t
+
+    //So.. this is the command buffer associated with the pipeline we want to submit. It has nothing to do with this particular frame.
+    .pCommandBuffers = &cmd,  // &_commandBuffers[imageIndex],  //const VkCommandBuffer*
+
+    //The semaphore is signaled when the queue has completed the requested wait stages.
+    .signalSemaphoreCount = 1,              //uint32_t
+    .pSignalSemaphores = &_renderFinished,  //const VkSemaphore*
   };
 
-//   CW
-//  2------>3
-//  |    /
-//  | /
-//  0------>1
-#define BV_IFACE(idx) ((idx * 4) + 0), ((idx * 4) + 3), ((idx * 4) + 1), ((idx * 4) + 0), ((idx * 4) + 2), ((idx * 4) + 3)
-  _boxInds = {
-    BV_IFACE(0),
-    BV_IFACE(1),
-    BV_IFACE(2),
-    BV_IFACE(3),
-    BV_IFACE(4),
-    BV_IFACE(5),
+  vkResetFences(vulkan()->device(), 1, &_inFlightFence);
+  vkQueueSubmit(vulkan()->graphicsQueue(), 1, &submitInfo, _inFlightFence);
+
+  std::vector<VkSwapchainKHR> chains{ _pSwapchain->getVkSwapchain() };
+
+  VkPresentInfoKHR presentinfo = {
+    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,             //VkStructureType
+    .pNext = nullptr,                                        //const void*
+    .waitSemaphoreCount = 1,                                 //uint32_t
+    .pWaitSemaphores = &_renderFinished,                     //const VkSemaphore*
+    .swapchainCount = static_cast<uint32_t>(chains.size()),  //uint32_t
+    .pSwapchains = chains.data(),                            //const VkSwapchainKHR*
+    .pImageIndices = &_currentRenderingImageIndex,           //const uint32_t*
+    .pResults = nullptr                                      //VkResult*   //multiple swapchains
   };
-  size_t v_datasize = sizeof(VertType) * _boxVerts.size();
+  VkResult res = vkQueuePresentKHR(vulkan()->presentQueue(), &presentinfo);
+  if (res != VK_SUCCESS) {
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+      _pSwapchain->outOfDate();
+      return;
+    }
+    else if (res == VK_SUBOPTIMAL_KHR) {
+      _pSwapchain->outOfDate();
+      return;
+    }
+    else {
+      vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
+    }
+  }
+}
+VkFormat RenderFrame::imageFormat() {
+  return _pSwapchain->imageFormat();
+}
+const BR2::uext2& RenderFrame::imageSize() {
+  return _pSwapchain->imageSize();
+}
 
-  _vertexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::VertexBuffer,
-    true,
-    v_datasize,
-    _boxVerts.data(), v_datasize);
+#pragma endregion
 
-  size_t i_datasize = sizeof(uint32_t) * _boxInds.size();
-  _indexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::IndexBuffer,
-    true,
-    i_datasize,
-    _boxInds.data(), i_datasize);
+#pragma region Swapchain
+Swapchain::Swapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+}
+Swapchain::~Swapchain() {
+  cleanupSwapChain();
+}
+void Swapchain::initSwapchain(const BR2::uvec2& window_size) {
+  vkDeviceWaitIdle(vulkan()->device());
+
+  cleanupSwapChain();
+  vkDeviceWaitIdle(vulkan()->device());
+
+  createSwapChain(window_size);  // *  - recreate
+
+  _bSwapChainOutOfDate = false;
+}
+void Swapchain::createSwapChain(const BR2::uvec2& window_size) {
+  BRLogInfo("Creating Swapchain.");
+
+  uint32_t formatCount;
+  CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, nullptr);
+  std::vector<VkSurfaceFormatKHR> formats(formatCount);
+  if (formatCount != 0) {
+    CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, formats.data());
+  }
+  string_t fmts = "Surface formats: " + Os::newline();
+  for (int i = 0; i < formats.size(); ++i) {
+    fmts += " Format " + i;
+    fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
+    fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
+  }
+
+  // How the surfaces are presented from the swapchain.
+  uint32_t presentModeCount;
+  CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, nullptr);
+  std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+  if (presentModeCount != 0) {
+    CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
+  }
+  //This is cool. Directly query the color space
+  VkSurfaceFormatKHR surfaceFormat;
+  for (const auto& availableFormat : formats) {
+    if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      surfaceFormat = availableFormat;
+      break;
+    }
+  }
+  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
+  VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+  for (const auto& availablePresentMode : presentModes) {
+    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+      presentMode = availablePresentMode;
+      break;
+    }
+  }
+  if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
+    BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
+  }
+
+  _swapChainExtent.width = window_size.x;
+  _swapChainExtent.height = window_size.y;
+
+  VkExtent2D extent = {
+    .width = _swapChainExtent.width,
+    .height = _swapChainExtent.height
+  };
+
+  //Create swapchain
+  VkSwapchainCreateInfoKHR swapChainCreateInfo = {
+    .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+    .surface = vulkan()->windowSurface(),
+    .minImageCount = vulkan()->swapchainImageCount(),
+    .imageFormat = surfaceFormat.format,
+    .imageColorSpace = surfaceFormat.colorSpace,
+    .imageExtent = extent,
+    .imageArrayLayers = 1,  //more than 1 for stereoscopic application
+    .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+    .preTransform = vulkan()->surfaceCaps().currentTransform,
+    .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+    .presentMode = presentMode,
+    .clipped = VK_TRUE,
+    .oldSwapchain = VK_NULL_HANDLE,  // ** For window resizing.
+  };
+
+  CheckVKR(vkCreateSwapchainKHR, vulkan()->device(), &swapChainCreateInfo, nullptr, &_swapChain);
+
+  //ImageCount must be what we asked for as we use this data to initialize (pretty much everything buffer related).
+  uint32_t imageCount = 0;
+  CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, nullptr);
+  if (imageCount > vulkan()->swapchainImageCount()) {
+    //Not an issue, just use less. This could be a performance improvement, though.
+    BRLogDebug("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
+               "' greater than what we specified: '" + std::to_string(vulkan()->swapchainImageCount()) + "'.");
+    imageCount = vulkan()->swapchainImageCount();
+  }
+  else if (imageCount < vulkan()->swapchainImageCount()) {
+    //Error: we need at least this many images, not because of any functinoal requirement, but because we use the
+    // image count to pre-initialize the swapchain data.
+    BRLogError("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
+               "' less than what we specified: '" + std::to_string(vulkan()->swapchainImageCount()) + "'.");
+    vulkan()->errorExit("Minimum swapchain was not satisfied. Could not continue.");
+  }
+
+  std::vector<VkImage> swapChainImages;
+  swapChainImages.resize(imageCount);
+  CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, swapChainImages.data());
+  _swapChainImageFormat = surfaceFormat.format;
+
+  for (size_t idx = 0; idx < swapChainImages.size(); ++idx) {
+    auto& image = swapChainImages[idx];
+    //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
+    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), idx, image);
+    _frames.push_back(f);
+  }
+}
+void Swapchain::cleanupSwapChain() {
+  //_pipelines.clear();
+  _frames.clear();
+
+  if (_swapChain != VK_NULL_HANDLE) {
+    vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
+  }
+}
+void Swapchain::beginFrame() {
+  _frames[_currentFrame]->beginFrame();
+}
+void Swapchain::endFrame() {
+  _frames[_currentFrame]->endFrame();
+  _currentFrame = (_currentFrame + 1) % _frames.size();
+
+  //**CONTINUE TUTORIAL AFTER THIS POINT
+  //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
+  // We add additional threads for async the rendering.
+  //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
+}
+void Swapchain::waitImage(uint32_t imageIndex, VkFence myFence) {
+  //There is currently a frame that is using this image. So wait for this image.
+  if (_imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+    vkWaitForFences(vulkan()->device(), 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+  }
+  _imagesInFlight[imageIndex] = myFence;
+}
+VkFormat Swapchain::imageFormat() {
+  return _swapChainImageFormat;
+}
+const BR2::uext2& Swapchain::imageSize() {
+  return _swapChainExtent;
+}
+std::shared_ptr<RenderFrame> Swapchain::acquireFrame() {
+  std::shared_ptr<RenderFrame> frame = nullptr;
+
+  //Find the next available frame. Do not block.
+
+  return frame;
 }
 
 #pragma endregion

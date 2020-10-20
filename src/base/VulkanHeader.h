@@ -74,7 +74,7 @@ class GameDummy;
 /////////////////////////////////////////////////////////////////////////////////
 //Classes
 
-struct UniformBufferObject {
+struct ViewProjUBOData {
   //alignas(16) BR2::vec2 foo;
   alignas(16) BR2::mat4 view;
   alignas(16) BR2::mat4 proj;
