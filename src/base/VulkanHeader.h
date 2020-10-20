@@ -45,7 +45,20 @@ enum class VulkanBufferType {
   UniformBuffer,
   ImageBuffer
 };
-
+enum class RenderMode {
+  TriangleList
+};
+enum class IndexType {
+  IndexTypeUint16,
+  IndexTypeUint32
+};
+enum class CommandBufferState {
+  Unset,
+  BeginDraw,
+  EndDraw,
+  BeginPass,
+  EndPass
+};
 /////////////////////////////////////////////////////////////////////////////////
 //FWD
 class Vulkan;
@@ -62,8 +75,10 @@ class PipelineShader;
 class Swapchain;
 class RenderFrame;
 class Mesh;
-
+class ShaderData;
+class Pipeline;
 class MeshComponent;
+class CommandBuffer;
 
 //Dummies
 class MaterialDummy;

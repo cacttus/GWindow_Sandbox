@@ -42,8 +42,8 @@ public:
   uint32_t maxRenderInstances();
   void makeBox();
   void makePlane();
-  void drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount);
-  void bindBuffers(VkCommandBuffer& cmd);
+  void drawIndexed(std::shared_ptr<CommandBuffer> cmd, uint32_t instanceCount);
+  void bindBuffers(std::shared_ptr<CommandBuffer> cmd);
 
 private:
   std::vector<v_v3c4x2> _boxVerts;

@@ -1073,18 +1073,108 @@ bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, 
   vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
   return true;
 }
-void PipelineShader::bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline) {
+void PipelineShader::bindDescriptorSets(std::shared_ptr<CommandBuffer> cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline) {
   for (auto desc : _descriptors) {
     if (desc.second->_isBound == false) {
       BRLogWarnOnce("Descriptor '" + desc.second->_name + "' was not bound before invoking shader '" + this->name() + "'");
     }
   }
 
-  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline,
+  vkCmdBindDescriptorSets(cmdBuf->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline,
                           0,  //Layout ID
                           1,
                           &_descriptorSets[swapchainImageIndex], 0, nullptr);
 }
+#pragma endregion
+
+#pragma region CommandBuffer
+
+CommandBuffer::CommandBuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFrame> pframe) : VulkanObject(v) {
+  _sharedPool = vulkan()->commandPool();
+  _pRenderFrame = pframe;
+
+  //_commandBuffers.resize(_swapChainFramebuffers.size());
+  VkCommandBufferAllocateInfo allocInfo = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .pNext = nullptr,
+    .commandPool = _sharedPool,
+    .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+    .commandBufferCount = 1,
+  };
+  CheckVKR(vkAllocateCommandBuffers, vulkan()->device(), &allocInfo, &_commandBuffer);
+}
+CommandBuffer::~CommandBuffer() {
+  vkFreeCommandBuffers(vulkan()->device(), _sharedPool, 1, &_commandBuffer);
+}
+void CommandBuffer::beginPass(ShaderData& data) {
+  VkCommandBufferBeginInfo beginInfo = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+    .pNext = nullptr,
+    .flags = 0,  //VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    .pInheritanceInfo = nullptr,
+  };
+  CheckVKR(vkBeginCommandBuffer, _commandBuffer, &beginInfo);
+  _state = CommandBufferState::BeginDraw;
+
+  //This is a union so only color/depthstencil is supplied
+  VkClearValue clearColor = {
+    .color = VkClearColorValue{
+      data._clearColor.x,
+      data._clearColor.y,
+      data._clearColor.z,
+      data._clearColor.w },
+  };
+  VkExtent2D swapchainExtent = {
+    .width = _pRenderFrame->getSwapchain()->imageSize().width,
+    .height = _pRenderFrame->getSwapchain()->imageSize().height
+  };
+  VkRenderPassBeginInfo passBeginInfo = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .pNext = nullptr,
+    .renderPass = data._renderPass,
+    .framebuffer = data._framebuffer,
+    .renderArea = { .offset = VkOffset2D{ .x = 0, .y = 0 }, .extent = swapchainExtent },
+    .clearValueCount = 1,
+    .pClearValues = &clearColor,
+  };
+  vkCmdBeginRenderPass(_commandBuffer, &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+  _state = CommandBufferState::BeginPass;
+}
+void CommandBuffer::cmdSetViewport(const BR2::uext2& size) {
+  if (_state != CommandBufferState::BeginPass) {
+    BRLogError("setViewport called on invalid command buffer state, state='" + std::to_string((int)_state) + "'");
+    return;
+  }
+  VkViewport viewport = {
+    .x = static_cast<float>(size.x),
+    .y = static_cast<float>(size.y),
+    .width = static_cast<float>(size.width),
+    .height = static_cast<float>(size.height),
+    .minDepth = 0,
+    .maxDepth = 1,
+  };
+
+  VkRect2D scissor{};
+  scissor.offset = { 0, 0 };
+  scissor.extent = {
+    .width = _pRenderFrame->getSwapchain()->imageSize().width,
+    .height = _pRenderFrame->getSwapchain()->imageSize().height
+  };
+  vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
+  vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
+}
+
+//*The 1 is instances - for instanced rendering
+//vkCmdDrawIndexedIndirect
+void CommandBuffer::endPass() {
+  //This is called once when all pipeline rendering is complete
+  vkCmdEndRenderPass(_commandBuffer);
+  _state = CommandBufferState::EndPass;
+
+  CheckVKR(vkEndCommandBuffer, _commandBuffer);
+  _state = CommandBufferState::EndDraw;
+}
+
 #pragma endregion
 
 #pragma region RenderFrame
@@ -1093,15 +1183,18 @@ RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> p
   _pSwapchain = ps;
   _image = img;
   _frameIndex = frameIndex;
-
-  auto view = vulkan()->createImageView(img, ps->imageFormat(), VK_IMAGE_ASPECT_COLOR_BIT, 1);
-  createSyncObjects();
 }
 RenderFrame::~RenderFrame() {
   //Cleanup
   cleanupSyncObjects();
 
   vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
+}
+void RenderFrame::init() {
+  auto view = vulkan()->createImageView(_image, _pSwapchain->imageFormat(), VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  createSyncObjects();
+
+  _pCommandBuffer = std::make_shared<CommandBuffer>(vulkan(), getThis<RenderFrame>());
 }
 void RenderFrame::createSyncObjects() {
   VkSemaphoreCreateInfo semaphoreInfo = {
@@ -1158,33 +1251,27 @@ void RenderFrame::beginFrame() {
   _pSwapchain->waitImage(_currentRenderingImageIndex, _inFlightFence);
 }
 void RenderFrame::endFrame() {
+  //Submit the recorded command buffer.
   VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
-  BRLogError("Update uniform buffer");
-  // updateUniformBuffer(imageIndex);
-
-  BRLogError("ERROR");
-  //**TODO
-  VkCommandBuffer cmd = 0;  //_pSwapchain->pipelines()[imageIndex];
-  //->commandBuffer();
+  VkCommandBuffer buf = _pCommandBuffer->getVkCommandBuffer();  //_pSwapchain->pipelines()[imageIndex];
 
   //aquire next image
   VkSubmitInfo submitInfo = {
-    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
-    .pNext = nullptr,                        //const void*
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .pNext = nullptr,
     //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
     //to finish rendering, or just wait for the framebuffer output.
-    .waitSemaphoreCount = 1,              //uint32_t
-    .pWaitSemaphores = &_imageAvailable,  //const VkSemaphore*
-    .pWaitDstStageMask = waitStages,      //const VkPipelineStageFlags*
-    .commandBufferCount = 1,              //uint32_t
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &_imageAvailable,
+    .pWaitDstStageMask = waitStages,
+    .commandBufferCount = 1,
 
-    //So.. this is the command buffer associated with the pipeline we want to submit. It has nothing to do with this particular frame.
-    .pCommandBuffers = &cmd,  // &_commandBuffers[imageIndex],  //const VkCommandBuffer*
+    .pCommandBuffers = &buf,
 
     //The semaphore is signaled when the queue has completed the requested wait stages.
-    .signalSemaphoreCount = 1,              //uint32_t
-    .pSignalSemaphores = &_renderFinished,  //const VkSemaphore*
+    .signalSemaphoreCount = 1,
+    .pSignalSemaphores = &_renderFinished,
   };
 
   vkResetFences(vulkan()->device(), 1, &_inFlightFence);
@@ -1193,14 +1280,14 @@ void RenderFrame::endFrame() {
   std::vector<VkSwapchainKHR> chains{ _pSwapchain->getVkSwapchain() };
 
   VkPresentInfoKHR presentinfo = {
-    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,             //VkStructureType
-    .pNext = nullptr,                                        //const void*
-    .waitSemaphoreCount = 1,                                 //uint32_t
-    .pWaitSemaphores = &_renderFinished,                     //const VkSemaphore*
-    .swapchainCount = static_cast<uint32_t>(chains.size()),  //uint32_t
-    .pSwapchains = chains.data(),                            //const VkSwapchainKHR*
-    .pImageIndices = &_currentRenderingImageIndex,           //const uint32_t*
-    .pResults = nullptr                                      //VkResult*   //multiple swapchains
+    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+    .pNext = nullptr,
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &_renderFinished,
+    .swapchainCount = static_cast<uint32_t>(chains.size()),
+    .pSwapchains = chains.data(),
+    .pImageIndices = &_currentRenderingImageIndex,
+    .pResults = nullptr
   };
   VkResult res = vkQueuePresentKHR(vulkan()->presentQueue(), &presentinfo);
   if (res != VK_SUCCESS) {
@@ -1232,7 +1319,12 @@ Swapchain::Swapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
 Swapchain::~Swapchain() {
   cleanupSwapChain();
 }
-void Swapchain::initSwapchain(const BR2::uvec2& window_size) {
+void Swapchain::updateSwapchain(const BR2::uext2& window_size) {
+  if (_bSwapChainOutOfDate) {
+    initSwapchain(window_size);
+  }
+}
+void Swapchain::initSwapchain(const BR2::uext2& window_size) {
   vkDeviceWaitIdle(vulkan()->device());
 
   cleanupSwapChain();
@@ -1242,7 +1334,7 @@ void Swapchain::initSwapchain(const BR2::uvec2& window_size) {
 
   _bSwapChainOutOfDate = false;
 }
-void Swapchain::createSwapChain(const BR2::uvec2& window_size) {
+void Swapchain::createSwapChain(const BR2::uext2& window_size) {
   BRLogInfo("Creating Swapchain.");
 
   uint32_t formatCount;
@@ -1285,8 +1377,8 @@ void Swapchain::createSwapChain(const BR2::uvec2& window_size) {
     BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
   }
 
-  _swapChainExtent.width = window_size.x;
-  _swapChainExtent.height = window_size.y;
+  _swapChainExtent.width = window_size.width;
+  _swapChainExtent.height = window_size.height;
 
   VkExtent2D extent = {
     .width = _swapChainExtent.width,
@@ -1338,12 +1430,15 @@ void Swapchain::createSwapChain(const BR2::uvec2& window_size) {
     auto& image = swapChainImages[idx];
     //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
     std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), idx, image);
+    f->init();
     _frames.push_back(f);
   }
+  _imagesInFlight = std::vector<VkFence>(frames().size());
 }
 void Swapchain::cleanupSwapChain() {
   //_pipelines.clear();
   _frames.clear();
+  _imagesInFlight.clear();
 
   if (_swapChain != VK_NULL_HANDLE) {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
@@ -1377,6 +1472,9 @@ const BR2::uext2& Swapchain::imageSize() {
 std::shared_ptr<RenderFrame> Swapchain::acquireFrame() {
   std::shared_ptr<RenderFrame> frame = nullptr;
 
+  //INVALID:
+  frame = _frames[_currentFrame];
+  //TODO:
   //Find the next available frame. Do not block.
 
   return frame;

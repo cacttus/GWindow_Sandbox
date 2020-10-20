@@ -14,6 +14,7 @@
         "log_async=false",
         "package_loc=_debug"
       ],
+      "debugServerArgs": "",
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "externalConsole": false,

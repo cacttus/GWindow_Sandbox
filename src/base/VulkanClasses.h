@@ -212,7 +212,7 @@ public:
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   bool bindUBO(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
   bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
-  void bindDescriptorSets(VkCommandBuffer& cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline);
+  void bindDescriptorSets(std::shared_ptr<CommandBuffer> cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline);
 
   const string_t& name() { return _name; }
 
@@ -244,13 +244,6 @@ private:
   std::vector<std::shared_ptr<VertexAttribute>> _attributes;
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
 };
-enum class RenderMode {
-  TriangleList
-};
-enum class IndexType {
-  IndexTypeUint16,
-  IndexTypeUint32
-};
 
 /**
  * @class Pipeline
@@ -280,23 +273,53 @@ enum class IndexType {
  * @class FrameData
  * Shader data copied and made available to all frames
  * */
-class FrameData : public VulkanObject {
+// class FrameData : public VulkanObject {
+// public:
+//   //Shader, Vertex Format, Primitive Type
+//
+//   FrameData();
+//   virtual ~FrameData() override;
+//
+//   //VkCommandBuffer commandBuffer() { return _commandBuffer; }
+//
+//   //UBOs
+//   //FBOs
+//
+// private:
+//   VkFramebuffer _framebuffer = VK_NULL_HANDLE;  // _swapChainFramebuffers;
+// };
+
+class Pipeline {
 public:
-  //Shader, Vertex Format, Primitive Type
+};
+//Dummy
+class ShaderData {
+public:
+  //Dummy data, for now
+  BR2::vec4 _clearColor = { 0, 0, 0, 1 };
+  VkFramebuffer _framebuffer = VK_NULL_HANDLE;
+  VkRenderPass _renderPass = VK_NULL_HANDLE;
+  VkPipeline _pipeline = VK_NULL_HANDLE;  //_graphicsPipeline
+};
+/**
+ * @class CommandBuffer
+ * */
 
-  FrameData();
-  virtual ~FrameData() override;
+class CommandBuffer : public VulkanObject {
+public:
+  CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
+  virtual ~CommandBuffer() override;
 
-  VkCommandBuffer commandBuffer() { return _commandBuffer; }
-
-  //UBOs
-  //FBOs
+  VkCommandBuffer getVkCommandBuffer() { return _commandBuffer; }
+  void cmdSetViewport(const BR2::uext2& size);
+  void beginPass(ShaderData& shaderData);
+  void endPass();
 
 private:
-  VkFramebuffer _framebuffer = VK_NULL_HANDLE;  // _swapChainFramebuffers;
-  VkCommandBuffer _commandBuffer;               //_commandBuffers;
-  void createCommandBuffer();
-  void createFramebuffer();
+  CommandBufferState _state = CommandBufferState::Unset;
+  std::shared_ptr<RenderFrame> _pRenderFrame = nullptr;
+  VkCommandPool _sharedPool = VK_NULL_HANDLE;       //Do not free
+  VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;  //_commandBuffers;
 };
 /**
  * @class RenderFrame
@@ -306,29 +329,35 @@ public:
   RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img);
   virtual ~RenderFrame() override;
 
-  //<VertexFormat, Shader, Primitive Type>
-  std::vector<FrameData> _pipelines;  //Pipelines
-
   const BR2::uext2& imageSize();
   VkFormat imageFormat();
   std::shared_ptr<Swapchain> getSwapchain() { return _pSwapchain; }
+  VkImageView getVkImageView() { return _imageView; }
+  std::shared_ptr<CommandBuffer> commandBuffer() { return _pCommandBuffer; } //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
+  uint32_t currentRenderingImageIndex() { return _currentRenderingImageIndex; }  //TODO: remove later
+  uint32_t frameIndex() { return _frameIndex;}  //Image index in the swapchain array
+
+  void init();
   void beginFrame();
   void endFrame();
-  VkImageView getVkImageView() { return _imageView; }
-
-  //void bindPipeline(std::shared_ptr<Pipeline> p);
 
 private:
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
+  std::shared_ptr<CommandBuffer> _pCommandBuffer = nullptr;
 
-  uint32_t _frameIndex = 0;  //Image index in the swapchain array
+  //TODO: Framedata for shaders.
+  //<VertexFormat, Shader, Primitive Type>
+  //std::vector<FrameData> _pipelines;  //Pipelines
+
+  uint32_t _frameIndex = 0;  
   VkImage _image = VK_NULL_HANDLE;
   VkImageView _imageView = VK_NULL_HANDLE;
-  VkFence _inFlightFence = VK_NULL_HANDLE;       //std::vector<VkFence> _inFlightFences;
-  VkFence _imageInFlightFence = VK_NULL_HANDLE;  //;
-  VkSemaphore _imageAvailable = VK_NULL_HANDLE;  //std::vector<VkSemaphore> _imageAvailableSemaphores;
-  VkSemaphore _renderFinished = VK_NULL_HANDLE;  //std::vector<VkSemaphore> _renderFinishedSemaphores;
+  VkFence _inFlightFence = VK_NULL_HANDLE;       
+  VkFence _imageInFlightFence = VK_NULL_HANDLE;  
+  VkSemaphore _imageAvailable = VK_NULL_HANDLE;  
+  VkSemaphore _renderFinished = VK_NULL_HANDLE;  
   uint32_t _currentRenderingImageIndex = 0;
+
   void createSyncObjects();
   void cleanupSyncObjects();
 };
@@ -343,23 +372,26 @@ public:
   //Get the next available frame if one is available. Non-Blocking
   std::shared_ptr<RenderFrame> acquireFrame();
 
-  void beginFrame();//Remove
-  void endFrame();//Remove
+  void beginFrame();  //Remove
+  void endFrame();    //Remove
 
   const BR2::uext2& imageSize();
   VkFormat imageFormat();
   void outOfDate() { _bSwapChainOutOfDate = true; }
+  bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
-  void initSwapchain(const BR2::uvec2& window_size);
+  void initSwapchain(const BR2::uext2& window_size);
+  void updateSwapchain(const BR2::uext2& window_size);
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
+  std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
 
 private:
-  void createSwapChain(const BR2::uvec2& window_size);
+  void createSwapChain(const BR2::uext2& window_size);
   void cleanupSwapChain();
 
   std::vector<std::shared_ptr<RenderFrame>> _frames;
-  std::vector<VkFence> _imagesInFlight;
   size_t _currentFrame = 0;
+  std::vector<VkFence> _imagesInFlight;  //Shared handle do not delete
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   BR2::uext2 _swapChainExtent;
   VkFormat _swapChainImageFormat;

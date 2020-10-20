@@ -26,6 +26,7 @@ public:
 
   std::shared_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
+  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
   //**TODO:Pipeline
   //**TODO:Pipeline
@@ -41,23 +42,24 @@ public:
   //Asynchronous computing depends on the swapchain count.
   //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
   //You can't have more than #swapchain images rendering at a time.
-  size_t _currentFrame = 0;
-  std::vector<VkFence> _inFlightFences;
-  std::vector<VkFence> _imagesInFlight;
-  std::vector<VkSemaphore> _imageAvailableSemaphores;
-  std::vector<VkSemaphore> _renderFinishedSemaphores;
+  // size_t _currentFrame = 0;
+  //std::vector<VkFence> _inFlightFences;
+  //std::vector<VkFence> _imagesInFlight;
+  // std::vector<VkSemaphore> _imageAvailableSemaphores;
+  // std::vector<VkSemaphore> _renderFinishedSemaphores;
   std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;   //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers1;  //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers2;  //One per swapchain image since theres multiple frames in flight.
   int32_t _numInstances = 3;
-  VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-  VkExtent2D _swapChainExtent;
-  VkFormat _swapChainImageFormat;
-  std::vector<VkImage> _swapChainImages;
-  std::vector<VkImageView> _swapChainImageViews;
+  // VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
+  // VkExtent2D _swapChainExtent;
+  // VkFormat _swapChainImageFormat;
+  // std::vector<VkImage> _swapChainImages;
+  ///std::vector<VkImageView> _swapChainImageViews;
   std::vector<VkFramebuffer> _swapChainFramebuffers;
   std::vector<VkCommandBuffer> _commandBuffers;
-  bool _bSwapChainOutOfDate = false;
+  //bool _bSwapChainOutOfDate = false;
+
   //**TODO:Swapchain
   //**TODO:Swapchain
 
@@ -161,6 +163,8 @@ public:
                                                   App::rootFile("test_vs.spv"),
                                                   App::rootFile("test_fs.spv") });
 
+    _pSwapchain = std::make_shared<Swapchain>(_vulkan);
+
     recreateSwapChain();
 
     BRLogInfo("Showing window..");
@@ -203,32 +207,49 @@ public:
       }
     }
   }
+  BR2::uext2 getWindowDims() {
+    int win_w = 0, win_h = 0;
+    int pos_x = 0, pos_y = 0;
+    SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
+    SDL_GetWindowPosition(_pSDLWindow, &pos_x, &pos_y);
+    return {
+      static_cast<uint32_t>(pos_x),
+      static_cast<uint32_t>(pos_y),
+      static_cast<uint32_t>(win_w),
+      static_cast<uint32_t>(win_h)
+    };
+  }
   void recreateSwapChain() {
     vkDeviceWaitIdle(vulkan()->device());
 
-    cleanupSwapChain();
-    vkDeviceWaitIdle(vulkan()->device());
+    cleanupSwapRenderPipe();
+    //vkDeviceWaitIdle(vulkan()->device());
 
-    createSwapChain();  // *  - recreate
+    //createSwapChain();  // *  - recreate
+
+    _pSwapchain->initSwapchain(getWindowDims());
 
     static bool s_bInitialized = false;
     if (s_bInitialized == false) {
       s_bInitialized = true;
       allocateShaderMemory();
-      createSyncObjects();
+      // createSyncObjects();
     }
 
-    createSwapchainImageViews();
+    // createSwapchainImageViews();
     //Technically we need multiple pipelines
     createGraphicsPipeline(_game->_mesh1, _pShader, VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     //_pShader->createGraphicsPipeline()
     createFramebuffers();
-    createCommandBuffers();
+    //createCommandBuffers();
+    for (auto frame : _pSwapchain->frames()) {
+      recordCommandBuffer(frame);
+    }
 
-    _bSwapChainOutOfDate = false;
+    //_bSwapChainOutOfDate = false;
   }
   void createUniformBuffers() {
-    for (auto& img : _swapChainImages) {
+    for (size_t i = 0; i < _pSwapchain->frames().size(); ++i) {
       _viewProjUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
@@ -300,7 +321,7 @@ public:
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_swapChainExtent.width, -(float)_swapChainExtent.height, 0.1f, 100.0f)
+      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_pSwapchain->imageSize().width, -(float)_pSwapchain->imageSize().height, 0.1f, 100.0f)
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
   }
@@ -328,111 +349,6 @@ public:
     instanceBuffer->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
     // ub.proj._m22 *= -1;
   }
-  void createSwapChain() {
-    BRLogInfo("Creating Swapchain.");
-
-    uint32_t formatCount;
-    CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, nullptr);
-    std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    if (formatCount != 0) {
-      CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, formats.data());
-    }
-    string_t fmts = "Surface formats: " + Os::newline();
-    for (int i = 0; i < formats.size(); ++i) {
-      fmts += " Format " + i;
-      fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
-      fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
-    }
-
-    // How the surfaces are presented from the swapchain.
-    uint32_t presentModeCount;
-    CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, nullptr);
-    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    if (presentModeCount != 0) {
-      CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
-    }
-    //This is cool. Directly query the color space
-    VkSurfaceFormatKHR surfaceFormat;
-    for (const auto& availableFormat : formats) {
-      if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-        surfaceFormat = availableFormat;
-        break;
-      }
-    }
-    //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    for (const auto& availablePresentMode : presentModes) {
-      if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-        presentMode = availablePresentMode;
-        break;
-      }
-    }
-    if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
-      BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
-    }
-
-    int win_w = 0, win_h = 0;
-    SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
-    _swapChainExtent.width = win_w;
-    _swapChainExtent.height = win_h;
-
-    //Create swapchain
-    VkSwapchainCreateInfoKHR swapChainCreateInfo = {
-      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-      .surface = vulkan()->windowSurface(),
-      .minImageCount = _vulkan->swapchainImageCount(),
-      .imageFormat = surfaceFormat.format,
-      .imageColorSpace = surfaceFormat.colorSpace,
-      .imageExtent = _swapChainExtent,
-      .imageArrayLayers = 1,  //more than 1 for stereoscopic application
-      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-      .preTransform = _vulkan->surfaceCaps().currentTransform,
-      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-      .presentMode = presentMode,
-      .clipped = VK_TRUE,
-      .oldSwapchain = VK_NULL_HANDLE,  // ** For window resizing.
-    };
-
-    CheckVKR(vkCreateSwapchainKHR, vulkan()->device(), &swapChainCreateInfo, nullptr, &_swapChain);
-
-    //ImageCount must be what we asked for as we use this data to initialize (pretty much everything buffer related).
-    uint32_t imageCount = 0;
-    CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, nullptr);
-    if (imageCount > _vulkan->swapchainImageCount()) {
-      //Not an issue, just use less. This could be a performance improvement, though.
-      BRLogDebug("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
-                 "' greater than what we specified: '" + std::to_string(_vulkan->swapchainImageCount()) + "'.");
-      imageCount = _vulkan->swapchainImageCount();
-    }
-    else if (imageCount < _vulkan->swapchainImageCount()) {
-      //Error: we need at least this many images, not because of any functinoal requirement, but because we use the
-      // image count to pre-initialize the swapchain data.
-      BRLogError("The Graphics Driver returned a swapchain image count '" + std::to_string(imageCount) +
-                 "' less than what we specified: '" + std::to_string(_vulkan->swapchainImageCount()) + "'.");
-      _vulkan->errorExit("Minimum swapchain was not satisfied. Could not continue.");
-    }
-
-    //So what is imageCount?
-    _swapChainImages.resize(imageCount);
-    CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, _swapChainImages.data());
-
-    _swapChainImageFormat = surfaceFormat.format;
-  }
-  void createSwapchainImageViews() {
-    BRLogInfo("Creating Image Views.");
-    for (size_t i = 0; i < _swapChainImages.size(); i++) {
-      auto view = vulkan()->createImageView(_swapChainImages[i], _swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-      _swapChainImageViews.push_back(view);
-    }
-  }
-  void createColorResources() {
-    //*So here we need to branch off VulkanImage and create the depth buffer format and the color target format.
-    //  This will be similar to the render formats in the renderPipe.
-    //  This will tie in to the generic RenderPipe attachments.
-    // The final attachment for an MSAA down-sampling is called a "resolve" attachment.
-    //class RenderTarget
-    //_colorTarget = std::make_shared<VulkanImage>();
-  }
   void createGraphicsPipeline(std::shared_ptr<Mesh> mesh, std::shared_ptr<PipelineShader> shader, VkPrimitiveTopology topo) {
     //This is essentially what in GL was the shader program.
     BRLogInfo("Creating Graphics Pipeline.");
@@ -452,8 +368,8 @@ public:
 
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
 
-//TODO:
-//TODO:
+    //TODO:
+    //TODO:
     std::shared_ptr<BR2::VertexFormat> fmt = nullptr;
 
     auto vertexInputInfo = shader->getVertexInputInfo(fmt);
@@ -579,7 +495,7 @@ public:
 
     VkAttachmentDescription colorAttachment = {
       .flags = 0,                                          //VkAttachmentDescriptionFlags
-      .format = _swapChainImageFormat,                     //VkFormat
+      .format = _pSwapchain->imageFormat(),                //VkFormat
       .samples = VK_SAMPLE_COUNT_1_BIT,                    //VkSampleCountFlagBits
       .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,               //VkAttachmentLoadOp
       .storeOp = VK_ATTACHMENT_STORE_OP_STORE,             //VkAttachmentStoreOp
@@ -626,10 +542,10 @@ public:
   void createFramebuffers() {
     BRLogInfo("Creating Framebuffers.");
 
-    _swapChainFramebuffers.resize(_swapChainImageViews.size());
+    _swapChainFramebuffers.resize(_pSwapchain->frames().size());
 
-    for (size_t i = 0; i < _swapChainImageViews.size(); i++) {
-      VkImageView attachments[] = { _swapChainImageViews[i] };
+    for (size_t i = 0; i < _pSwapchain->frames().size(); i++) {
+      VkImageView attachments[] = { _pSwapchain->frames()[i]->getVkImageView() };
 
       VkFramebufferCreateInfo framebufferInfo = {
         .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,  //VkStructureType
@@ -638,221 +554,75 @@ public:
         .renderPass = _renderPass,                           //VkRenderPass
         .attachmentCount = 1,                                //uint32_t
         .pAttachments = attachments,                         //const VkImageView*
-        .width = _swapChainExtent.width,                     //uint32_t
-        .height = _swapChainExtent.height,                   //uint32_t
+        .width = _pSwapchain->imageSize().width,             //uint32_t
+        .height = _pSwapchain->imageSize().height,           //uint32_t
         .layers = 1,                                         //uint32_t
       };
 
       CheckVKR(vkCreateFramebuffer, vulkan()->device(), &framebufferInfo, nullptr, &_swapChainFramebuffers[i]);
     }
   }
-
-  void createCommandBuffers() {
-    BRLogInfo("Creating Command Buffers.");
-    //One framebuffer per swapchain image. {double buffered means just 2 I think}
-    //One command buffer per framebuffer.
-    //Command buffers have various states like "pending" which determines what primary/secondary and you can do with them
-
-    _commandBuffers.resize(_swapChainFramebuffers.size());
-    VkCommandBufferAllocateInfo allocInfo = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .pNext = nullptr,
-      .commandPool = vulkan()->commandPool(),
-      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = (uint32_t)_commandBuffers.size(),
-    };
-    CheckVKR(vkAllocateCommandBuffers, vulkan()->device(), &allocInfo, _commandBuffers.data());
-
-    for (size_t i = 0; i < _commandBuffers.size(); ++i) {
-      VkCommandBufferBeginInfo beginInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = nullptr,
-        .flags = 0,                   //VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
-        .pInheritanceInfo = nullptr,  //ignored for primary buffers.
-      };
-      //This is a union so only color/depthstencil is supplied
-      VkClearValue clearColor = {
-        .color = VkClearColorValue{ 0.0, 0.0, 0.0, 1.0 }
-      };
-      VkRenderPassBeginInfo rpbi{};
-      rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-      rpbi.pNext = nullptr;
-      rpbi.renderPass = _renderPass;  //The renderpass we created above.
-      rpbi.framebuffer = _swapChainFramebuffers[i];
-      //rpbi.renderArea{};
-      rpbi.renderArea.offset = VkOffset2D{ .x = 0, .y = 0 };
-      rpbi.renderArea.extent = _swapChainExtent;
-      rpbi.clearValueCount = 1;
-      rpbi.pClearValues = &clearColor;
-      CheckVKR(vkBeginCommandBuffer, _commandBuffers[i], &beginInfo);
-
-      vkCmdBeginRenderPass(_commandBuffers[i], &rpbi, VK_SUBPASS_CONTENTS_INLINE /*VkSubpassContents*/);
-
-      VkViewport viewport = {
-        .x = 0,
-        .y = 0,
-        .width = (float)_swapChainExtent.width,
-        .height = (float)_swapChainExtent.height,
-        .minDepth = 0,
-        .maxDepth = 1,
-      };
-
-      VkRect2D scissor{};
-      scissor.offset = { 0, 0 };
-      scissor.extent = _swapChainExtent;
-      vkCmdSetViewport(_commandBuffers[i], 0, 1, &viewport);
-      vkCmdSetScissor(_commandBuffers[i], 0, 1, &scissor);
-
-      //You can bind multiple pipelines for multiple render passes.
-      //Binding one does not disturb the others.
-
-      vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
-
-      //Bind Viewproj Info
-      _pShader->bindUBO("_uboViewProj", i, _viewProjUniformBuffers[i]);
-
-      //Mesh 1
-      _pShader->bindSampler("_ufTexture0", i, _testTexture1);
-      _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers1[i]);
-      _game->_mesh1->bindBuffers(_commandBuffers[i]);
-      _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
-      _game->_mesh1->drawIndexed(_commandBuffers[i], _numInstances);
-
-      //Mesh 2
-      _pShader->bindSampler("_ufTexture0", i, _testTexture2);
-      _pShader->bindUBO("_uboInstanceData", i, _instanceUniformBuffers2[i]);
-      _game->_mesh2->bindBuffers(_commandBuffers[i]);
-      _pShader->bindDescriptorSets(_commandBuffers[i], i, _pipelineLayout);
-      _game->_mesh2->drawIndexed(_commandBuffers[i], _numInstances);
-
-      //*The 1 is instances - for instanced rendering
-      //vkCmdDrawIndexedIndirect
-
-      //This is called once when all pipeline rendering is complete
-      vkCmdEndRenderPass(_commandBuffers[i]);
-      CheckVKR(vkEndCommandBuffer, _commandBuffers[i]);
-    }
-  }
-  void createSyncObjects() {
-    BRLogInfo("Creating Rendering Semaphores.");
-    //TODO: replace with _swapchain->imageCount
-    _imageAvailableSemaphores.resize(_vulkan->swapchainImageCount());
-    //TODO: replace with _swapchain->imageCount
-    _renderFinishedSemaphores.resize(_vulkan->swapchainImageCount());
-    //TODO: replace with _swapchain->imageCount
-    _inFlightFences.resize(_vulkan->swapchainImageCount());
-    _imagesInFlight.resize(_swapChainImages.size(), VK_NULL_HANDLE);
-
-    //TODO: replace with _swapchain->imageCount
-    for (int i = 0; i < _vulkan->swapchainImageCount(); ++i) {
-      VkSemaphoreCreateInfo semaphoreInfo = {
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-      };
-      CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailableSemaphores[i]);
-      CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinishedSemaphores[i]);
-
-      VkFenceCreateInfo fenceInfo = {
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT,  //Fences must always be created in a signaled state.
-      };
-
-      CheckVKR(vkCreateFence, vulkan()->device(), &fenceInfo, nullptr, &_inFlightFences[i]);
-    }
-  }
 #pragma endregion
 
 #pragma region Vulkan Rendering
 
+  uint64_t g_iFrameNumber = 0;
   void drawFrame(double dt) {
-    vkWaitForFences(vulkan()->device(), 1, &_inFlightFences[_currentFrame], VK_TRUE, UINT64_MAX);
-    //one command buffer per framebuffer,
-    //acquire the image form teh swapchain (which is our framebuffer)
-    //signal the semaphore.
-    uint32_t imageIndex = 0;
-    //Returns an image in the swapchain that we can draw to.
-    VkResult res;
-    res = vkAcquireNextImageKHR(vulkan()->device(), _swapChain, UINT64_MAX, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
-    if (res != VK_SUCCESS) {
-      if (res == VK_ERROR_OUT_OF_DATE_KHR) {
-        _bSwapChainOutOfDate = true;
-        return;
-      }
-      else if (res == VK_SUBOPTIMAL_KHR) {
-        _bSwapChainOutOfDate = true;
-        return;
-      }
-      else {
-        vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
-      }
+    _pSwapchain->beginFrame();
+    {
+      std::shared_ptr<RenderFrame> frame = _pSwapchain->acquireFrame();
+      if (frame != nullptr) {
+        uint32_t frameIndex = frame->frameIndex();
+
+        //* game logic
+        updateViewProjUniformBuffer(_viewProjUniformBuffers[frameIndex]);
+        updateInstanceUniformBuffer(_instanceUniformBuffers1[frameIndex], offsets1, rots_delta1, rots_ini1, dt);
+        updateInstanceUniformBuffer(_instanceUniformBuffers2[frameIndex], offsets2, rots_delta2, rots_ini2, dt);
+
+        // * Draw
+        //   if (0)
+        {
+        }
+
+      }  //frame!=nullptr
     }
-
-    //There is currently a frame that is using this image. So wait for this image.
-    if (_imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-      vkWaitForFences(vulkan()->device(), 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
-    }
-    _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
-
-    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-
-    //E.G. game logic
-    //updateUniformBuffer(imageIndex);
-    updateViewProjUniformBuffer(_viewProjUniformBuffers[imageIndex]);
-    updateInstanceUniformBuffer(_instanceUniformBuffers1[imageIndex], offsets1, rots_delta1, rots_ini1, dt);
-    updateInstanceUniformBuffer(_instanceUniformBuffers2[imageIndex], offsets2, rots_delta2, rots_ini2, dt);
-
-    //aquire next image
-    VkSubmitInfo submitInfo = {
-      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
-      .pNext = nullptr,                        //const void*
-      //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
-      //to finish rendering, or just wait for the framebuffer output.
-      .waitSemaphoreCount = 1,                                       //uint32_t
-      .pWaitSemaphores = &_imageAvailableSemaphores[_currentFrame],  //const VkSemaphore*
-      .pWaitDstStageMask = waitStages,                               //const VkPipelineStageFlags*
-      .commandBufferCount = 1,                                       //uint32_t
-      .pCommandBuffers = &_commandBuffers[imageIndex],               //const VkCommandBuffer*
-      //The semaphore is signaled when the queue has completed the requested wait stages.
-      .signalSemaphoreCount = 1,                                       //uint32_t
-      .pSignalSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
+    _pSwapchain->endFrame();
+    g_iFrameNumber++;
+  }
+  void recordCommandBuffer(std::shared_ptr<RenderFrame> frame) {
+    uint32_t frameIndex = frame->frameIndex();
+    //Dummy pass-in data
+    ShaderData dat = {
+      ._clearColor = { 0, 0, 0, 1 },
+      ._framebuffer = this->_swapChainFramebuffers[frameIndex],
+      ._renderPass = this->_renderPass,
+      ._pipeline = this->_graphicsPipeline,
     };
 
-    vkResetFences(vulkan()->device(), 1, &_inFlightFences[_currentFrame]);
-    vkQueueSubmit(vulkan()->graphicsQueue(), 1, &submitInfo, _inFlightFences[_currentFrame]);
+    auto cmd = frame->commandBuffer();
+    cmd->beginPass(dat);
+    {
+      cmd->cmdSetViewport(_pSwapchain->imageSize());
+      vkCmdBindPipeline(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
 
-    VkPresentInfoKHR presentinfo = {
-      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,                   //VkStructureType
-      .pNext = nullptr,                                              //const void*
-      .waitSemaphoreCount = 1,                                       //uint32_t
-      .pWaitSemaphores = &_renderFinishedSemaphores[_currentFrame],  //const VkSemaphore*
-      .swapchainCount = 1,                                           //uint32_t
-      .pSwapchains = &_swapChain,                                    //const VkSwapchainKHR*
-      .pImageIndices = &imageIndex,                                  //const uint32_t*
-      .pResults = nullptr                                            //VkResult*   //multiple swapchains
-    };
-    res = vkQueuePresentKHR(vulkan()->presentQueue(), &presentinfo);
-    if (res != VK_SUCCESS) {
-      if (res == VK_ERROR_OUT_OF_DATE_KHR) {
-        _bSwapChainOutOfDate = true;
-        return;
-      }
-      else if (res == VK_SUBOPTIMAL_KHR) {
-        _bSwapChainOutOfDate = true;
-        return;
-      }
-      else {
-        vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
-      }
+      //Bind Viewproj Info
+      _pShader->bindUBO("_uboViewProj", frameIndex, _viewProjUniformBuffers[frameIndex]);
+
+      //Mesh 1
+      _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
+      _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers1[frameIndex]);
+      _game->_mesh1->bindBuffers(cmd);
+      _pShader->bindDescriptorSets(cmd, frameIndex, _pipelineLayout);
+      _game->_mesh1->drawIndexed(cmd, _numInstances);
+
+      //Mesh 2
+      _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
+      _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers2[frameIndex]);
+      _game->_mesh2->bindBuffers(cmd);
+      _pShader->bindDescriptorSets(cmd, frameIndex, _pipelineLayout);
+      _game->_mesh2->drawIndexed(cmd, _numInstances);
     }
-
-    //**CONTINUE TUTORIAL AFTER THIS POINT
-    //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
-    // We add additional threads for async the rendering.
-    //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
-
-    _currentFrame = (_currentFrame + 1) % _vulkan->swapchainImageCount();
+    cmd->endPass();
   }
   std::shared_ptr<Img32> loadImage(const string_t& img) {
     unsigned char* data = nullptr;  //the raw pixels
@@ -900,7 +670,6 @@ public:
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
     createTextureImages();   // - create once - single creation
   }
-
   void cleanupShaderMemory() {
     _viewProjUniformBuffers.resize(0);
     _instanceUniformBuffers1.resize(0);
@@ -909,8 +678,7 @@ public:
     _testTexture2 = nullptr;
     _depthTexture = nullptr;
   }
-
-  void cleanupSwapChain() {
+  void cleanupSwapRenderPipe() {
     if (_swapChainFramebuffers.size() > 0) {
       for (auto& v : _swapChainFramebuffers) {
         if (v != VK_NULL_HANDLE) {
@@ -919,13 +687,6 @@ public:
       }
       _swapChainFramebuffers.clear();
     }
-
-    if (_commandBuffers.size() > 0) {
-      vkFreeCommandBuffers(vulkan()->device(), vulkan()->commandPool(),
-                           static_cast<uint32_t>(_commandBuffers.size()), _commandBuffers.data());
-      _commandBuffers.clear();
-    }
-
     if (_graphicsPipeline != VK_NULL_HANDLE) {
       vkDestroyPipeline(vulkan()->device(), _graphicsPipeline, nullptr);
     }
@@ -935,43 +696,17 @@ public:
     if (_renderPass != VK_NULL_HANDLE) {
       vkDestroyRenderPass(vulkan()->device(), _renderPass, nullptr);
     }
-
-    for (size_t i = 0; i < _swapChainImageViews.size(); i++) {
-      vkDestroyImageView(vulkan()->device(), _swapChainImageViews[i], nullptr);
-    }
-    _swapChainImageViews.clear();
-
-    if (_swapChain != VK_NULL_HANDLE) {
-      vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
-    }
-  }
-  void cleanupSyncObjects() {
-    //We don't need to re-create sync objects on window resize but since this data depends on the swapchain, it makes a little cleaner.
-    for (auto& sem : _renderFinishedSemaphores) {
-      vkDestroySemaphore(vulkan()->device(), sem, nullptr);
-    }
-    _renderFinishedSemaphores.clear();
-    for (auto& sem : _imageAvailableSemaphores) {
-      vkDestroySemaphore(vulkan()->device(), sem, nullptr);
-    }
-    _imageAvailableSemaphores.clear();
-    for (auto& fence : _inFlightFences) {
-      vkDestroyFence(vulkan()->device(), fence, nullptr);
-    }
-    _inFlightFences.clear();
-    _imagesInFlight.clear();
   }
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
 
-    //_pSwapchain = nullptr
-    cleanupSwapChain();
+    _pSwapchain = nullptr;
+    cleanupSwapRenderPipe();
 
-    cleanupSyncObjects();
+    //cleanupSyncObjects();
     cleanupShaderMemory();
 
     _pShader = nullptr;
-
     _vulkan = nullptr;
 
     SDL_DestroyWindow(_pSDLWindow);
@@ -993,8 +728,10 @@ void SDLVulkan::init() {
   try {
     _pInt->init();
   }
-  catch (...) {
+  catch (std::exception& ex) {
+    std::cout << ex.what() << std::endl;
     _pInt->cleanup();
+    throw ex;
   }
 }
 
@@ -1007,7 +744,7 @@ bool SDLVulkan::doInput() {
     }
     else if (event.type == SDL_WINDOWEVENT) {
       if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-        _pInt->recreateSwapChain();
+        _pInt->_pSwapchain->outOfDate();
         break;
       }
     }
@@ -1024,12 +761,12 @@ bool SDLVulkan::doInput() {
         string_t mode = _pInt->base_title + " (" + mmm + ") ";
 
         SDL_SetWindowTitle(_pInt->_pSDLWindow, mode.c_str());
-        _pInt->recreateSwapChain();
+        _pInt->_pSwapchain->outOfDate();
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
         g_samplerate_shading = !g_samplerate_shading;
-        _pInt->recreateSwapChain();
+        _pInt->_pSwapchain->outOfDate();
         break;
       }
     }
@@ -1043,6 +780,16 @@ void SDLVulkan::renderLoop() {
     exit = doInput();
     double t01ms = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
     last_time = std::chrono::high_resolution_clock::now();
+
+    if (_pInt->_pSwapchain->isOutOfDate()) {
+      _pInt->recreateSwapChain();
+    }
+    //TODO: replace this when we relocate the whole pipeline.
+    //_pInt->_pSwapchain->updateSwapchain(_pInt->getWindowDims());
+
+    _pInt->_pSwapchain->beginFrame();
+    _pInt->_pSwapchain->endFrame();
+
     _pInt->drawFrame(t01ms);
   }
   //This stops all threads before we cleanup.

@@ -1,4 +1,5 @@
 #include "./GameClasses.h"
+#include "./VulkanClasses.h"
 
 
 namespace VG {
@@ -10,10 +11,11 @@ Mesh::~Mesh() {
 }
 uint32_t Mesh::maxRenderInstances() { return _maxRenderInstances; }
 
-void Mesh::drawIndexed(VkCommandBuffer& cmd, uint32_t instanceCount) {
-  vkCmdDrawIndexed(cmd, static_cast<uint32_t>(_boxInds.size()), instanceCount, 0, 0, 0);
+void Mesh::drawIndexed(std::shared_ptr<CommandBuffer> cmd, uint32_t instanceCount) {
+  
+  vkCmdDrawIndexed(cmd->getVkCommandBuffer(), static_cast<uint32_t>(_boxInds.size()), instanceCount, 0, 0, 0);
 }
-void Mesh::bindBuffers(VkCommandBuffer& cmd) {
+void Mesh::bindBuffers(std::shared_ptr<CommandBuffer> cmd) {
   VkIndexType idxType = VK_INDEX_TYPE_UINT32;
   if (_indexType == IndexType::IndexTypeUint32) {
     idxType = VK_INDEX_TYPE_UINT32;
@@ -25,8 +27,8 @@ void Mesh::bindBuffers(VkCommandBuffer& cmd) {
   //You can have multiple vertex layouts with layout(binding=x)
   VkBuffer vertexBuffers[] = { _vertexBuffer->hostBuffer()->buffer() };
   VkDeviceSize offsets[] = { 0 };
-  vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-  vkCmdBindIndexBuffer(cmd, _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
+  vkCmdBindVertexBuffers(cmd->getVkCommandBuffer(), 0, 1, vertexBuffers, offsets);
+  vkCmdBindIndexBuffer(cmd->getVkCommandBuffer(), _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 }
 
 
