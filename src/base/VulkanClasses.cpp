@@ -1040,6 +1040,8 @@ bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std:
   };
   vkUpdateDescriptorSets(vulkan()->device(), 1, &descWrite, 0, nullptr);
 
+  desc->_isBound = true;
+
   return true;
 }
 bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
@@ -1100,6 +1102,7 @@ CommandBuffer::CommandBuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFr
     .commandPool = _sharedPool,
     .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
     .commandBufferCount = 1,
+
   };
   CheckVKR(vkAllocateCommandBuffers, vulkan()->device(), &allocInfo, &_commandBuffer);
 }
@@ -1116,6 +1119,9 @@ void CommandBuffer::beginPass(ShaderData& data) {
   CheckVKR(vkBeginCommandBuffer, _commandBuffer, &beginInfo);
   _state = CommandBufferState::BeginDraw;
 
+  uint32_t w = _pRenderFrame->getSwapchain()->imageSize().width;
+  uint32_t h = _pRenderFrame->getSwapchain()->imageSize().height;
+
   //This is a union so only color/depthstencil is supplied
   VkClearValue clearColor = {
     .color = VkClearColorValue{
@@ -1125,8 +1131,8 @@ void CommandBuffer::beginPass(ShaderData& data) {
       data._clearColor.w },
   };
   VkExtent2D swapchainExtent = {
-    .width = _pRenderFrame->getSwapchain()->imageSize().width,
-    .height = _pRenderFrame->getSwapchain()->imageSize().height
+    .width = w,
+    .height = h
   };
   VkRenderPassBeginInfo passBeginInfo = {
     .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -1137,6 +1143,7 @@ void CommandBuffer::beginPass(ShaderData& data) {
     .clearValueCount = 1,
     .pClearValues = &clearColor,
   };
+
   vkCmdBeginRenderPass(_commandBuffer, &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
   _state = CommandBufferState::BeginPass;
 }
@@ -1191,7 +1198,7 @@ RenderFrame::~RenderFrame() {
   vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
 }
 void RenderFrame::init() {
-  auto view = vulkan()->createImageView(_image, _pSwapchain->imageFormat(), VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  _imageView = vulkan()->createImageView(_image, _pSwapchain->imageFormat(), VK_IMAGE_ASPECT_COLOR_BIT, 1);
   createSyncObjects();
 
   _pCommandBuffer = std::make_shared<CommandBuffer>(vulkan(), getThis<RenderFrame>());
@@ -1334,49 +1341,70 @@ void Swapchain::initSwapchain(const BR2::uext2& window_size) {
 
   _bSwapChainOutOfDate = false;
 }
-void Swapchain::createSwapChain(const BR2::uext2& window_size) {
-  BRLogInfo("Creating Swapchain.");
+bool Swapchain::findValidPresentMode(VkPresentModeKHR& pm_out) {
+  uint32_t presentModeCount;
+  CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, nullptr);
+  std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+  CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
 
+  pm_out = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
+  for (const auto& availablePresentMode : presentModes) {
+    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+      pm_out = availablePresentMode;
+      return true;
+    }
+  }
+  if (pm_out == VK_PRESENT_MODE_FIFO_KHR) {
+    BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
+  }
+  return true;
+}
+bool Swapchain::findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out) {
   uint32_t formatCount;
   CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, nullptr);
+
   std::vector<VkSurfaceFormatKHR> formats(formatCount);
   if (formatCount != 0) {
     CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, formats.data());
   }
-  string_t fmts = "Surface formats: " + Os::newline();
-  for (int i = 0; i < formats.size(); ++i) {
-    fmts += " Format " + i;
-    fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
-    fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
+  //string_t fmts = "Surface formats: " + Os::newline();
+  //for (int i = 0; i < formats.size(); ++i) {
+  //  fmts += " Format " + i;
+  //  fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
+  //  fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
+  //}
+
+  for (auto fmt : fmts) {
+    for (const auto& availableFormat : formats) {
+      if (availableFormat.format == fmt) {
+        if (availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+          fmt_out = availableFormat;
+          return true;
+        }
+      }
+    }
   }
+
+  return false;
+}
+void Swapchain::createSwapChain(const BR2::uext2& window_size) {
+  BRLogInfo("Creating Swapchain.");
 
   // How the surfaces are presented from the swapchain.
-  uint32_t presentModeCount;
-  CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, nullptr);
-  std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-  if (presentModeCount != 0) {
-    CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
-  }
+
   //This is cool. Directly query the color space
   VkSurfaceFormatKHR surfaceFormat;
-  for (const auto& availableFormat : formats) {
-    if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-      surfaceFormat = availableFormat;
-      break;
-    }
-  }
-  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-  VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-  for (const auto& availablePresentMode : presentModes) {
-    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-      presentMode = availablePresentMode;
-      break;
-    }
-  }
-  if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
-    BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
+  if (!findValidSurfaceFormat(std::vector<VkFormat>{ VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM }, surfaceFormat)) {
+    vulkan()->errorExit("Could not find valid window surface format.");
   }
 
+  VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+  if (!findValidPresentMode(presentMode)) {
+    vulkan()->errorExit("Could not find valid present mode.");
+  }
+
+  _swapChainExtent.x = 0;
+  _swapChainExtent.y = 0;
   _swapChainExtent.width = window_size.width;
   _swapChainExtent.height = window_size.height;
 

@@ -388,6 +388,8 @@ public:
 private:
   void createSwapChain(const BR2::uext2& window_size);
   void cleanupSwapChain();
+  bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
+  bool findValidPresentMode(VkPresentModeKHR& pm_out);
 
   std::vector<std::shared_ptr<RenderFrame>> _frames;
   size_t _currentFrame = 0;

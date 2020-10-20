@@ -70,6 +70,21 @@ string_t VulkanDebug::VkGraphicsPipelineCreateInfo_toString() {
   V_STC_STR(VkGraphicsPipelineCreateInfo, basePipelineIndex);
   return str;
 }
+string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
+  string_t str = "[ hex] [decimal] member_name \r\n";
+  size_t off = 0;
+
+
+   V_STC_STR(VkRenderPassBeginInfo, sType);
+   V_STC_STR(VkRenderPassBeginInfo, pNext);
+   V_STC_STR(VkRenderPassBeginInfo, renderPass);
+   V_STC_STR(VkRenderPassBeginInfo, framebuffer);
+   V_STC_STR(VkRenderPassBeginInfo, renderArea);
+   V_STC_STR(VkRenderPassBeginInfo, clearValueCount);
+   V_STC_STR(VkRenderPassBeginInfo, pClearValues);
+
+  return str;
+}
 #pragma endregion
 #pragma region Stringify Methods
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*

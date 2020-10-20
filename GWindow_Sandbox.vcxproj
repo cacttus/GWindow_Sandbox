@@ -79,12 +79,12 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <IncludePath>C:\git\VulkanGame\ext\SDL2\include;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Include;$(IncludePath)</IncludePath>
-    <LibraryPath>C:\git\VulkanGame\lib;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Lib;$(LibraryPath)</LibraryPath>
+    <LibraryPath>..\VulkanGame\lib;..\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <IncludePath>C:\git\VulkanGame\ext\SDL2\include;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
-    <LibraryPath>C:\git\VulkanGame\lib;C:\git\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Lib;$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)</LibraryPath>
+    <LibraryPath>..\VulkanGame\lib;..\VulkanGame\ext\LunarG\VulkanSDK\1.1.114.0\Lib;$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -125,7 +125,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>vulkan-1.lib;SDL2_x64d.lib;winmm.lib;imm32.lib;version.lib;dbghelp.lib;setupapi.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>VulkanGame_x64d.lib;vulkan-1.lib;SDL2_x64d.lib;winmm.lib;imm32.lib;version.lib;dbghelp.lib;setupapi.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -144,29 +144,37 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>vulkan-1.lib;SDL2_x64r.lib;winmm.lib;imm32.lib;version.lib;dbghelp.lib;setupapi.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>VulkanGame_x64r.lib;vulkan-1.lib;SDL2_x64r.lib;winmm.lib;imm32.lib;version.lib;dbghelp.lib;setupapi.lib;iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\VulkanGame\src\ext\lodepng.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="SandboxHeader.cpp" />
-    <ClCompile Include="SDLVulkan.cpp" />
-    <ClCompile Include="Vulkan.cpp" />
-    <ClCompile Include="VulkanClasses.cpp" />
-    <ClCompile Include="VulkanDebug.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\VulkanGame\src\ext\lodepng.h" />
-    <ClInclude Include="SandboxHeader.h" />
-    <ClInclude Include="SDLVulkan.h" />
-    <ClInclude Include="Vulkan.h" />
-    <ClInclude Include="VulkanClasses.h" />
-    <ClInclude Include="VulkanDebug.h" />
-    <ClInclude Include="VulkanHeader.h" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include=".gitignore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\base\GameClasses.h" />
+    <ClInclude Include="src\base\SandboxHeader.h" />
+    <ClInclude Include="src\base\SDLVulkan.h" />
+    <ClInclude Include="src\base\Vulkan.h" />
+    <ClInclude Include="src\base\VulkanClasses.h" />
+    <ClInclude Include="src\base\VulkanDebug.h" />
+    <ClInclude Include="src\base\VulkanHeader.h" />
+    <ClInclude Include="src\ext\spirv-reflect\include\spirv\unified1\spirv.h" />
+    <ClInclude Include="src\ext\spirv-reflect\spirv_reflect.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\VulkanGame\src\ext\lodepng.cpp" />
+    <ClCompile Include="src\base\GameClasses.cpp" />
+    <ClCompile Include="src\base\main.cpp" />
+    <ClCompile Include="src\base\SandboxHeader.cpp" />
+    <ClCompile Include="src\base\SDLVulkan.cpp" />
+    <ClCompile Include="src\base\Vulkan.cpp" />
+    <ClCompile Include="src\base\VulkanClasses.cpp" />
+    <ClCompile Include="src\base\VulkanDebug.cpp" />
+    <ClCompile Include="src\ext\spirv-reflect\spirv_reflect.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\..\Users\scriplez\Desktop\new_cs.txt" />
+    <Text Include="..\..\Users\scriplez\Desktop\old_cs.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -24,6 +24,7 @@ public:
   static string_t VkColorSpaceKHR_toString(VkColorSpaceKHR sp);
   static string_t VkFormat_toString(VkFormat fmt);
   static string_t VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r);
+  static string_t VkRenderPassBeginInfo_toString();
 };
 
 }  // namespace VG

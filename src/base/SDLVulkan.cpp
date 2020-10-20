@@ -37,31 +37,14 @@ public:
   //**TODO:Pipeline
   //**TODO:Pipeline
 
-  //**TODO:Swapchain
-  //**TODO:Swapchain
-  //Asynchronous computing depends on the swapchain count.
-  //_iConcurrentFrames should be set to the swapchain count as vkAcquireNExtImageKHR gets the next usable image.
-  //You can't have more than #swapchain images rendering at a time.
-  // size_t _currentFrame = 0;
-  //std::vector<VkFence> _inFlightFences;
-  //std::vector<VkFence> _imagesInFlight;
-  // std::vector<VkSemaphore> _imageAvailableSemaphores;
-  // std::vector<VkSemaphore> _renderFinishedSemaphores;
+
   std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;   //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers1;  //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers2;  //One per swapchain image since theres multiple frames in flight.
   int32_t _numInstances = 3;
-  // VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-  // VkExtent2D _swapChainExtent;
-  // VkFormat _swapChainImageFormat;
-  // std::vector<VkImage> _swapChainImages;
-  ///std::vector<VkImageView> _swapChainImageViews;
+
   std::vector<VkFramebuffer> _swapChainFramebuffers;
   std::vector<VkCommandBuffer> _commandBuffers;
-  //bool _bSwapChainOutOfDate = false;
-
-  //**TODO:Swapchain
-  //**TODO:Swapchain
 
 #pragma endregion
 
@@ -240,11 +223,8 @@ public:
     //Technically we need multiple pipelines
     createGraphicsPipeline(_game->_mesh1, _pShader, VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     //_pShader->createGraphicsPipeline()
-    createFramebuffers();
+
     //createCommandBuffers();
-    for (auto frame : _pSwapchain->frames()) {
-      recordCommandBuffer(frame);
-    }
 
     //_bSwapChainOutOfDate = false;
   }
@@ -350,200 +330,49 @@ public:
     // ub.proj._m22 *= -1;
   }
   void createGraphicsPipeline(std::shared_ptr<Mesh> mesh, std::shared_ptr<PipelineShader> shader, VkPrimitiveTopology topo) {
-    //This is essentially what in GL was the shader program.
-    BRLogInfo("Creating Graphics Pipeline.");
-
-    auto descriptorLayout = shader->getVkDescriptorSetLayout();
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  // VkStructureType
-      //These are the buffer descriptors - UBO - SSBO -
-      .setLayoutCount = 1,               // uint32_t
-      .pSetLayouts = &descriptorLayout,  // VkDescriptorSetLayout
-      //Constants to pass to shaders.
-      .pushConstantRangeCount = 0,    // uint32_t
-      .pPushConstantRanges = nullptr  // VkPushConstantRange
-    };
-
-    CheckVKR(vkCreatePipelineLayout, vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
-
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
-
-    //TODO:
-    //TODO:
-    std::shared_ptr<BR2::VertexFormat> fmt = nullptr;
-
-    auto vertexInputInfo = shader->getVertexInputInfo(fmt);
-    auto inputAssembly = shader->getInputAssembly(topo);
-
-    //Create render pass for pipeline
-    createRenderPass();
-
-    VkPipelineViewportStateCreateInfo viewportState = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                //const void*
-      .flags = 0,                                                      //VkPipelineViewportStateCreateFlags
-      .viewportCount = 0,                                              //uint32_t
-      .pViewports = nullptr,                                           //const VkViewport*
-      .scissorCount = 0,                                               //uint32_t
-      .pScissors = nullptr,                                            //const VkRect2D*
-    };
-    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
-      .blendEnable = VK_TRUE,                                                                                                       //VkBool32
-      .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,                                                                             //VkBlendFactor
-      .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,                                                                   //VkBlendFactor
-      .colorBlendOp = VK_BLEND_OP_ADD,                                                                                              //VkBlendOp
-      .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,                                                                                   //VkBlendFactor
-      .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,                                                                                  //VkBlendFactor
-      .alphaBlendOp = VK_BLEND_OP_ADD,                                                                                              //VkBlendOp
-      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,  //VkColorComponentFlags
-    };
-    VkPipelineColorBlendStateCreateInfo colorBlending = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-      .logicOpEnable = VK_FALSE,
-      .attachmentCount = 1,
-      .pAttachments = &colorBlendAttachment,
-    };
-    VkPipelineRasterizationStateCreateInfo rasterizer = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                     //const void*
-      .flags = 0,                                                           //VkPipelineRasterizationStateCreateFlags
-      .depthClampEnable = VK_FALSE,                                         //VkBool32
-      .rasterizerDiscardEnable = VK_FALSE,                                  //VkBool32
-      .polygonMode = VK_POLYGON_MODE_FILL,                                  //VkPolygonMode
-      .cullMode = VK_CULL_MODE_BACK_BIT,                                    //VkCullModeFlags
-      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                 //VkFrontFace
-      .depthBiasEnable = VK_FALSE,                                          //VkBool32
-      .depthBiasConstantFactor = 0,                                         //float
-      .depthBiasClamp = 0,                                                  //float
-      .depthBiasSlopeFactor = 0,                                            //float
-      .lineWidth = 1,                                                       //float
-    };
-    std::vector<VkDynamicState> dynamicStates = {
-      VK_DYNAMIC_STATE_VIEWPORT,
-      VK_DYNAMIC_STATE_SCISSOR,
-    };
-    VkPipelineDynamicStateCreateInfo dynamicState = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,     //VkStructureType
-      .pNext = nullptr,                                                  //const void*
-      .flags = 0,                                                        //VkPipelineDynamicStateCreateFlags
-      .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),  //uint32_t
-      .pDynamicStates = dynamicStates.data(),                            //const VkDynamicState*
-    };
-
-    //*Multisampling
-    VkPipelineMultisampleStateCreateInfo multisampling = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                                   //const void*
-      .flags = 0,                                                         //VkPipelineMultisampleStateCreateFlags
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      //VkSampleCountFlagBits ** Change for MSAA
-
-      //**Note:
-      //I think this is only available if multisampling is enabled.
-      //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
-      .sampleShadingEnable = (VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),  //VkBool32
-      .minSampleShading = 1.0f,                                                      //float
-      .pSampleMask = nullptr,                                                        //const VkSampleMask*
-      .alphaToCoverageEnable = false,                                                //VkBool32
-      .alphaToOneEnable = false,                                                     //VkBool32
-    };
-    VkGraphicsPipelineCreateInfo pipelineInfo = {
-      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                          //const void*
-      .flags = 0,                                                //VkPipelineCreateFlags
-      .stageCount = 2,                                           //uint32_t
-      .pStages = shaderStages.data(),                            //const VkPipelineShaderStageCreateInfo*
-      .pVertexInputState = &vertexInputInfo,                     //const VkPipelineVertexInputStateCreateInfo*
-      .pInputAssemblyState = &inputAssembly,                     //const VkPipelineInputAssemblyStateCreateInfo*
-      .pTessellationState = nullptr,                             //const VkPipelineTessellationStateCreateInfo*
-      .pViewportState = &viewportState,                          //const VkPipelineViewportStateCreateInfo*
-      .pRasterizationState = &rasterizer,                        //const VkPipelineRasterizationStateCreateInfo*
-      .pMultisampleState = &multisampling,                       //const VkPipelineMultisampleStateCreateInfo*
-      .pDepthStencilState = nullptr,                             //const VkPipelineDepthStencilStateCreateInfo*
-      .pColorBlendState = &colorBlending,                        //const VkPipelineColorBlendStateCreateInfo*
-      .pDynamicState = &dynamicState,                            //const VkPipelineDynamicStateCreateInfo*
-      .layout = _pipelineLayout,                                 //VkPipelineLayout
-      .renderPass = _renderPass,                                 //VkRenderPass
-      .subpass = 0,                                              //uint32_t
-      .basePipelineHandle = VK_NULL_HANDLE,                      //VkPipeline
-      .basePipelineIndex = -1,                                   //int32_t
-    };
-
-    // BRLogInfo(VulkanDebug::get_VkGraphicsPipelineCreateInfo());
-
-    CheckVKR(vkCreateGraphicsPipelines, vulkan()->device(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline);
-  }
-  void createRenderPass() {
-    BRLogInfo("Creating Render Pass.");
-
-    //This is essentially a set of data that we supply to VkCmdRenderPass
-    //VkCmdRenderPass -> RenderPassInfo.colorAttachment -> framebuffer index.
-    // VkAttachmentDescription depthAttachment = {
-    //   .flags = 0,                                                       //VkAttachmentDescriptionFlags
-    //   .format = findDepthFormat(),                                      //VkFormat
-    //   .samples = VK_SAMPLE_COUNT_1_BIT,                                 //VkSampleCountFlagBits
-    //   .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,                            //VkAttachmentLoadOp
-    //   .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,                      //VkAttachmentStoreOp
-    //   .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,                 //VkAttachmentLoadOp
-    //   .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,               //VkAttachmentStoreOp
-    //   .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,                       //VkImageLayout - discard initial data.
-    //   .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,  //VkImageLayout
-    // };
-    // VkAttachmentReference depthAttachmentRef = {
-    //   .attachment = 1,
-    //   .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    // };
-
+    //Render Pass
     VkAttachmentDescription colorAttachment = {
-      .flags = 0,                                          //VkAttachmentDescriptionFlags
-      .format = _pSwapchain->imageFormat(),                //VkFormat
-      .samples = VK_SAMPLE_COUNT_1_BIT,                    //VkSampleCountFlagBits
-      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,               //VkAttachmentLoadOp
-      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,             //VkAttachmentStoreOp
-      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,    //VkAttachmentLoadOp
-      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,  //VkAttachmentStoreOp
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,          //VkImageLayout - discard initial data.
-      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,      //VkImageLayout
+      .flags = 0,
+      .format = _pSwapchain->imageFormat(),
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     };
-
-    //Framebuffer attachments.
     VkAttachmentReference colorAttachmentRef = {
       .attachment = 0,
       .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     };
-
-    //Subpass.
     VkSubpassDescription subpass = {
-      .flags = 0,                                                  //VkSubpassDescriptionFlags
-      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,        //VkPipelineBindPoint
-      .inputAttachmentCount = 0,                                   //uint32_t
-      .pInputAttachments = nullptr,                                //const VkAttachmentReference*
-      .colorAttachmentCount = 1,                                   //uint32_t
-      .pColorAttachments = &colorAttachmentRef,                    //const VkAttachmentReference*
-      .pResolveAttachments = nullptr,                              //const VkAttachmentReference* - For MSAA downsampling to final buffer.
-      .pDepthStencilAttachment = nullptr /*&depthAttachmentRef*/,  //const VkAttachmentReference*
-      .preserveAttachmentCount = 0,                                //uint32_t
-      .pPreserveAttachments = nullptr,                             //const uint32_t*
+      .flags = 0,
+      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+      .inputAttachmentCount = 0,
+      .pInputAttachments = nullptr,
+      .colorAttachmentCount = 1,
+      .pColorAttachments = &colorAttachmentRef,
+      .pResolveAttachments = nullptr,
+      .pDepthStencilAttachment = nullptr,
+      .preserveAttachmentCount = 0,
+      .pPreserveAttachments = nullptr,
     };
-
     VkRenderPassCreateInfo renderPassInfo = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                    //const void*
-      .flags = 0,                                          //VkRenderPassCreateFlags
-      .attachmentCount = 1,                                //uint32_t
-      .pAttachments = &colorAttachment,                    //const VkAttachmentDescription*
-      .subpassCount = 1,                                   //uint32_t
-      .pSubpasses = &subpass,                              //const VkSubpassDescription*
-      .dependencyCount = 0,                                //uint32_t
-      .pDependencies = nullptr,                            //const VkSubpassDependency*
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .attachmentCount = 1,
+      .pAttachments = &colorAttachment,
+      .subpassCount = 1,
+      .pSubpasses = &subpass,
+      .dependencyCount = 0,
+      .pDependencies = nullptr,
     };
     CheckVKR(vkCreateRenderPass, vulkan()->device(), &renderPassInfo, nullptr, &_renderPass);
-  }
 
-  void createFramebuffers() {
-    BRLogInfo("Creating Framebuffers.");
-
+    //Framebuffers
     _swapChainFramebuffers.resize(_pSwapchain->frames().size());
-
     for (size_t i = 0; i < _pSwapchain->frames().size(); i++) {
       VkImageView attachments[] = { _pSwapchain->frames()[i]->getVkImageView() };
 
@@ -561,7 +390,120 @@ public:
 
       CheckVKR(vkCreateFramebuffer, vulkan()->device(), &framebufferInfo, nullptr, &_swapChainFramebuffers[i]);
     }
+
+    //Pipeline Layout
+    auto descriptorLayout = shader->getVkDescriptorSetLayout();
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  
+      //These are the buffer descriptors 
+      .setLayoutCount = 1,               
+      .pSetLayouts = &descriptorLayout,  
+      //Constants to pass to shaders.
+      .pushConstantRangeCount = 0,    
+      .pPushConstantRanges = nullptr  
+    };
+    CheckVKR(vkCreatePipelineLayout, vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
+
+    //Shader Stages
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
+
+    //Vertex Descriptor
+    std::shared_ptr<BR2::VertexFormat> fmt = nullptr;
+    auto vertexInputInfo = shader->getVertexInputInfo(fmt);
+    auto inputAssembly = shader->getInputAssembly(topo);
+
+    //Pipeline
+    VkPipelineViewportStateCreateInfo viewportState = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, 
+      .pNext = nullptr,                                               
+      .flags = 0,                                                     
+      .viewportCount = 0,                                             
+      .pViewports = nullptr,                                          
+      .scissorCount = 0,                                              
+      .pScissors = nullptr,                                           
+    };
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
+      .blendEnable = VK_TRUE,                                                                                                     
+      .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,                                                                           
+      .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,                                                                 
+      .colorBlendOp = VK_BLEND_OP_ADD,                                                                                            
+      .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,                                                                                 
+      .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,                                                                                
+      .alphaBlendOp = VK_BLEND_OP_ADD,                                                                                            
+      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    };
+    VkPipelineColorBlendStateCreateInfo colorBlending = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .logicOpEnable = VK_FALSE,
+      .attachmentCount = 1,
+      .pAttachments = &colorBlendAttachment,
+    };
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, 
+      .pNext = nullptr,                                                    
+      .flags = 0,                                                          
+      .depthClampEnable = VK_FALSE,                                        
+      .rasterizerDiscardEnable = VK_FALSE,                                 
+      .polygonMode = VK_POLYGON_MODE_FILL,                                 
+      .cullMode = VK_CULL_MODE_BACK_BIT,                                   
+      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                
+      .depthBiasEnable = VK_FALSE,                                         
+      .depthBiasConstantFactor = 0,                                        
+      .depthBiasClamp = 0,                                                 
+      .depthBiasSlopeFactor = 0,                                           
+      .lineWidth = 1,                                                      
+    };
+    std::vector<VkDynamicState> dynamicStates = {
+      VK_DYNAMIC_STATE_VIEWPORT,
+      VK_DYNAMIC_STATE_SCISSOR,
+    };
+    VkPipelineDynamicStateCreateInfo dynamicState = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,     
+      .pNext = nullptr,                                                  
+      .flags = 0,                                                        
+      .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),  
+      .pDynamicStates = dynamicStates.data(),                            
+    };
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  
+      .pNext = nullptr,                                                   
+      .flags = 0,                                                         
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      
+
+      //**Note:
+      //I think this is only available if multisampling is enabled.
+      //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
+      .sampleShadingEnable = (VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),  
+      .minSampleShading = 1.0f,                                                      
+      .pSampleMask = nullptr,                                                        
+      .alphaToCoverageEnable = false,                                                
+      .alphaToOneEnable = false,                                                     
+    };
+    VkGraphicsPipelineCreateInfo pipelineInfo = {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, 
+      .pNext = nullptr,                                         
+      .flags = 0,                                               
+      .stageCount = 2,                                          
+      .pStages = shaderStages.data(),                           
+      .pVertexInputState = &vertexInputInfo,                    
+      .pInputAssemblyState = &inputAssembly,                    
+      .pTessellationState = nullptr,                            
+      .pViewportState = &viewportState,                         
+      .pRasterizationState = &rasterizer,                       
+      .pMultisampleState = &multisampling,                      
+      .pDepthStencilState = nullptr,                            
+      .pColorBlendState = &colorBlending,                       
+      .pDynamicState = &dynamicState,                           
+      .layout = _pipelineLayout,                                
+      .renderPass = _renderPass,                                
+      .subpass = 0,                                             
+      .basePipelineHandle = VK_NULL_HANDLE,                     
+      .basePipelineIndex = -1,                                  
+    };
+
+    CheckVKR(vkCreateGraphicsPipelines, vulkan()->device(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline);
   }
+
 #pragma endregion
 
 #pragma region Vulkan Rendering
@@ -580,11 +522,8 @@ public:
         updateInstanceUniformBuffer(_instanceUniformBuffers2[frameIndex], offsets2, rots_delta2, rots_ini2, dt);
 
         // * Draw
-        //   if (0)
-        {
-        }
-
-      }  //frame!=nullptr
+        recordCommandBuffer(frame);
+      }
     }
     _pSwapchain->endFrame();
     g_iFrameNumber++;
@@ -593,7 +532,7 @@ public:
     uint32_t frameIndex = frame->frameIndex();
     //Dummy pass-in data
     ShaderData dat = {
-      ._clearColor = { 0, 0, 0, 1 },
+      ._clearColor = { 0.31, 0.51, 0.86, 1 },
       ._framebuffer = this->_swapChainFramebuffers[frameIndex],
       ._renderPass = this->_renderPass,
       ._pipeline = this->_graphicsPipeline,
@@ -784,9 +723,9 @@ void SDLVulkan::renderLoop() {
     if (_pInt->_pSwapchain->isOutOfDate()) {
       _pInt->recreateSwapChain();
     }
+    
     //TODO: replace this when we relocate the whole pipeline.
     //_pInt->_pSwapchain->updateSwapchain(_pInt->getWindowDims());
-
     _pInt->_pSwapchain->beginFrame();
     _pInt->_pSwapchain->endFrame();
 

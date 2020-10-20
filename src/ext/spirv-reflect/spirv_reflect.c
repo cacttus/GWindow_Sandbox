@@ -19,7 +19,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#if defined(WIN32)
+#if defined(_WIN32)
   #define _CRTDBG_MAP_ALLOC
   #include <stdlib.h>
   #include <crtdbg.h>
@@ -1971,7 +1971,7 @@ static SpvReflectResult ParseUAVCounterBindings(SpvReflectShaderModule* p_module
 
       memset(name, 0, MAX_NODE_NAME_LENGTH);    
       memcpy(name, p_descriptor->name, descriptor_name_length);
-#if defined(WIN32)
+#if defined(_WIN32)
       strcat_s(name, MAX_NODE_NAME_LENGTH, k_count_tag);
 #else
       strcat(name, k_count_tag);

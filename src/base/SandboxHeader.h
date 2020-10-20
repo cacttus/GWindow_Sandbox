@@ -112,10 +112,10 @@ public:
   static bool isNotEmpty(const string_t& st) {
     return st != "";
   }
-    static bool equals(const string_t& a, const string_t& b) {
+  static bool equals(const string_t& a, const string_t& b) {
     return !(a.compare(b));
   }
-  static string_t trim(const string_t& rhs){
+  static string_t trim(const string_t& rhs) {
     return rhs;
   }
 };
