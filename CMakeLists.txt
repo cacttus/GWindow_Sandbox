@@ -129,7 +129,7 @@ target_link_directories(${PROJECT_NAME} PRIVATE ${VG_LIB_DIR})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${VULKAN_LIBRARIES} ${OPENGL_LIBRARIES} 
 ${SDL2_LIBRARIES} ${SDLNET_LIBRARIES} ${VG_ADDL_LIBS} ${X11_LIBRARIES} ${LUA_LIBRARIES}
 
-${CMAKE_CURRENT_SOURCE_DIR}/../VulkanGame/lib/libVulkanGame-0.4.1_x86d.a
+#${CMAKE_CURRENT_SOURCE_DIR}/../VulkanGame/lib/libVulkanGame-0.4.1_x86d.a
 )
 
  

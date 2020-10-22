@@ -14,6 +14,7 @@
 #include "../../../VulkanGame/src/math/MathAll.h"
 #include "../../../VulkanGame/src/ext/lodepng.h"
 #include "../../../VulkanGame/src/model/VertexFormat.h"
+#include "../../../VulkanGame/src/base/StringUtil.h"
 
 #include "../ext/spirv-reflect/spirv_reflect.h"
 
@@ -49,6 +50,7 @@
 #include <filesystem>
 #include <array>
 #include <random>
+#include <unordered_set>
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
@@ -89,18 +91,38 @@ typedef std::string string_t;
 #ifdef BRThrowException
 #undef BRThrowException
 #endif
+#ifdef BRLogInfo
+#undef BRLogInfo
+#endif
+#ifdef BRLogError
+#undef BRLogError
+#endif
+#ifdef BRLogErrorOnce
+#undef BRLogErrorOnce
+#endif
+#ifdef BRLogWarn
+#undef BRLogWarn
+#endif
+#ifdef BRLogWarnOnce
+#undef BRLogWarnOnce
+#endif
+#ifdef BRLogDebug
+#undef BRLogDebug
+#endif
+#ifdef AssertOrThrow2
+#undef AssertOrThrow2
+#endif
+
 #define BRThrowException(x) throw std::string(x);
 static void log_log(const std::string& str) {
   std::cout << str << std::endl;
 }
 #define BRLogInfo(xx) VG::log_log(Stz xx)
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
+#define BRLogErrorOnce(xx) BRLogError(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogWarnOnce(xx) BRLogWarn(xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
-#ifdef AssertOrThrow2
-#undef AssertOrThrow2
-#endif
 #define AssertOrThrow2(x)         \
   do {                            \
     VG::assertOrThrow((bool)(x)); \
@@ -117,6 +139,9 @@ public:
   }
   static string_t trim(const string_t& rhs) {
     return rhs;
+  }
+  static bool startsWith(const string_t& s, const string_t& a) {
+    return s.rfind(a, 0) == 0;
   }
 };
 

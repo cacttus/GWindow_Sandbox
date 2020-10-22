@@ -28,23 +28,10 @@ public:
   std::shared_ptr<GameDummy> _game = nullptr;
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
-  //**TODO:Pipeline
-  //**TODO:Pipeline
-  VkRenderPass _renderPass = VK_NULL_HANDLE;
-  VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
-  VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
-
-  //**TODO:Pipeline
-  //**TODO:Pipeline
-
-
   std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;   //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers1;  //One per swapchain image since theres multiple frames in flight.
   std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers2;  //One per swapchain image since theres multiple frames in flight.
   int32_t _numInstances = 3;
-
-  std::vector<VkFramebuffer> _swapChainFramebuffers;
-  std::vector<VkCommandBuffer> _commandBuffers;
 
 #pragma endregion
 
@@ -132,6 +119,9 @@ public:
     sdl_PrintVideoDiagnostics();
 
     _vulkan = std::make_shared<Vulkan>(title, _pSDLWindow);
+    _pSwapchain = std::make_shared<Swapchain>(_vulkan);
+    vulkan()->setSwapchain(_pSwapchain);
+    _pSwapchain->initSwapchain(getWindowDims().size);
 
     _game = std::make_shared<GameDummy>();
     _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
@@ -145,14 +135,13 @@ public:
                                                 std::vector{
                                                   App::rootFile("test_vs.spv"),
                                                   App::rootFile("test_fs.spv") });
-
-    _pSwapchain = std::make_shared<Swapchain>(_vulkan);
-
-    recreateSwapChain();
+    _pSwapchain->registerShader(_pShader);
+    allocateShaderMemory();
 
     BRLogInfo("Showing window..");
     SDL_ShowWindow(_pSDLWindow);
   }
+  //std::shared_ptr<Pipeline> _pipe = nullptr;
   void sdl_PrintVideoDiagnostics() {
     // Init Video
     // SDL_Init(SDL_INIT_VIDEO);
@@ -190,7 +179,7 @@ public:
       }
     }
   }
-  BR2::uext2 getWindowDims() {
+  BR2::urect2 getWindowDims() {
     int win_w = 0, win_h = 0;
     int pos_x = 0, pos_y = 0;
     SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
@@ -201,32 +190,6 @@ public:
       static_cast<uint32_t>(win_w),
       static_cast<uint32_t>(win_h)
     };
-  }
-  void recreateSwapChain() {
-    vkDeviceWaitIdle(vulkan()->device());
-
-    cleanupSwapRenderPipe();
-    //vkDeviceWaitIdle(vulkan()->device());
-
-    //createSwapChain();  // *  - recreate
-
-    _pSwapchain->initSwapchain(getWindowDims());
-
-    static bool s_bInitialized = false;
-    if (s_bInitialized == false) {
-      s_bInitialized = true;
-      allocateShaderMemory();
-      // createSyncObjects();
-    }
-
-    // createSwapchainImageViews();
-    //Technically we need multiple pipelines
-    createGraphicsPipeline(_game->_mesh1, _pShader, VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    //_pShader->createGraphicsPipeline()
-
-    //createCommandBuffers();
-
-    //_bSwapChainOutOfDate = false;
   }
   void createUniformBuffers() {
     for (size_t i = 0; i < _pSwapchain->frames().size(); ++i) {
@@ -329,180 +292,6 @@ public:
     instanceBuffer->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
     // ub.proj._m22 *= -1;
   }
-  void createGraphicsPipeline(std::shared_ptr<Mesh> mesh, std::shared_ptr<PipelineShader> shader, VkPrimitiveTopology topo) {
-    //Render Pass
-    VkAttachmentDescription colorAttachment = {
-      .flags = 0,
-      .format = _pSwapchain->imageFormat(),
-      .samples = VK_SAMPLE_COUNT_1_BIT,
-      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-    };
-    VkAttachmentReference colorAttachmentRef = {
-      .attachment = 0,
-      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    VkSubpassDescription subpass = {
-      .flags = 0,
-      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-      .inputAttachmentCount = 0,
-      .pInputAttachments = nullptr,
-      .colorAttachmentCount = 1,
-      .pColorAttachments = &colorAttachmentRef,
-      .pResolveAttachments = nullptr,
-      .pDepthStencilAttachment = nullptr,
-      .preserveAttachmentCount = 0,
-      .pPreserveAttachments = nullptr,
-    };
-    VkRenderPassCreateInfo renderPassInfo = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-      .attachmentCount = 1,
-      .pAttachments = &colorAttachment,
-      .subpassCount = 1,
-      .pSubpasses = &subpass,
-      .dependencyCount = 0,
-      .pDependencies = nullptr,
-    };
-    CheckVKR(vkCreateRenderPass, vulkan()->device(), &renderPassInfo, nullptr, &_renderPass);
-
-    //Framebuffers
-    _swapChainFramebuffers.resize(_pSwapchain->frames().size());
-    for (size_t i = 0; i < _pSwapchain->frames().size(); i++) {
-      VkImageView attachments[] = { _pSwapchain->frames()[i]->getVkImageView() };
-
-      VkFramebufferCreateInfo framebufferInfo = {
-        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,  //VkStructureType
-        .pNext = nullptr,                                    //const void*
-        .flags = 0,                                          //VkFramebufferCreateFlags
-        .renderPass = _renderPass,                           //VkRenderPass
-        .attachmentCount = 1,                                //uint32_t
-        .pAttachments = attachments,                         //const VkImageView*
-        .width = _pSwapchain->imageSize().width,             //uint32_t
-        .height = _pSwapchain->imageSize().height,           //uint32_t
-        .layers = 1,                                         //uint32_t
-      };
-
-      CheckVKR(vkCreateFramebuffer, vulkan()->device(), &framebufferInfo, nullptr, &_swapChainFramebuffers[i]);
-    }
-
-    //Pipeline Layout
-    auto descriptorLayout = shader->getVkDescriptorSetLayout();
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,  
-      //These are the buffer descriptors 
-      .setLayoutCount = 1,               
-      .pSetLayouts = &descriptorLayout,  
-      //Constants to pass to shaders.
-      .pushConstantRangeCount = 0,    
-      .pPushConstantRanges = nullptr  
-    };
-    CheckVKR(vkCreatePipelineLayout, vulkan()->device(), &pipelineLayoutInfo, nullptr, &_pipelineLayout);
-
-    //Shader Stages
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = _pShader->getShaderStageCreateInfos();
-
-    //Vertex Descriptor
-    std::shared_ptr<BR2::VertexFormat> fmt = nullptr;
-    auto vertexInputInfo = shader->getVertexInputInfo(fmt);
-    auto inputAssembly = shader->getInputAssembly(topo);
-
-    //Pipeline
-    VkPipelineViewportStateCreateInfo viewportState = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, 
-      .pNext = nullptr,                                               
-      .flags = 0,                                                     
-      .viewportCount = 0,                                             
-      .pViewports = nullptr,                                          
-      .scissorCount = 0,                                              
-      .pScissors = nullptr,                                           
-    };
-    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
-      .blendEnable = VK_TRUE,                                                                                                     
-      .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,                                                                           
-      .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,                                                                 
-      .colorBlendOp = VK_BLEND_OP_ADD,                                                                                            
-      .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,                                                                                 
-      .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,                                                                                
-      .alphaBlendOp = VK_BLEND_OP_ADD,                                                                                            
-      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-    };
-    VkPipelineColorBlendStateCreateInfo colorBlending = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-      .logicOpEnable = VK_FALSE,
-      .attachmentCount = 1,
-      .pAttachments = &colorBlendAttachment,
-    };
-    VkPipelineRasterizationStateCreateInfo rasterizer = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, 
-      .pNext = nullptr,                                                    
-      .flags = 0,                                                          
-      .depthClampEnable = VK_FALSE,                                        
-      .rasterizerDiscardEnable = VK_FALSE,                                 
-      .polygonMode = VK_POLYGON_MODE_FILL,                                 
-      .cullMode = VK_CULL_MODE_BACK_BIT,                                   
-      .frontFace = VK_FRONT_FACE_CLOCKWISE,                                
-      .depthBiasEnable = VK_FALSE,                                         
-      .depthBiasConstantFactor = 0,                                        
-      .depthBiasClamp = 0,                                                 
-      .depthBiasSlopeFactor = 0,                                           
-      .lineWidth = 1,                                                      
-    };
-    std::vector<VkDynamicState> dynamicStates = {
-      VK_DYNAMIC_STATE_VIEWPORT,
-      VK_DYNAMIC_STATE_SCISSOR,
-    };
-    VkPipelineDynamicStateCreateInfo dynamicState = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,     
-      .pNext = nullptr,                                                  
-      .flags = 0,                                                        
-      .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),  
-      .pDynamicStates = dynamicStates.data(),                            
-    };
-    VkPipelineMultisampleStateCreateInfo multisampling = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,  
-      .pNext = nullptr,                                                   
-      .flags = 0,                                                         
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,                      
-
-      //**Note:
-      //I think this is only available if multisampling is enabled.
-      //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
-      .sampleShadingEnable = (VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),  
-      .minSampleShading = 1.0f,                                                      
-      .pSampleMask = nullptr,                                                        
-      .alphaToCoverageEnable = false,                                                
-      .alphaToOneEnable = false,                                                     
-    };
-    VkGraphicsPipelineCreateInfo pipelineInfo = {
-      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, 
-      .pNext = nullptr,                                         
-      .flags = 0,                                               
-      .stageCount = 2,                                          
-      .pStages = shaderStages.data(),                           
-      .pVertexInputState = &vertexInputInfo,                    
-      .pInputAssemblyState = &inputAssembly,                    
-      .pTessellationState = nullptr,                            
-      .pViewportState = &viewportState,                         
-      .pRasterizationState = &rasterizer,                       
-      .pMultisampleState = &multisampling,                      
-      .pDepthStencilState = nullptr,                            
-      .pColorBlendState = &colorBlending,                       
-      .pDynamicState = &dynamicState,                           
-      .layout = _pipelineLayout,                                
-      .renderPass = _renderPass,                                
-      .subpass = 0,                                             
-      .basePipelineHandle = VK_NULL_HANDLE,                     
-      .basePipelineIndex = -1,                                  
-    };
-
-    CheckVKR(vkCreateGraphicsPipelines, vulkan()->device(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_graphicsPipeline);
-  }
 
 #pragma endregion
 
@@ -521,6 +310,38 @@ public:
         updateInstanceUniformBuffer(_instanceUniformBuffers1[frameIndex], offsets1, rots_delta1, rots_ini1, dt);
         updateInstanceUniformBuffer(_instanceUniformBuffers2[frameIndex], offsets2, rots_delta2, rots_ini2, dt);
 
+        //Simplfy
+        //if(!_pShader->draw({game->mesh1, game->mesh2})){
+        // std::cout<<Mesh wan't compatible with shader<<std::endl
+        //}
+        /*
+
+      //Script
+        Shader s  = Shader({base_mesh.vs, base_mesh.fs});
+        Mesh m = loadMesh("Character")
+        m.setShader(s)
+
+        auto ob = Game::createObject("MyChar");
+        ob.addComponent(m);
+
+        Camera c;
+        c.lookAt({0,0,0});
+        c.position({10,10,10});
+
+        Toolbar tb;
+        tb.addChild({
+          Button{.width=100, .text="Wave" .push=[](){ Game::getOb("Character").animate("Wave"); },
+          Button{.width=100, .text="Dance" .push=[](){ Game::getOb("Character").animate("Dance"); },
+          });
+        
+        game_loop{
+          shader->begin()
+          shader->draw(mesh)
+          shader->end()
+        }
+
+        */
+
         // * Draw
         recordCommandBuffer(frame);
       }
@@ -530,38 +351,36 @@ public:
   }
   void recordCommandBuffer(std::shared_ptr<RenderFrame> frame) {
     uint32_t frameIndex = frame->frameIndex();
-    //Dummy pass-in data
-    ShaderData dat = {
-      ._clearColor = { 0.31, 0.51, 0.86, 1 },
-      ._framebuffer = this->_swapChainFramebuffers[frameIndex],
-      ._renderPass = this->_renderPass,
-      ._pipeline = this->_graphicsPipeline,
-    };
 
     auto cmd = frame->commandBuffer();
-    cmd->beginPass(dat);
+    cmd->begin();
     {
-      cmd->cmdSetViewport(_pSwapchain->imageSize());
-      vkCmdBindPipeline(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicsPipeline);
+      if (cmd->beginPass(_pShader, frame)) {
+        //I'm not sure if you have to bind pipeline first, but if you dont we can move this back into shader::bind.
+        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
+        pipe->bind(cmd);
 
-      //Bind Viewproj Info
-      _pShader->bindUBO("_uboViewProj", frameIndex, _viewProjUniformBuffers[frameIndex]);
+        cmd->cmdSetViewport({ {0,0}, _pSwapchain->imageSize() });
 
-      //Mesh 1
-      _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
-      _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers1[frameIndex]);
-      _game->_mesh1->bindBuffers(cmd);
-      _pShader->bindDescriptorSets(cmd, frameIndex, _pipelineLayout);
-      _game->_mesh1->drawIndexed(cmd, _numInstances);
+        //** TODO:
+        //_pShader->bindUniforms({"_uboViewProj", "_uboInstanceData"});
 
-      //Mesh 2
-      _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
-      _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers2[frameIndex]);
-      _game->_mesh2->bindBuffers(cmd);
-      _pShader->bindDescriptorSets(cmd, frameIndex, _pipelineLayout);
-      _game->_mesh2->drawIndexed(cmd, _numInstances);
+        //Mesh 1
+        _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
+        _pShader->bindUBO("_uboViewProj", frameIndex, _viewProjUniformBuffers[frameIndex]);
+        _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers1[frameIndex]);
+        _pShader->bindDescriptors(cmd, pipe, frameIndex);
+        pipe->drawIndexed(cmd, _game->_mesh1, _numInstances);
+
+        _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
+        _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers2[frameIndex]);
+        _pShader->bindDescriptors(cmd, pipe, frameIndex);
+        pipe->drawIndexed(cmd, _game->_mesh2, _numInstances);
+
+        cmd->endPass();
+      }
     }
-    cmd->endPass();
+    cmd->end();
   }
   std::shared_ptr<Img32> loadImage(const string_t& img) {
     unsigned char* data = nullptr;  //the raw pixels
@@ -606,6 +425,8 @@ public:
 #pragma endregion
 
   void allocateShaderMemory() {
+    cleanupShaderMemory();
+    
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
     createTextureImages();   // - create once - single creation
   }
@@ -618,23 +439,15 @@ public:
     _depthTexture = nullptr;
   }
   void cleanupSwapRenderPipe() {
-    if (_swapChainFramebuffers.size() > 0) {
-      for (auto& v : _swapChainFramebuffers) {
-        if (v != VK_NULL_HANDLE) {
-          vkDestroyFramebuffer(vulkan()->device(), v, nullptr);
-        }
-      }
-      _swapChainFramebuffers.clear();
-    }
-    if (_graphicsPipeline != VK_NULL_HANDLE) {
-      vkDestroyPipeline(vulkan()->device(), _graphicsPipeline, nullptr);
-    }
-    if (_pipelineLayout != VK_NULL_HANDLE) {
-      vkDestroyPipelineLayout(vulkan()->device(), _pipelineLayout, nullptr);
-    }
-    if (_renderPass != VK_NULL_HANDLE) {
-      vkDestroyRenderPass(vulkan()->device(), _renderPass, nullptr);
-    }
+    // if (_graphicsPipeline != VK_NULL_HANDLE) {
+    //   vkDestroyPipeline(vulkan()->device(), _graphicsPipeline, nullptr);
+    // }
+    // if (_pipelineLayout != VK_NULL_HANDLE) {
+    //   vkDestroyPipelineLayout(vulkan()->device(), _pipelineLayout, nullptr);
+    // }
+    // if (_renderPass != VK_NULL_HANDLE) {
+    //   vkDestroyRenderPass(vulkan()->device(), _renderPass, nullptr);
+    // }
   }
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
@@ -721,9 +534,9 @@ void SDLVulkan::renderLoop() {
     last_time = std::chrono::high_resolution_clock::now();
 
     if (_pInt->_pSwapchain->isOutOfDate()) {
-      _pInt->recreateSwapChain();
+      _pInt->_pSwapchain->initSwapchain(_pInt->getWindowDims().size);
     }
-    
+
     //TODO: replace this when we relocate the whole pipeline.
     //_pInt->_pSwapchain->updateSwapchain(_pInt->getWindowDims());
     _pInt->_pSwapchain->beginFrame();

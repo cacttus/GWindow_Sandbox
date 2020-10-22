@@ -15,7 +15,7 @@ namespace VG {
  * @brief Root class for the vulkan device api.
  */
 class Vulkan_Internal;
-class Vulkan {
+class Vulkan : std::enable_shared_from_this<Vulkan> {
 public:
   Vulkan(const string_t& title, SDL_Window* win);
   virtual ~Vulkan();
@@ -47,6 +47,9 @@ public:
 
   VkPhysicalDeviceProperties deviceProperties();
   VkPhysicalDeviceFeatures deviceFeatures();
+
+  void setSwapchain(std::shared_ptr<Swapchain> s);
+  std::shared_ptr<Swapchain> swapchain();
 
 private:
   std::unique_ptr<Vulkan_Internal> _pInt;

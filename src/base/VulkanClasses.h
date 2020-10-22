@@ -118,8 +118,8 @@ public:
   void end();
   void blitImage(VkImage srcImg,
                  VkImage dstImg,
-                 const BR2::iext2& srcRegion,
-                 const BR2::iext2& dstRegion,
+                 const BR2::irect2& srcRegion,
+                 const BR2::irect2& dstRegion,
                  VkImageLayout srcLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                  VkImageLayout dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  uint32_t srcMipLevel = 0,
@@ -200,8 +200,78 @@ public:
   size_t _totalSizeBytes = 0;
   BR2::VertexUserType _userType;
 };
+enum class BlendFunc {
+  Disabled,
+  AlphaBlend
+};
+enum class FBOType {
+  Color,
+  Depth
+};
+class ShaderOutput {
+public:
+  //This is intermediary data filtering out the shader metadata.
+  uint32_t _location = 0;
+  string_t _name = "";
+  VkFormat _format;
+  BlendFunc _blending = BlendFunc::AlphaBlend;
+  FBOType _type = FBOType::Color;
+};
 /**
- * 
+ * @class FramebufferAttachment
+ * */
+class FramebufferAttachment : public VulkanObject {
+public:
+  FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
+                        const BR2::usize2& imageSize, VkImage in_img, VkFormat in_img_fmt, const BR2::vec4& clearColor, BlendFunc blending);
+  virtual ~FramebufferAttachment() override;
+
+  VkFormat imageFormat() { return _format; }
+  VkImageView getVkImageView() { return _imageView; }
+  const string_t& name() { return _name; }
+  uint32_t location() { return _location; }
+  VkFormat format() { return _format; }
+  BlendFunc blendFunc() { return _blending; }
+  FBOType type() { return _fboType; }
+  const BR2::vec4& clearColor() { return _clearColor; }  // If this is a depth FBO x = clear color depth
+  const BR2::usize2& imageSize() { return _imageSize; }
+
+private:
+  string_t _name = "";
+  uint32_t _location = 0;
+  VkFormat _format = VK_FORMAT_UNDEFINED;
+  BR2::vec4 _clearColor = BR2::vec4(0, 0, 0, 1);
+  BlendFunc _blending = BlendFunc::Disabled;
+  VkImageView _imageView = VK_NULL_HANDLE;
+  VkImage _image = VK_NULL_HANDLE;
+  FBOType _fboType = FBOType::Color;
+  BR2::usize2 _imageSize{ 0, 0 };
+};
+/**
+ * @class Framebuffer
+ * @brief Shader output. Tied to a shader.
+ * */
+class Framebuffer : public VulkanObject {
+public:
+  Framebuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<PipelineShader> s, const BR2::usize2& size);
+  virtual ~Framebuffer() override;
+
+  void addAttachment(std::shared_ptr<FramebufferAttachment> at);
+  bool createFBO();
+  VkFramebuffer getVkFramebuffer() { return _framebuffer; }
+  BR2::vec2 _imageSize = BR2::vec2(0, 0);
+  std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
+  const BR2::usize2& size() { return _size; }
+
+private:
+  VkFramebuffer _framebuffer = VK_NULL_HANDLE;
+  std::shared_ptr<PipelineShader> _pShader = nullptr;
+  std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
+  BR2::usize2 _size{ 0, 0 };
+};
+/**
+ * @class PipelineShader
+ * @brief This is pipeline + shader modules rolled into a single object.
  * */
 //class VulkanPipelineShader_Internal;
 class PipelineShader : public VulkanObject {
@@ -209,157 +279,150 @@ public:
   PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
   virtual ~PipelineShader() override;
 
+  const string_t& name() { return _name; }
+  bool valid() { return _bValid; }
+  void flagError() { _bValid = false; }  
+  const std::vector<ShaderOutput>& outputFBOs() { return _shaderOutputs; }
+  VkRenderPass renderPass() { return _renderPass; }
+
+  VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   bool bindUBO(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
   bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
-  void bindDescriptorSets(std::shared_ptr<CommandBuffer> cmdBuf, uint32_t swapchainImageIndex, VkPipelineLayout pipeline);
-
-  const string_t& name() { return _name; }
-
-  VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
   VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
-  VkPipelineInputAssemblyStateCreateInfo getInputAssembly(VkPrimitiveTopology topo = VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, BR2::urect2* extent = nullptr);
+  std::shared_ptr<Pipeline> getPipeline(VkPrimitiveTopology topo, VkPolygonMode mode);
+  void bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe, uint32_t swapchainImageIndex);
 
 private:
+  void checkGood();
   void createInputs();
+  void createOutputs();
   void createDescriptors();
   void cleanupDescriptors();
   BR2::VertexUserType parseUserType(const string_t& err);
+  std::shared_ptr<ShaderModule> getModule(VkShaderStageFlagBits stage, bool throwIfNotFound = false);
+  std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
+  void createRenderPass();
+  VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
 
   string_t _name = "*undefined*";
-  std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
-
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> _descriptorSets;
-
-  //VkPipelineVertexInputStateCreateInfo  _vkPipelineInputState
-  //VkPipelineInputAssemblyStateCreateInfo
-
+  VkRenderPass _renderPass = VK_NULL_HANDLE;
   std::vector<VkVertexInputAttributeDescription> _attribDescriptions;
   VkVertexInputBindingDescription _bindingDesc;
-
   std::vector<std::shared_ptr<ShaderModule>> _modules;
   std::unordered_map<string_t, std::shared_ptr<Descriptor>> _descriptors;
   std::vector<std::shared_ptr<VertexAttribute>> _attributes;
+  std::vector<ShaderOutput> _shaderOutputs;
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
+  std::vector<std::shared_ptr<Pipeline>> _pipelines;
+  bool _bValid = true;
 };
-
 /**
  * @class Pipeline
  * Essentially, a GL ShaderProgram with VAO state.
  * */
-// class Pipeline : public VulkanObject {
-// public:
-//   Pipeline(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFrame> sw, std::shared_ptr<Mesh> geom, std::shared_ptr<PipelineShader> shader);
-//   virtual ~Pipeline() override;
-//
-//   void getOrLoadPipeline(std::shared_ptr<RenderFrame> sw, std::shared_ptr<PipelineShader> shader, std::shared_ptr<Mesh> geom);
-//
-//   void setViewport(std::shared_ptr<Pipeline> p);
-//
-//   void cleanupPipeline();
-//   void createRenderPass(std::shared_ptr<RenderFrame> sw);
-//   void getOrLoadPipeline(std::shared_ptr<RenderFrame> sw);
-//
-//   VkRenderPass _renderPass = VK_NULL_HANDLE;
-//   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
-//   VkPipeline _graphicsPipeline = VK_NULL_HANDLE;
-// };
-/**
-
-
- /* 
- * @class FrameData
- * Shader data copied and made available to all frames
- * */
-// class FrameData : public VulkanObject {
-// public:
-//   //Shader, Vertex Format, Primitive Type
-//
-//   FrameData();
-//   virtual ~FrameData() override;
-//
-//   //VkCommandBuffer commandBuffer() { return _commandBuffer; }
-//
-//   //UBOs
-//   //FBOs
-//
-// private:
-//   VkFramebuffer _framebuffer = VK_NULL_HANDLE;  // _swapChainFramebuffers;
-// };
-
-class Pipeline {
+class Pipeline : public VulkanObject {
 public:
-};
-//Dummy
-class ShaderData {
-public:
-  //Dummy data, for now
-  BR2::vec4 _clearColor = { 0, 0, 0, 1 };
-  VkFramebuffer _framebuffer = VK_NULL_HANDLE;
-  VkRenderPass _renderPass = VK_NULL_HANDLE;
-  VkPipeline _pipeline = VK_NULL_HANDLE;  //_graphicsPipeline
+  Pipeline(std::shared_ptr<Vulkan> v,
+           std::shared_ptr<PipelineShader> shader,
+           std::shared_ptr<BR2::VertexFormat> vtxFormat,
+           VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+           VkPolygonMode mode = VK_POLYGON_MODE_FILL);
+  virtual ~Pipeline() override;
+
+  void bind(std::shared_ptr<CommandBuffer> cmd);
+  void drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances);
+
+  VkPipeline getVkPipeline() { return _pipeline; }
+  VkPipelineLayout getVkPipelineLayout() { return _pipelineLayout; }
+
+private:
+  std::shared_ptr<BR2::VertexFormat> _vertexFormat = nullptr;
+  VkPrimitiveTopology _primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  VkPolygonMode _polygonMode = VK_POLYGON_MODE_FILL;
+  VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
+  VkPipeline _pipeline = VK_NULL_HANDLE;
 };
 /**
  * @class CommandBuffer
  * */
-
 class CommandBuffer : public VulkanObject {
 public:
   CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
   virtual ~CommandBuffer() override;
 
   VkCommandBuffer getVkCommandBuffer() { return _commandBuffer; }
-  void cmdSetViewport(const BR2::uext2& size);
-  void beginPass(ShaderData& shaderData);
+  void cmdSetViewport(const BR2::urect2& size);
+  void begin();
+  void end();
+  bool beginPass(std::shared_ptr<PipelineShader> shader, std::shared_ptr<RenderFrame> frame, BR2::urect2* extent = nullptr);
   void endPass();
 
 private:
+  void validateState(bool b);
   CommandBufferState _state = CommandBufferState::Unset;
   std::shared_ptr<RenderFrame> _pRenderFrame = nullptr;
   VkCommandPool _sharedPool = VK_NULL_HANDLE;       //Do not free
   VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;  //_commandBuffers;
 };
 /**
- * @class RenderFrame
+ * @class ShaderData
+ * @brief Swapchain Frame (async) shader data.
  * */
+class ShaderData {
+public:
+  std::shared_ptr<Framebuffer> _framebuffer = nullptr;
+  std::vector<std::shared_ptr<VulkanBuffer>> _uniformBuffers;
+};
+/**
+ * @class RenderFrame
+ *  RenderPass is Shadred among FBOS and shaders
+ */
 class RenderFrame : public VulkanObject {
 public:
-  RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img);
+  RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt);
   virtual ~RenderFrame() override;
 
-  const BR2::uext2& imageSize();
+  const BR2::usize2& imageSize();
   VkFormat imageFormat();
   std::shared_ptr<Swapchain> getSwapchain() { return _pSwapchain; }
   VkImageView getVkImageView() { return _imageView; }
-  std::shared_ptr<CommandBuffer> commandBuffer() { return _pCommandBuffer; } //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
+  std::shared_ptr<CommandBuffer> commandBuffer() { return _pCommandBuffer; }     //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
   uint32_t currentRenderingImageIndex() { return _currentRenderingImageIndex; }  //TODO: remove later
-  uint32_t frameIndex() { return _frameIndex;}  //Image index in the swapchain array
+  uint32_t frameIndex() { return _frameIndex; }                                  //Image index in the swapchain array
 
   void init();
   void beginFrame();
   void endFrame();
+  void registerShader(std::shared_ptr<PipelineShader> shader);
+  void rebindShader(std::shared_ptr<PipelineShader> shader);
+  std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<PipelineShader> s);
 
 private:
+  void createSyncObjects();
+  void cleanupSyncObjects();
+
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
   std::shared_ptr<CommandBuffer> _pCommandBuffer = nullptr;
 
-  //TODO: Framedata for shaders.
-  //<VertexFormat, Shader, Primitive Type>
-  //std::vector<FrameData> _pipelines;  //Pipelines
+  uint32_t _frameIndex = 0;
 
-  uint32_t _frameIndex = 0;  
+  //* Default FBO
   VkImage _image = VK_NULL_HANDLE;
   VkImageView _imageView = VK_NULL_HANDLE;
-  VkFence _inFlightFence = VK_NULL_HANDLE;       
-  VkFence _imageInFlightFence = VK_NULL_HANDLE;  
-  VkSemaphore _imageAvailable = VK_NULL_HANDLE;  
-  VkSemaphore _renderFinished = VK_NULL_HANDLE;  
+  VkSurfaceFormatKHR _imageFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+
+  VkFence _inFlightFence = VK_NULL_HANDLE;
+  VkFence _imageInFlightFence = VK_NULL_HANDLE;
+  VkSemaphore _imageAvailable = VK_NULL_HANDLE;
+  VkSemaphore _renderFinished = VK_NULL_HANDLE;
   uint32_t _currentRenderingImageIndex = 0;
 
-  void createSyncObjects();
-  void cleanupSyncObjects();
+  std::map<std::shared_ptr<PipelineShader>, std::shared_ptr<ShaderData> > _shaderData;
 };
 /**
  * @class Swapchain
@@ -375,28 +438,30 @@ public:
   void beginFrame();  //Remove
   void endFrame();    //Remove
 
-  const BR2::uext2& imageSize();
+  const BR2::usize2& imageSize();
   VkFormat imageFormat();
   void outOfDate() { _bSwapChainOutOfDate = true; }
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
-  void initSwapchain(const BR2::uext2& window_size);
-  void updateSwapchain(const BR2::uext2& window_size);
+  void initSwapchain(const BR2::usize2& window_size);
+  void updateSwapchain(const BR2::usize2& window_size);
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
-  std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
+  const std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
+
+  void registerShader(std::shared_ptr<PipelineShader> shader);
 
 private:
-  void createSwapChain(const BR2::uext2& window_size);
+  void createSwapChain(const BR2::usize2& window_size);
   void cleanupSwapChain();
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
-
+  void rebindShaders();
+  std::unordered_set<std::shared_ptr<PipelineShader>> _registeredShaders;
   std::vector<std::shared_ptr<RenderFrame>> _frames;
   size_t _currentFrame = 0;
   std::vector<VkFence> _imagesInFlight;  //Shared handle do not delete
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
-  BR2::uext2 _swapChainExtent;
-  VkFormat _swapChainImageFormat;
+  BR2::usize2 _imageSize{ 0, 0 };
   bool _bSwapChainOutOfDate = false;
 };
 

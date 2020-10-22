@@ -1,4 +1,6 @@
 
+Problem with resize is that the RenderFrame classes are destroyed - shaders aren't saved when we rebind them. Save on Swapchain instead.
+
 # TODO
 * Note: Saved the class files for future reference (_saved)
 

@@ -58,6 +58,7 @@ public:
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
   VkPhysicalDeviceProperties _deviceProperties;
   VkPhysicalDeviceFeatures _deviceFeatures;
+  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
 #pragma endregion
 
@@ -90,10 +91,6 @@ public:
     createinfo.enabledExtensionCount = static_cast<uint32_t>(extensionNames.size());
     createinfo.ppEnabledExtensionNames = extensionNames.data();
 
-    populateDebugMessangerCreateInfo();
-    createinfo.pNext = nullptr;  //(VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
-    createinfo.flags = 0;
-
     CheckVKRV(vkCreateInstance, &createinfo, nullptr, &_instance);
 
     if (!SDL_Vulkan_CreateSurface(win, _instance, &_windowSurface)) {
@@ -103,7 +100,6 @@ public:
 
     debugPrintSupportedExtensions();
 
-    loadExtensions();
     setupDebug();
     pickPhysicalDevice();
     createLogicalDevice();
@@ -114,42 +110,34 @@ public:
   virtual ~Vulkan_Internal() {
     vkDestroyCommandPool(_device, _commandPool, nullptr);
     vkDestroyDevice(_device, nullptr);
-    if (_bEnableValidationLayers) {
+    if (debugMessenger != VK_NULL_HANDLE) {
       vkDestroyDebugUtilsMessengerEXT(_instance, debugMessenger, nullptr);
     }
     vkDestroyInstance(_instance, nullptr);
   }
 
 #pragma region Debug Messanger
-  //TODO: move this to the VulkanDebug class.
-
-  void loadExtensions() {
-    // Quick macro.
-
-    // Load Extensions
-    VkLoadExt(_instance, vkCreateDebugUtilsMessengerEXT);
-    VkLoadExt(_instance, vkDestroyDebugUtilsMessengerEXT);
-  }
-  VkDebugUtilsMessengerCreateInfoEXT populateDebugMessangerCreateInfo() {
-    debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    debugCreateInfo.flags = 0;
-    debugCreateInfo.messageSeverity =
-      VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-      VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    debugCreateInfo.pfnUserCallback = debugCallback;
-    debugCreateInfo.pUserData = nullptr;
-    return debugCreateInfo;
-  }
   void setupDebug() {
     if (!_bEnableValidationLayers) {
       return;
     }
-    CheckVKRV(vkCreateDebugUtilsMessengerEXT, _instance, &debugCreateInfo, nullptr, &debugMessenger);
+
+    VkLoadExt(_instance, vkCreateDebugUtilsMessengerEXT);
+    VkLoadExt(_instance, vkDestroyDebugUtilsMessengerEXT);
+    
+    VkDebugUtilsMessengerCreateInfoEXT msginfo = {
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+      .pNext = nullptr,
+      .flags = 0,
+      .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+      .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+      .pfnUserCallback = debugCallback,
+      .pUserData = nullptr,
+    };
+
+    CheckVKRV(vkCreateDebugUtilsMessengerEXT, _instance, &msginfo, nullptr, &debugMessenger);
   }
   std::vector<const char*> getRequiredExtensionNames(SDL_Window* win) {
     std::vector<const char*> extensionNames{};
@@ -538,6 +526,7 @@ public:
 
     BRThrowException(str);
   }
+
 #pragma endregion
 };
 
@@ -686,6 +675,13 @@ uint32_t Vulkan::swapchainImageCount() {
 VkSurfaceCapabilitiesKHR& Vulkan::surfaceCaps() {
   return _pInt->_surfaceCaps;
 }
+std::shared_ptr<Swapchain> Vulkan::swapchain() {
+  return _pInt->_pSwapchain;
+}
+void Vulkan::setSwapchain(std::shared_ptr<Swapchain> s) {
+  _pInt->_pSwapchain = s;
+}
+
 #pragma endregion
 
 #pragma endregion

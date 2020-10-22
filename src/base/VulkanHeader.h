@@ -54,8 +54,8 @@ enum class IndexType {
 };
 enum class CommandBufferState {
   Unset,
-  BeginDraw,
-  EndDraw,
+  Begin,
+  End,
   BeginPass,
   EndPass
 };
