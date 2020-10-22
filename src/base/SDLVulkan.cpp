@@ -295,7 +295,7 @@ public:
 
   uint64_t g_iFrameNumber = 0;
   void drawFrame(double dt) {
-    _pSwapchain->beginFrame();
+    _pSwapchain->beginFrame(getWindowDims().size);
     {
       std::shared_ptr<RenderFrame> frame = _pSwapchain->acquireFrame();
       if (frame != nullptr) {
@@ -359,7 +359,7 @@ public:
         cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
 
         //** TODO:
-        //_pShader->bindUniforms({"_uboViewProj", "_uboInstanceData"});
+        //_pShader->bindUniformBuffers({"_uboViewProj", "_uboInstanceData"});
 
         //Mesh 1
         _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
@@ -434,27 +434,11 @@ public:
     _testTexture2 = nullptr;
     _depthTexture = nullptr;
   }
-  void cleanupSwapRenderPipe() {
-    // if (_graphicsPipeline != VK_NULL_HANDLE) {
-    //   vkDestroyPipeline(vulkan()->device(), _graphicsPipeline, nullptr);
-    // }
-    // if (_pipelineLayout != VK_NULL_HANDLE) {
-    //   vkDestroyPipelineLayout(vulkan()->device(), _pipelineLayout, nullptr);
-    // }
-    // if (_renderPass != VK_NULL_HANDLE) {
-    //   vkDestroyRenderPass(vulkan()->device(), _renderPass, nullptr);
-    // }
-  }
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
-
-    _pSwapchain = nullptr;
-    cleanupSwapRenderPipe();
-
-    //cleanupSyncObjects();
     cleanupShaderMemory();
-
     _pShader = nullptr;
+    _pSwapchain = nullptr;
     _vulkan = nullptr;
 
     SDL_DestroyWindow(_pSDLWindow);
@@ -528,15 +512,6 @@ void SDLVulkan::renderLoop() {
     exit = doInput();
     double t01ms = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
     last_time = std::chrono::high_resolution_clock::now();
-
-    if (_pInt->_pSwapchain->isOutOfDate()) {
-      _pInt->_pSwapchain->initSwapchain(_pInt->getWindowDims().size);
-    }
-
-    //TODO: replace this when we relocate the whole pipeline.
-    //_pInt->_pSwapchain->updateSwapchain(_pInt->getWindowDims());
-    _pInt->_pSwapchain->beginFrame();
-    _pInt->_pSwapchain->endFrame();
 
     _pInt->drawFrame(t01ms);
   }

@@ -1131,6 +1131,16 @@ void PipelineShader::cleanupDescriptors() {
   vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
   vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
 }
+DescriptorClass PipelineShader::classifyDescriptor(const string_t& name) {
+  DescriptorClass ret = DescriptorClass::Custom;
+  if (StringUtil::equals(name, "_uboViewProj")) {
+    ret = DescriptorClass::ViewProjMatrixUBO;
+  }
+  else if (StringUtil::equals(name, "_uboInstanceData")) {
+    ret = DescriptorClass::InstnaceMatrixUBO;
+  }
+  return ret;
+}
 bool PipelineShader::createDescriptors() {
   uint32_t _nPool_Samplers = 0;
   uint32_t _nPool_UBOs = 0;
@@ -1148,6 +1158,7 @@ bool PipelineShader::createDescriptors() {
       }
       d->_binding = descriptor.binding;
       d->_arraySize = 1;
+      d->_class = classifyDescriptor(d->_name);
 
       if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
         d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -1175,7 +1186,13 @@ bool PipelineShader::createDescriptors() {
         if (descriptor.block.member_count > 0) {
           //This is a block , array size = 0. The actual size of the block is viewed as a single data-chunk.s
           d->_arraySize = 1;
+          //64 x 2 = 128 _uboViewProj
+
+          //Blocksize = the size of the ENTIRE uniform buffer.
           d->_blockSize = descriptor.block.size;
+
+          //The size of the data-members of the uniform.
+          //d->structSize  = descriptor.type_description.
         }
       }
       else if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
@@ -1259,7 +1276,7 @@ bool PipelineShader::createDescriptors() {
   //Descriptor sets are automatically freed when the descriptor pool is destroyed.
   _descriptorSets.resize(vulkan()->swapchainImageCount());
   CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
-  
+
   return true;
 }
 std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) {
@@ -1431,6 +1448,72 @@ void PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::sh
                           0,  //Layout ID
                           1,
                           &_descriptorSets[swapchainImageIndex], 0, nullptr);
+}
+bool PipelineShader::createShaderData(std::shared_ptr<ShaderData> sd, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz) {
+  //Called by the RenderFrame to create frame-specific data (Swapchain->RenderFrame <--> ShaderData <--> Shader -> Pipeline)
+  //Descriptors & UBOs
+  /*
+  for (auto d : _descriptors) {
+    auto sdubo = std::make_shared<ShaderDataUBO>();
+    sdubo->_descriptor = d;
+
+    if (d.second->_type == DescriptorClass::ViewProjMatrixUBO) {
+      sdubo->buffer = std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        sizeof(ViewProjUBOData), nullptr, 0);
+    }
+    else if (d.second->_type == DescriptorClass::InstnaceMatrixUBO) {
+      if (d.second->_blockSize % sizeof(InstanceUBOData) != 0) {
+        BRLogError("Instance blocksize is not a multiple of InstanceUBO data.");
+        flagError();
+        return false;
+      }
+      sdubo->_data._instanceUBOData._maxInstances = d.second->_blockSize / sizeof(InstanceUBOData);
+
+      sdubo->buffer = std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        sizeof(InstanceUBOData) * _numInstances, nullptr, 0);
+    }
+    else {
+      BRLogError("Failed to identify descriptor type.");
+      flagError();
+      return false;
+    }
+
+    sd->_uniformBuffers.push_back(sdubo)
+  }
+*/
+  //FBO
+  sd->_framebuffer = std::make_shared<Framebuffer>(vulkan(), getThis<PipelineShader>(), swap_siz);
+  for (auto out_att : outputFBOs()) {
+    auto att = std::make_shared<FramebufferAttachment>(
+      vulkan(),
+      out_att._type,
+      out_att._name,
+      swap_format,  //using the spv-reflect format causes problems
+      out_att._location,
+      swap_siz,
+      swap_image,
+      swap_format,
+      out_att._clearColor,  //TODO
+      out_att._blending);   //TODO
+
+    if (!att->init()) {
+      flagError();
+      return false;
+    }
+
+    sd->_framebuffer->addAttachment(att);
+  }
+  if (!sd->_framebuffer->createFBO()) {
+    flagError();
+    return false;
+  }
+  return true;
 }
 
 #pragma endregion
@@ -1623,9 +1706,9 @@ void CommandBuffer::validateState(bool b) {
 }
 void CommandBuffer::begin() {
   validateState(_state == CommandBufferState::End || _state == CommandBufferState::Unset);
-  
+
   //VkCommandBufferResetFlags
-  CheckVKR(vkResetCommandBuffer,_commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+  CheckVKR(vkResetCommandBuffer, _commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
   VkCommandBufferBeginInfo beginInfo = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1826,7 +1909,7 @@ std::shared_ptr<ShaderData> RenderFrame::getShaderData(std::shared_ptr<PipelineS
   }
   return it->second;
 }
-void RenderFrame::rebindShader(std::shared_ptr<PipelineShader> s) {
+bool RenderFrame::rebindShader(std::shared_ptr<PipelineShader> s) {
   //Get or Create ShaderData
   auto sd = getShaderData(s);
   if (sd == nullptr) {
@@ -1836,32 +1919,12 @@ void RenderFrame::rebindShader(std::shared_ptr<PipelineShader> s) {
 
   //Recreate Framebuffer
   BR2::usize2 fb_siz = { _pSwapchain->imageSize().width, _pSwapchain->imageSize().height };
-  sd->_framebuffer = std::make_shared<Framebuffer>(vulkan(), s, fb_siz);
-  for (auto out_att : s->outputFBOs()) {
-    auto att = std::make_shared<FramebufferAttachment>(
-      vulkan(),
-      out_att._type,
-      out_att._name,
-      _imageFormat.format,  //using the spv-reflect format causes problems
-      out_att._location,
-      fb_siz,
-      _image,
-      _imageFormat.format,
-      out_att._clearColor,  //TODO
-      out_att._blending);   //TODO
-
-    if (!att->init()) {
-      s->flagError();
-      break;
-    }
-
-    sd->_framebuffer->addAttachment(att);
-  }
-  if (!sd->_framebuffer->createFBO()) {
+  if (!s->createShaderData(sd, _image, _imageFormat.format, fb_siz)) {
     s->flagError();
+    return false;
   }
+  return true;
 }
-
 #pragma endregion
 
 #pragma region Swapchain
@@ -1882,11 +1945,6 @@ void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
 void Swapchain::rebindShaders() {
   for (auto shader : _registeredShaders) {
     registerShader(shader);
-  }
-}
-void Swapchain::updateSwapchain(const BR2::usize2& window_size) {
-  if (_bSwapChainOutOfDate) {
-    initSwapchain(window_size);
   }
 }
 void Swapchain::initSwapchain(const BR2::usize2& window_size) {
@@ -2030,7 +2088,13 @@ void Swapchain::cleanupSwapChain() {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
   }
 }
-void Swapchain::beginFrame() {
+void Swapchain::beginFrame(const BR2::usize2& windowsize) {
+
+    if (isOutOfDate()) {
+      initSwapchain(windowsize);
+    }
+
+
   _frames[_currentFrame]->beginFrame();
 }
 void Swapchain::endFrame() {
