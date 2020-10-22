@@ -130,12 +130,8 @@ public:
     _game->_mesh2->makeBox();
 
     //Make Shader.
-    _pShader = std::make_shared<PipelineShader>(_vulkan,
-                                                "Vulkan-Tutorial-Test-Shader",
-                                                std::vector{
-                                                  App::rootFile("test_vs.spv"),
-                                                  App::rootFile("test_fs.spv") });
-    _pSwapchain->registerShader(_pShader);
+    _pShader = PipelineShader::create(_vulkan, "Vulkan-Tutorial-Test-Shader",
+                                      std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
     allocateShaderMemory();
 
     BRLogInfo("Showing window..");
@@ -360,7 +356,7 @@ public:
         auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
         pipe->bind(cmd);
 
-        cmd->cmdSetViewport({ {0,0}, _pSwapchain->imageSize() });
+        cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
 
         //** TODO:
         //_pShader->bindUniforms({"_uboViewProj", "_uboInstanceData"});
@@ -426,7 +422,7 @@ public:
 
   void allocateShaderMemory() {
     cleanupShaderMemory();
-    
+
     createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
     createTextureImages();   // - create once - single creation
   }

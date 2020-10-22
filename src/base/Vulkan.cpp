@@ -588,7 +588,6 @@ VkImageView Vulkan::createImageView(VkImage image, VkFormat format, VkImageAspec
       .baseArrayLayer = 0,        // uint32_t
       .layerCount = 1,            // uint32_t
     },                            //VkImageSubresourceRange
-
   };
   VkImageView ret;
   CheckVKRV(vkCreateImageView, device(), &createInfo, nullptr, &ret);

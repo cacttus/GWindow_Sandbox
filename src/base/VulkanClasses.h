@@ -208,14 +208,18 @@ enum class FBOType {
   Color,
   Depth
 };
+/**
+ * @class ShaderOutput
+ * @brief Intermediary FBO metadata.
+ * */
 class ShaderOutput {
 public:
-  //This is intermediary data filtering out the shader metadata.
   uint32_t _location = 0;
   string_t _name = "";
-  VkFormat _format;
+  VkFormat _format; // This is incorrect from spv-reflect. Don't use.
   BlendFunc _blending = BlendFunc::AlphaBlend;
   FBOType _type = FBOType::Color;
+  BR2::vec4 _clearColor{0, 0, 0, 1};//R&G are Depth&Stencil(casted to integer for stencil)
 };
 /**
  * @class FramebufferAttachment
@@ -223,14 +227,14 @@ public:
 class FramebufferAttachment : public VulkanObject {
 public:
   FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
-                        const BR2::usize2& imageSize, VkImage in_img, VkFormat in_img_fmt, const BR2::vec4& clearColor, BlendFunc blending);
+                        const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor, BlendFunc blending);
   virtual ~FramebufferAttachment() override;
 
-  VkFormat imageFormat() { return _format; }
-  VkImageView getVkImageView() { return _imageView; }
+  bool init();
+  VkImageView getVkImageView() { return _swapchainImageView; }
   const string_t& name() { return _name; }
   uint32_t location() { return _location; }
-  VkFormat format() { return _format; }
+  //VkFormat fboFormat() { return _fboFormat; }
   BlendFunc blendFunc() { return _blending; }
   FBOType type() { return _fboType; }
   const BR2::vec4& clearColor() { return _clearColor; }  // If this is a depth FBO x = clear color depth
@@ -239,10 +243,12 @@ public:
 private:
   string_t _name = "";
   uint32_t _location = 0;
-  VkFormat _format = VK_FORMAT_UNDEFINED;
   BR2::vec4 _clearColor = BR2::vec4(0, 0, 0, 1);
   BlendFunc _blending = BlendFunc::Disabled;
-  VkImageView _imageView = VK_NULL_HANDLE;
+  VkFormat _fboFormat = VK_FORMAT_UNDEFINED;
+  VkImage _swapchainImage=VK_NULL_HANDLE;
+  VkFormat _swapchainImageFormat = VK_FORMAT_UNDEFINED;
+  VkImageView _swapchainImageView = VK_NULL_HANDLE;
   VkImage _image = VK_NULL_HANDLE;
   FBOType _fboType = FBOType::Color;
   BR2::usize2 _imageSize{ 0, 0 };
@@ -276,6 +282,7 @@ private:
 //class VulkanPipelineShader_Internal;
 class PipelineShader : public VulkanObject {
 public:
+  static std::shared_ptr<PipelineShader> create(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
   PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
   virtual ~PipelineShader() override;
 
@@ -295,18 +302,20 @@ public:
   void bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe, uint32_t swapchainImageIndex);
 
 private:
-  void checkGood();
-  void createInputs();
-  void createOutputs();
-  void createDescriptors();
+  bool init();
+  bool checkGood();
+  bool createInputs();
+  bool createOutputs();
+  bool createDescriptors();
+  bool createRenderPass();
   void cleanupDescriptors();
   BR2::VertexUserType parseUserType(const string_t& err);
   std::shared_ptr<ShaderModule> getModule(VkShaderStageFlagBits stage, bool throwIfNotFound = false);
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
-  void createRenderPass();
   VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
 
   string_t _name = "*undefined*";
+  std::vector<string_t> _files;
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> _descriptorSets;

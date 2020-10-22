@@ -1,10 +1,12 @@
 
-Problem with resize is that the RenderFrame classes are destroyed - shaders aren't saved when we rebind them. Save on Swapchain instead.
 
 # TODO
-* Note: Saved the class files for future reference (_saved)
-
-* Change Drawing from Waiting -> Passive waiting 
+* Move uniforms to ShaderData
+* Move sandbox to VulkanGame 
+* Integrate with VulkanGame (large task)
+* Address concern of Shader output format not matching FBO format
+* Multiple FBOs (deferred MRTs)
+* Change Drawing Semaphores from Waiting -> Passive waiting 
   * Right now we have:
     * Swapchain->beginFrame
     * Swapchain->endFrame
