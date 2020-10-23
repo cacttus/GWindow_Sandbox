@@ -177,13 +177,12 @@ public:
 private:
   std::unique_ptr<ShaderModule_Internal> _pInt;
 };
-enum class DescriptorClass {
+enum class DescriptorFunction {
   Unset,
   Custom,
   ViewProjMatrixUBO,
   InstnaceMatrixUBO,
 };
-
 class Descriptor {
 public:
   string_t _name = "";
@@ -193,8 +192,7 @@ public:
   uint32_t _blockSize = 0;
   VkShaderStageFlags _stage;
   bool _isBound = false;
-  DescriptorClass _class = DescriptorClass::Unset;
-  
+  DescriptorFunction _function = DescriptorFunction::Unset;
 };
 //TODO: this may not be necessary - BR2::VertexFormat
 class VertexAttribute {
@@ -297,7 +295,7 @@ public:
 
   const string_t& name() { return _name; }
   bool valid() { return _bValid; }
-  void flagError() { _bValid = false; }
+  bool shaderError(const string_t& msg);
   const std::vector<ShaderOutput>& outputFBOs() { return _shaderOutputs; }
   VkRenderPass renderPass() { return _renderPass; }
 
@@ -309,8 +307,12 @@ public:
   bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, BR2::urect2* extent = nullptr);
   std::shared_ptr<Pipeline> getPipeline(VkPrimitiveTopology topo, VkPolygonMode mode);
   void bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe, uint32_t swapchainImageIndex);
-  bool createShaderData(std::shared_ptr<ShaderData> sd, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz);
-
+  bool recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz);
+  std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
+  
+  bool createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize = VK_WHOLE_SIZE);
+  std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<RenderFrame> frame);
+  
 private:
   bool init();
   bool checkGood();
@@ -319,7 +321,7 @@ private:
   bool createDescriptors();
   bool createRenderPass();
   void cleanupDescriptors();
-  DescriptorClass classifyDescriptor(const string_t& name);
+  DescriptorFunction classifyDescriptor(const string_t& name);
   BR2::VertexUserType parseUserType(const string_t& err);
   std::shared_ptr<ShaderModule> getModule(VkShaderStageFlagBits stage, bool throwIfNotFound = false);
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
@@ -340,6 +342,7 @@ private:
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
   std::vector<std::shared_ptr<Pipeline>> _pipelines;
   bool _bValid = true;
+  std::vector<std::shared_ptr<ShaderData>> _shaderData;
 };
 /**
  * @class Pipeline
@@ -392,13 +395,13 @@ private:
 // struct ViewProjUBOData {
 //   BR2::mat4 matrix;
 // };
-struct InstanceUBOSpec {
+struct InstanceUBOClassData {
   uint32_t _maxInstances = 1; //The maximum instances specified in the UBO
   uint32_t _curInstances = 1; //Current number of instnaces in the scene.
 };
-union ShaderUBOSpec {
+class UBOClassData {
 // ViewProjUBOData _viewProjUBOData;
-  InstanceUBOSpec _instanceUBOSpec;
+  InstanceUBOClassData _instanceUBOSpec;
 };
 /**
  * @class ShaderDataUBO
@@ -406,9 +409,9 @@ union ShaderUBOSpec {
  * */
 class ShaderDataUBO {
 public:
-  std::shared_ptr<Descriptor> _descriptor;  //shared ptr to the descriptor in the shader.
-  std::shared_ptr<VulkanBuffer> _buffer;
-  ShaderUBOSpec _data;
+  std::shared_ptr<Descriptor> _descriptor=nullptr;  //shared ptr to the descriptor in the shader.
+  std::shared_ptr<VulkanBuffer> _buffer=nullptr;
+  UBOClassData _data;
 };
 /**
  * @class ShaderData
@@ -417,7 +420,8 @@ public:
 class ShaderData {
 public:
   std::shared_ptr<Framebuffer> _framebuffer = nullptr;
-  std::vector<std::shared_ptr<ShaderDataUBO>> _uniformBuffers;
+  std::unordered_map<std::string, std::shared_ptr<ShaderDataUBO>> _uniformBuffers;
+  std::shared_ptr<ShaderDataUBO> getUBOData(const string_t& name);
 };
 /**
  * @class RenderFrame
@@ -441,7 +445,6 @@ public:
   void endFrame();
   void registerShader(std::shared_ptr<PipelineShader> shader);
   bool rebindShader(std::shared_ptr<PipelineShader> shader);
-  std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<PipelineShader> s);
 
 private:
   void createSyncObjects();
@@ -463,7 +466,6 @@ private:
   VkSemaphore _renderFinished = VK_NULL_HANDLE;
   uint32_t _currentRenderingImageIndex = 0;
 
-  std::map<std::shared_ptr<PipelineShader>, std::shared_ptr<ShaderData>> _shaderData;
 };
 /**
  * @class Swapchain
@@ -496,7 +498,9 @@ private:
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
   void rebindShaders();
-  std::unordered_set<std::shared_ptr<PipelineShader>> _registeredShaders;
+
+  std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;
+  //std::map<std::shared_ptr<PipelineShader>, std::vector<std::shared_ptr<ShaderData>>> _shaderData;
   std::vector<std::shared_ptr<RenderFrame>> _frames;
   size_t _currentFrame = 0;
   std::vector<VkFence> _imagesInFlight;  //Shared handle do not delete

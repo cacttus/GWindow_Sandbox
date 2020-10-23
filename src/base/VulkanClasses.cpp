@@ -420,17 +420,6 @@ void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat im
                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   _host->copy_host(pimg->_data, pimg->data_len_bytes, 0, 0, pimg->data_len_bytes);
 
-  //   VkImageLayout src_layout, dst_layout;
-  //
-  //   if(_mipLevels>1){
-  // src_layout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ;
-  // dst_layout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ;
-  //   }
-  //   else{
-  // src_layout=VK_IMAGE_LAYOUT_UNDEFINED ;
-  // dst_layout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ;
-  //   }
-
   //Undefined layout will be discard image data.
   transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   copyBufferToImage(pimg);
@@ -839,7 +828,7 @@ bool PipelineShader::checkGood() {
     return false;
   }
 
-  //TODO:
+  //TODO: geom
   std::shared_ptr<ShaderModule> geom = getModule(VK_SHADER_STAGE_GEOMETRY_BIT);
   return true;
 }
@@ -893,12 +882,7 @@ bool PipelineShader::createInputs() {
     attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
     attrib->_desc.offset = iOffset;  //Default offset, for an exact-match vertex.
 
-    //I'm guessing this correctly comes in order that the attributes are bound..
-    // The location also appears within the word_offset.location bytes, however the gl_InstanceIndex appers to take up non-uniform space, along with other stuff,
-    // so that could be unreliable.
-    //uint32_t location = iv.word_offset.location;
     if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
-      //The instance index is added to the binding apparently, but it is implicit in the vulkan API. I guess it accounts for it.
       _bInstanced = true;
     }
     else {
@@ -921,6 +905,8 @@ bool PipelineShader::createInputs() {
   if (_bInstanced) {
     //**This doesn't seem to make a difference on my Nvidia 1660 driver
     //inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    //Test frame rate with this option..?
+    BRLogWarn("VK_VERTEX_INPUT_RATE_INSTANCE Not supported");
   }
   _bindingDesc = {
     .binding = 0,
@@ -975,20 +961,15 @@ bool PipelineShader::createOutputs() {
         fb._type = FBOType::Depth;
       }
       else {
-        BRLogError("Unrecognized shader output variable type '" + VulkanDebug::VkFormat_toString(fb._format) + "'");
-        flagError();
-        return false;
+        return shaderError("Unrecognized shader output variable type '" + VulkanDebug::VkFormat_toString(fb._format) + "'");
       }
 
       _shaderOutputs.push_back(fb);
     }
     else {
-      BRLogWarn("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
-      Gu::debugBreak();
+      return shaderError("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
     }
   }
-
-  //TODO: Match Attachments to Swapchain.
 
   return true;
 }
@@ -1131,13 +1112,13 @@ void PipelineShader::cleanupDescriptors() {
   vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
   vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
 }
-DescriptorClass PipelineShader::classifyDescriptor(const string_t& name) {
-  DescriptorClass ret = DescriptorClass::Custom;
+DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
+  DescriptorFunction ret = DescriptorFunction::Custom;
   if (StringUtil::equals(name, "_uboViewProj")) {
-    ret = DescriptorClass::ViewProjMatrixUBO;
+    ret = DescriptorFunction::ViewProjMatrixUBO;
   }
   else if (StringUtil::equals(name, "_uboInstanceData")) {
-    ret = DescriptorClass::InstnaceMatrixUBO;
+    ret = DescriptorFunction::InstnaceMatrixUBO;
   }
   return ret;
 }
@@ -1158,7 +1139,7 @@ bool PipelineShader::createDescriptors() {
       }
       d->_binding = descriptor.binding;
       d->_arraySize = 1;
-      d->_class = classifyDescriptor(d->_name);
+      d->_function = classifyDescriptor(d->_name);
 
       if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
         d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -1221,21 +1202,21 @@ bool PipelineShader::createDescriptors() {
 
   //Allocate Descriptor Pools.
   VkDescriptorPoolSize uboPoolSize = {
-    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,                                                //VkDescriptorType
-    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_UBOs,  //uint32_t
+    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_UBOs,
   };
   VkDescriptorPoolSize samplerPoolSize = {
-    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,                                            //VkDescriptorType
-    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_Samplers,  //uint32_t
+    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_Samplers,
   };
   std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
   VkDescriptorPoolCreateInfo poolInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,             // VkStructureType
-    .pNext = nullptr,                                                   // const void*
-    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,   // VkDescriptorPoolCreateFlags
-    .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),  // uint32_t //one set per frame
-    .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),           // uint32_t
-    .pPoolSizes = poolSizes.data(),                                     // const VkDescriptorPoolSize*
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,
+    .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
+    .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+    .pPoolSizes = poolSizes.data(),
   };
   CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
 
@@ -1244,20 +1225,20 @@ bool PipelineShader::createDescriptors() {
   for (auto& it : _descriptors) {
     auto& desc = it.second;
     bindings.push_back({
-      .binding = desc->_binding,            //uint32_t
-      .descriptorType = desc->_type,        //VkDescriptorType      Can put SSBO here.
-      .descriptorCount = desc->_arraySize,  //uint32_t //descriptorCount specifies the number of values in the array
-      .stageFlags = desc->_stage,           //VkShaderStageFlags
-      .pImmutableSamplers = nullptr,        //const VkSampler*    for VK_DESCRIPTOR_TYPE_SAMPLER or VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+      .binding = desc->_binding,
+      .descriptorType = desc->_type,
+      .descriptorCount = desc->_arraySize,
+      .stageFlags = desc->_stage,
+      .pImmutableSamplers = nullptr,
     });
   }
 
   VkDescriptorSetLayoutCreateInfo layoutInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  //VkStructureType
-    .pNext = nullptr,                                              //const void*
-    .flags = 0,                                                    //VkDescriptorSetLayoutCreateFlags   Some cool stuff can be put here to modify UBO updates.
-    .bindingCount = static_cast<uint32_t>(bindings.size()),        //uint32_t
-    .pBindings = bindings.data(),                                  //const VkDescriptorSetLayoutBinding*
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .bindingCount = static_cast<uint32_t>(bindings.size()),
+    .pBindings = bindings.data(),
   };
   CheckVKR(vkCreateDescriptorSetLayout, vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
 
@@ -1266,11 +1247,11 @@ bool PipelineShader::createDescriptors() {
 
   //Allocate Descriptor Sets
   VkDescriptorSetAllocateInfo allocInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,                       // VkStructureType
-    .pNext = nullptr,                                                              // const void*
-    .descriptorPool = _descriptorPool,                                             // VkDescriptorPool
-    .descriptorSetCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()),  // uint32_t
-    .pSetLayouts = _layouts.data(),                                                // const VkDescriptorSetLayout*
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    .pNext = nullptr,
+    .descriptorPool = _descriptorPool,
+    .descriptorSetCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
+    .pSetLayouts = _layouts.data(),
   };
 
   //Descriptor sets are automatically freed when the descriptor pool is destroyed.
@@ -1288,6 +1269,39 @@ std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) 
     ret = it->second;
   }
   return ret;
+}
+bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize) {
+  //UBOs are persistent data.
+  if (_shaderData.size() == 0) {
+    return shaderError("Shader data was uninitialized when creating UBO.");
+  }
+
+  for (auto data : _shaderData) {
+    auto desc = getDescriptor(var_name);
+    if (desc == nullptr) {
+      return shaderError("Failed to locate UBO descriptor for shader variable '" + var_name + "'");
+    }
+    else if (data->_uniformBuffers.find(name) != data->_uniformBuffers.end()) {
+      return shaderError("UBO for shader variable '" + var_name + "' with client variable '" + name + "' was already found in ShaderData.");
+    }
+    else {
+      //Get the descriptor size.
+      uint32_t size = bufsize;
+      if (bufsize == VK_WHOLE_SIZE) {
+        size = desc->_blockSize;
+      }
+      std::shared_ptr<ShaderDataUBO> dat = std::make_shared<ShaderDataUBO>();
+      dat->_buffer = std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        size, nullptr, 0);
+      dat->_descriptor = desc;
+      data->_uniformBuffers.insert(std::make_pair(name, dat));
+    }
+  }
+
+  return true;
 }
 bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
   //Binds a shader Uniform to this shader for the given swapchain image.
@@ -1356,7 +1370,7 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   if (valid() == false) {
     return false;
   }
-  auto sd = frame->getShaderData(getThis<PipelineShader>());
+  auto sd = getShaderData(frame);
   if (sd == nullptr || sd->_framebuffer == nullptr) {
     BRLogErrorOnce("Shader had no initialized framebuffer or shaderdata.");
     Gu::debugBreak();
@@ -1426,8 +1440,7 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
 std::shared_ptr<Pipeline> PipelineShader::getPipeline(VkPrimitiveTopology topo, VkPolygonMode mode) {
   //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
   //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
-  //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
-  //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
+  BRLogWarn("- Multiple vertex types not implemented yet.");
   std::shared_ptr<Pipeline> pipe = nullptr;
   if (_pipelines.size() == 0) {
     pipe = std::make_shared<Pipeline>(vulkan(), getThis<PipelineShader>(), nullptr, topo, mode);
@@ -1449,44 +1462,78 @@ void PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::sh
                           1,
                           &_descriptorSets[swapchainImageIndex], 0, nullptr);
 }
-bool PipelineShader::createShaderData(std::shared_ptr<ShaderData> sd, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz) {
-  //Called by the RenderFrame to create frame-specific data (Swapchain->RenderFrame <--> ShaderData <--> Shader -> Pipeline)
-  //Descriptors & UBOs
-  /*
-  for (auto d : _descriptors) {
-    auto sdubo = std::make_shared<ShaderDataUBO>();
-    sdubo->_descriptor = d;
-
-    if (d.second->_type == DescriptorClass::ViewProjMatrixUBO) {
-      sdubo->buffer = std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        sizeof(ViewProjUBOData), nullptr, 0);
+bool PipelineShader::shaderError(const string_t& msg) {
+  BRLogError(msg);
+  _bValid = false;
+  Gu::debugBreak();
+  return false;
+}
+std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame) {
+  auto sd = getShaderData(frame);
+  if (sd != nullptr) {
+    auto ub = sd->getUBOData(name);
+    if (ub != nullptr) {
+      return ub->_buffer;
     }
-    else if (d.second->_type == DescriptorClass::InstnaceMatrixUBO) {
-      if (d.second->_blockSize % sizeof(InstanceUBOData) != 0) {
-        BRLogError("Instance blocksize is not a multiple of InstanceUBO data.");
-        flagError();
-        return false;
-      }
-      sdubo->_data._instanceUBOData._maxInstances = d.second->_blockSize / sizeof(InstanceUBOData);
-
-      sdubo->buffer = std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        sizeof(InstanceUBOData) * _numInstances, nullptr, 0);
-    }
-    else {
-      BRLogError("Failed to identify descriptor type.");
-      flagError();
-      return false;
-    }
-
-    sd->_uniformBuffers.push_back(sdubo)
   }
-*/
+
+  return nullptr;
+}
+std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<RenderFrame> frame) {
+  AssertOrThrow2(frame != nullptr);
+  if (_shaderData.size() <= frame->frameIndex()) {
+    BRThrowException("Tried to access out of bounds shader data.");
+  }
+  return _shaderData[frame->frameIndex()];
+}
+
+bool PipelineShader::recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz) {
+  std::shared_ptr<ShaderData> sd = nullptr;
+  while (_shaderData.size() <= frameIndex) {
+    _shaderData.push_back(std::make_shared<ShaderData>());
+  }
+  sd = _shaderData[frameIndex];
+
+  //Automatic Descriptors & UBOs - For later.
+  //   for (auto d : _descriptors) {
+  //     if (d.second->_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+  //       auto sdubo = std::make_shared<ShaderDataUBO>();
+  //       sdubo->_descriptor = d.second;
+  //
+  //       //Automatic UBO allocation.
+  //       sdubo->buffer = std::make_shared<VulkanBuffer>(
+  //         vulkan(),
+  //         VulkanBufferType::UniformBuffer,
+  //         false,
+  //         d.second->_blockSize, nullptr, 0);
+  //
+  //       if (d.second->_function == DescriptorFunction::ViewProjMatrixUBO) {
+  //       }
+  //       else if (d.second->_function == DescriptorFunction::InstnaceMatrixUBO) {
+  //         if (d.second->_blockSize % sizeof(InstanceUBOData) != 0) {
+  //           return shaderError("Instance blocksize is not a multiple of InstanceUBO data.");
+  //         }
+  //         sdubo->_data._instanceUBOData._maxInstances = d.second->_blockSize / sizeof(InstanceUBOData);
+  //
+  //         sdubo->buffer = std::make_shared<VulkanBuffer>(
+  //           vulkan(),
+  //           VulkanBufferType::UniformBuffer,
+  //           false,
+  //           sizeof(InstanceUBOData) * _numInstances, nullptr, 0);
+  //       }
+  //       else {
+  //         return shaderError("Failed to identify descriptor type.");
+  //       }
+  //
+  //       sd->_uniformBuffers.push_back(sdubo)
+  //     }
+  //     else if (d.second->_type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+  //     }
+  //     else {
+  //       return shaderError("Descriptor type not supported '" + VulkanDebug::VkDescriptorType_ToString(d.second->_type) + "'");
+  //     }
+  //   }
+
   //FBO
   sd->_framebuffer = std::make_shared<Framebuffer>(vulkan(), getThis<PipelineShader>(), swap_siz);
   for (auto out_att : outputFBOs()) {
@@ -1503,15 +1550,13 @@ bool PipelineShader::createShaderData(std::shared_ptr<ShaderData> sd, VkImage sw
       out_att._blending);   //TODO
 
     if (!att->init()) {
-      flagError();
-      return false;
+      return shaderError("Failed to initialize fbo attachment.");
     }
 
     sd->_framebuffer->addAttachment(att);
   }
   if (!sd->_framebuffer->createFBO()) {
-    flagError();
-    return false;
+    return shaderError("Failed to create FBO.");
   }
   return true;
 }
@@ -1611,6 +1656,7 @@ Pipeline::Pipeline(std::shared_ptr<Vulkan> v,
   std::vector<VkDynamicState> dynamicStates = {
     VK_DYNAMIC_STATE_VIEWPORT,
     VK_DYNAMIC_STATE_SCISSOR,
+    VK_DYNAMIC_STATE_LINE_WIDTH,//Not always supported afaik.
   };
   VkPipelineDynamicStateCreateInfo dynamicState = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -1760,14 +1806,23 @@ void CommandBuffer::cmdSetViewport(const BR2::urect2& extent) {
   vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
 }
-
-//*The 1 is instances - for instanced rendering
-//vkCmdDrawIndexedIndirect
 void CommandBuffer::endPass() {
   validateState(_state == CommandBufferState::BeginPass);
   //This is called once when all pipeline rendering is complete
   vkCmdEndRenderPass(_commandBuffer);
   _state = CommandBufferState::EndPass;
+}
+
+#pragma endregion
+
+#pragma region ShaderData
+
+std::shared_ptr<ShaderDataUBO> ShaderData::getUBOData(const string_t& name) {
+  auto it = _uniformBuffers.find(name);
+  if (it == _uniformBuffers.end()) {
+    return nullptr;
+  }
+  return it->second;
 }
 
 #pragma endregion
@@ -1820,10 +1875,6 @@ void RenderFrame::beginFrame() {
   //Wait forever TODO: we can keep updating the game in case the rendering isn't available.
   vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, UINT64_MAX);
 
-  //one command buffer per framebuffer,
-  //acquire the image form teh swapchain (which is our framebuffer)
-  //signal the semaphore.
-  //uint32_t  = 0;
   VkResult res;
   res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), UINT64_MAX, _imageAvailable, VK_NULL_HANDLE, &_currentRenderingImageIndex);
   if (res != VK_SUCCESS) {
@@ -1846,7 +1897,7 @@ void RenderFrame::endFrame() {
   //Submit the recorded command buffer.
   VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
-  VkCommandBuffer buf = _pCommandBuffer->getVkCommandBuffer();  //_pSwapchain->pipelines()[imageIndex];
+  VkCommandBuffer buf = _pCommandBuffer->getVkCommandBuffer();
 
   //aquire next image
   VkSubmitInfo submitInfo = {
@@ -1902,26 +1953,11 @@ VkFormat RenderFrame::imageFormat() {
 const BR2::usize2& RenderFrame::imageSize() {
   return _pSwapchain->imageSize();
 }
-std::shared_ptr<ShaderData> RenderFrame::getShaderData(std::shared_ptr<PipelineShader> s) {
-  auto it = _shaderData.find(s);
-  if (it == _shaderData.end()) {
-    return nullptr;
-  }
-  return it->second;
-}
 bool RenderFrame::rebindShader(std::shared_ptr<PipelineShader> s) {
-  //Get or Create ShaderData
-  auto sd = getShaderData(s);
-  if (sd == nullptr) {
-    sd = std::make_shared<ShaderData>();
-    _shaderData.insert(std::make_pair(s, sd));
-  }
-
   //Recreate Framebuffer
   BR2::usize2 fb_siz = { _pSwapchain->imageSize().width, _pSwapchain->imageSize().height };
-  if (!s->createShaderData(sd, _image, _imageFormat.format, fb_siz)) {
-    s->flagError();
-    return false;
+  if (!s->recreateShaderDataFBO(frameIndex(), _image, _imageFormat.format, fb_siz)) {
+    return s->shaderError("Failed to create shaderdata for shader '" + s->name() + "'");
   }
   return true;
 }
@@ -1932,10 +1968,12 @@ Swapchain::Swapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
 }
 Swapchain::~Swapchain() {
   cleanupSwapChain();
+  _shaders.clear();
 }
 void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
-  if (_registeredShaders.find(shader) == _registeredShaders.end()) {
-    _registeredShaders.insert(shader);
+  //We still need to keep shaders registered to prevent the smart pointer from deallcoating.
+  if (_shaders.find(shader) == _shaders.end()) {
+    _shaders.insert(shader);
   }
 
   for (auto frame : _frames) {
@@ -1943,7 +1981,7 @@ void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
   }
 }
 void Swapchain::rebindShaders() {
-  for (auto shader : _registeredShaders) {
+  for (auto shader : _shaders) {
     registerShader(shader);
   }
 }
@@ -1951,7 +1989,6 @@ void Swapchain::initSwapchain(const BR2::usize2& window_size) {
   vkDeviceWaitIdle(vulkan()->device());
 
   cleanupSwapChain();
-  //vkDeviceWaitIdle(vulkan()->device());
 
   createSwapChain(window_size);  // *  - recreate
 
@@ -1986,12 +2023,6 @@ bool Swapchain::findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceForm
   if (formatCount != 0) {
     CheckVKR(vkGetPhysicalDeviceSurfaceFormatsKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &formatCount, formats.data());
   }
-  //string_t fmts = "Surface formats: " + Os::newline();
-  //for (int i = 0; i < formats.size(); ++i) {
-  //  fmts += " Format " + i;
-  //  fmts += "  Color space: " + VulkanDebug::VkColorSpaceKHR_toString(formats[i].colorSpace);
-  //  fmts += "  Format: " + VulkanDebug::VkFormat_toString(formats[i].format);
-  //}
 
   for (auto fmt : fmts) {
     for (const auto& availableFormat : formats) {
@@ -2080,7 +2111,6 @@ void Swapchain::createSwapChain(const BR2::usize2& window_size) {
   _imagesInFlight = std::vector<VkFence>(frames().size());
 }
 void Swapchain::cleanupSwapChain() {
-  //_pipelines.clear();
   _frames.clear();
   _imagesInFlight.clear();
 
@@ -2089,11 +2119,9 @@ void Swapchain::cleanupSwapChain() {
   }
 }
 void Swapchain::beginFrame(const BR2::usize2& windowsize) {
-
-    if (isOutOfDate()) {
-      initSwapchain(windowsize);
-    }
-
+  if (isOutOfDate()) {
+    initSwapchain(windowsize);
+  }
 
   _frames[_currentFrame]->beginFrame();
 }

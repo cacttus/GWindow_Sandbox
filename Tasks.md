@@ -1,80 +1,98 @@
 
 
-# TODO
-* Move uniforms to ShaderData
-* Move sandbox to VulkanGame 
-* Integrate with VulkanGame (large task)
+## Roadmap
+1. continue implementing supported BR2 pipeline features
+  * Multisampling
+  * MRT's 
+    * Picking
+    * Shadowmapping
+  * Deferred Lighting.
+  * Depth FBOs (testing)
+  * Vertex Formats, and Fill/Mode data (in getPipeline)
+    * Integrate BR2::VertexFormat
+  * 
+2. Implement the GWindow_Sandbox UI
+  * Multiple Vulkan Windows.
+3. Move GWindow_Sandbox Vulkan code to Vulkan
+
+
+
+
+## Bugs 
 * Address concern of Shader output format not matching FBO format
 * Multiple FBOs (deferred MRTs)
-* Change Drawing Semaphores from Waiting -> Passive waiting 
-  * Right now we have:
-    * Swapchain->beginFrame
-    * Swapchain->endFrame
-    * This blocks the game from updating when we don't have images to draw.
-  * Switch this to 
-    double t_begin = now()
-    frame = Swapchain-> acquireFrame
-    if(frame){
-      frame->beginFrame()
-      frame->endFrame()
-    }
-    double t_elapsed = now() - t_begin
-    double timestep = 1000.0 / 60 // 13s
-    while((t_elapsed-timestep)>0){
-      updategame(timestep)
-      t_elapsed -= timestep
-    }
 
-* Move ViewProjUBOData buffer to FrameData (somenhow) and make it auto generated based on ubo_instance string.
-  * Move InstanceUBOData the same way.
-
-* Move Geom Vertex info to Shaders.
-  * Integrate BR2::VertexFormat
-    * Match Mesh VertexFormat with Shader VertexFormat
-  * Create Pipeline on Shader
-  * Lightweight RenderFrame classes (refactoring)
-    * std::vector<RenderFrame>
-    * Not a HUGE overhaul. Starting small. 
-      * We will abstract Pipeline and Swapchain later.
-    * Move shader data into a RenderFrame.
-      * Uniform buffers (de-array)
-      * Descriptor sets.
-      * Framebuffers (de-array)
-    * Access bindings & UBO's via RenderFrame->getShaderData(_pShader)  
-
-    * Move command buffer creation into RenderFrame.
-
-* Make pipeline a subclass of Shader  this would organize better when we integrate with VG
-
-* Swapchain
-* Multiple Vulkan Windows.
-* Move pipeline stuff
+## Wishlist (Backlog)
+* Instanced meshes as a system.
 * Separate UBO / Image into ShaderTexture ShaderUniform Classes
-
-* MRT's  (Test)
-  * Pick / Shadows
-
-## After Integrating with VG
-* User Interface
-
-## Backlog
-* Buffer pooling  https://gpuopen.com/learn/vulkan-device-memory/
+* PBR (testing)
+* Auto UBO creation
+* UBO Pooling. Texture Pooling.  https://gpuopen.com/learn/vulkan-device-memory/
     * Host memory heap. 
     * Mappable Gpu Memory Heap
     * Unmappable GPU memory heap
-* Instance / Animated meshes
-* Component model.
+* Uniforms to Shaderdata
+* Render Loop Optimization
+  * Change Drawing Semaphores from Waiting -> Passive waiting 
+    * Right now we have:
+      * Swapchain->beginFrame
+      * Swapchain->endFrame
+      * This blocks the game from updating when we don't have images to draw.
+    * Switch this to 
+      double t_begin = now()
+      frame = Swapchain-> acquireFrame
+      if(frame){
+        frame->beginFrame()
+        frame->endFrame()
+      }
+      double t_elapsed = now() - t_begin
+      double timestep = 1000.0 / 60 // 13s
+      while((t_elapsed-timestep)>0){
+        updategame(timestep)
+        t_elapsed -= timestep
+      }
 * Shader Skinning
+* Component model (replace old Spec/Instance system)
 
+### Backlog
 * Mipmap testing is broken right now because the texture isn't recreated when we update the swapchain.
   * Since the imageview and sampler depends on mipmap information, its best to reallocate the texture image (for now).
   * We want something like
     * _texture = std::make_shared<VulkanTextureImage>
     * _pipeline->bindTexture(_texture)
-
 * Replace parseUserType with the code from VG
 
+### Notes
+* *Wanted design
+  onStart(){
+    Shader s  = Shader({base_mesh.vs, base_mesh.fs});
+    Mesh m = loadMesh("Character")
+    if(m.setShader(s))
+    {
+      //Shader is compatible
 
+      auto ob = Game::createObject("MyChar");
+      ob.addComponent(m);
+
+      Camera c;
+      c.lookAt({0,0,0});
+      c.position({10,10,10});
+
+      Toolbar tb;
+      tb.addChild({
+        Button{.width=100, .text="Wave" .push=[](){ Game::getOb("Character").animate("Wave"); },
+        Button{.width=100, .text="Dance" .push=[](){ Game::getOb("Character").animate("Dance"); },
+        });
+    }
+  }
+
+  onUpdate(){
+    shader->begin()
+    shader->draw(mesh)
+    shader->end()
+        }
+
+### Fun Stuff        
 
 (x) Kronecker
 (+) Direct sum = lined up, zeroed new dimensions

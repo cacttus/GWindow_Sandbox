@@ -74,14 +74,13 @@ string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
   string_t str = "[ hex] [decimal] member_name \r\n";
   size_t off = 0;
 
-
-   V_STC_STR(VkRenderPassBeginInfo, sType);
-   V_STC_STR(VkRenderPassBeginInfo, pNext);
-   V_STC_STR(VkRenderPassBeginInfo, renderPass);
-   V_STC_STR(VkRenderPassBeginInfo, framebuffer);
-   V_STC_STR(VkRenderPassBeginInfo, renderArea);
-   V_STC_STR(VkRenderPassBeginInfo, clearValueCount);
-   V_STC_STR(VkRenderPassBeginInfo, pClearValues);
+  V_STC_STR(VkRenderPassBeginInfo, sType);
+  V_STC_STR(VkRenderPassBeginInfo, pNext);
+  V_STC_STR(VkRenderPassBeginInfo, renderPass);
+  V_STC_STR(VkRenderPassBeginInfo, framebuffer);
+  V_STC_STR(VkRenderPassBeginInfo, renderArea);
+  V_STC_STR(VkRenderPassBeginInfo, clearValueCount);
+  V_STC_STR(VkRenderPassBeginInfo, pClearValues);
 
   return str;
 }
@@ -89,6 +88,28 @@ string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
 #pragma region Stringify Methods
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*
 // V_ENM_STR($1);
+
+string_t VulkanDebug::VkDescriptorType_toString(VkDescriptorType r) {
+  string_t ret = "";
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_SAMPLER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_BEGIN_RANGE);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_END_RANGE);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_RANGE_SIZE);
+  V_ENM_STR(VK_DESCRIPTOR_TYPE_MAX_ENUM);
+  return ret;
+}
 
 string_t VulkanDebug::VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r) {
   string_t ret = "";

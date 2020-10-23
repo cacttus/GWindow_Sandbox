@@ -28,10 +28,11 @@ public:
   std::shared_ptr<GameDummy> _game = nullptr;
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
-  std::vector<std::shared_ptr<VulkanBuffer>> _viewProjUniformBuffers;   //One per swapchain image since theres multiple frames in flight.
-  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers1;  //One per swapchain image since theres multiple frames in flight.
-  std::vector<std::shared_ptr<VulkanBuffer>> _instanceUniformBuffers2;  //One per swapchain image since theres multiple frames in flight.
-  int32_t _numInstances = 3;
+  string_t c_viewProjUBO = "c_viewProjUBO";
+  string_t c_instanceUBO_1 = "c_instanceUBO_1";
+  string_t c_instanceUBO_2 = "c_instanceUBO_2";
+
+  int32_t _numInstances = 10;
 
 #pragma endregion
 
@@ -137,7 +138,6 @@ public:
     BRLogInfo("Showing window..");
     SDL_ShowWindow(_pSDLWindow);
   }
-  //std::shared_ptr<Pipeline> _pipe = nullptr;
   void sdl_PrintVideoDiagnostics() {
     // Init Video
     // SDL_Init(SDL_INIT_VIDEO);
@@ -188,23 +188,9 @@ public:
     };
   }
   void createUniformBuffers() {
-    for (size_t i = 0; i < _pSwapchain->frames().size(); ++i) {
-      _viewProjUniformBuffers.push_back(std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        sizeof(ViewProjUBOData), nullptr, 0));
-      _instanceUniformBuffers1.push_back(std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        sizeof(InstanceUBOData) * _numInstances, nullptr, 0));
-      _instanceUniformBuffers2.push_back(std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        sizeof(InstanceUBOData) * _numInstances, nullptr, 0));
-    }
+    _pShader->createUBO(c_viewProjUBO, "_uboViewProj");
+    _pShader->createUBO(c_instanceUBO_1, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
+    _pShader->createUBO(c_instanceUBO_2, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
   }
   float pingpong_t01(int durationMs = 5000) {
     //returns the [0,1] pingpong time.
@@ -226,10 +212,8 @@ public:
 
   void init_rand() {
   }
-  //auto now = std::chrono::system_clock::now().time_since_epoch().count();
   std::mt19937 _rnd_engine;
   std::uniform_real_distribution<double> _rnd_distribution;  //0,1
-//#define fr01() (((double)rand() / (double)RAND_MAX))
 #define fr01() (_rnd_distribution(_rnd_engine))
 #define rnd(a, b) ((a) + ((b) - (a)) * (fr01()))
 #define rr ((float)rnd(-3, 3))
@@ -248,7 +232,6 @@ public:
       }
     }
   }
-
   void updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
     //Push constants are faster.
     float t01 = pingpong_t01(10000);
@@ -299,77 +282,40 @@ public:
     {
       std::shared_ptr<RenderFrame> frame = _pSwapchain->acquireFrame();
       if (frame != nullptr) {
-        uint32_t frameIndex = frame->frameIndex();
-
-        //* game logic
-        updateViewProjUniformBuffer(_viewProjUniformBuffers[frameIndex]);
-        updateInstanceUniformBuffer(_instanceUniformBuffers1[frameIndex], offsets1, rots_delta1, rots_ini1, dt);
-        updateInstanceUniformBuffer(_instanceUniformBuffers2[frameIndex], offsets2, rots_delta2, rots_ini2, dt);
-
-        //Simplfy
-        //if(!_pShader->draw({game->mesh1, game->mesh2})){
-        // std::cout<<Mesh wan't compatible with shader<<std::endl
-        //}
-        /*
-
-      //Script
-        Shader s  = Shader({base_mesh.vs, base_mesh.fs});
-        Mesh m = loadMesh("Character")
-        m.setShader(s)
-
-        auto ob = Game::createObject("MyChar");
-        ob.addComponent(m);
-
-        Camera c;
-        c.lookAt({0,0,0});
-        c.position({10,10,10});
-
-        Toolbar tb;
-        tb.addChild({
-          Button{.width=100, .text="Wave" .push=[](){ Game::getOb("Character").animate("Wave"); },
-          Button{.width=100, .text="Dance" .push=[](){ Game::getOb("Character").animate("Dance"); },
-          });
-        
-        game_loop{
-          shader->begin()
-          shader->draw(mesh)
-          shader->end()
-        }
-
-        */
-
-        // * Draw
-        recordCommandBuffer(frame);
+        recordCommandBuffer(frame, dt);
       }
     }
     _pSwapchain->endFrame();
     g_iFrameNumber++;
   }
-  void recordCommandBuffer(std::shared_ptr<RenderFrame> frame) {
+  void recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
     uint32_t frameIndex = frame->frameIndex();
 
+    auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
+    auto inst1 = _pShader->getUBO(c_instanceUBO_1, frame);
+    auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
+    updateViewProjUniformBuffer(viewProj);
+    updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, dt);
+    updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, dt);
+
+    //Technically we don't need to re-record this every frame for this demo.
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
       if (cmd->beginPass(_pShader, frame)) {
-        //I'm not sure if you have to bind pipeline first, but if you dont we can move this back into shader::bind.
-        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
+        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_LINE);
         pipe->bind(cmd);
 
         cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
 
-        //** TODO:
-        //_pShader->bindUniformBuffers({"_uboViewProj", "_uboInstanceData"});
-
-        //Mesh 1
         _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
-        _pShader->bindUBO("_uboViewProj", frameIndex, _viewProjUniformBuffers[frameIndex]);
-        _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers1[frameIndex]);
+        _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
+        _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
         _pShader->bindDescriptors(cmd, pipe, frameIndex);
         pipe->drawIndexed(cmd, _game->_mesh1, _numInstances);
 
         _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
-        _pShader->bindUBO("_uboInstanceData", frameIndex, _instanceUniformBuffers2[frameIndex]);
+        _pShader->bindUBO("_uboInstanceData", frameIndex, inst2);
         _pShader->bindDescriptors(cmd, pipe, frameIndex);
         pipe->drawIndexed(cmd, _game->_mesh2, _numInstances);
 
@@ -416,20 +362,16 @@ public:
     else {
       vulkan()->errorExit("Could not load test image 2.");
     }
-    // _depthTexture = = std::make_shared<VulkanImage>(vulkan(), img);
   }
 #pragma endregion
 
   void allocateShaderMemory() {
     cleanupShaderMemory();
 
-    createUniformBuffers();  // - create once to not be recreated when we genericize swapchain
-    createTextureImages();   // - create once - single creation
+    createUniformBuffers();
+    createTextureImages(); 
   }
   void cleanupShaderMemory() {
-    _viewProjUniformBuffers.resize(0);
-    _instanceUniformBuffers1.resize(0);
-    _instanceUniformBuffers2.resize(0);
     _testTexture1 = nullptr;
     _testTexture2 = nullptr;
     _depthTexture = nullptr;

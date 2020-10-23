@@ -39,6 +39,9 @@ enum class AttachmentType {
   ColorAttachment,
   DepthAttachment
 };
+enum class VulkanBufferPoolType {
+  Gpu, GpuAndHost, Host
+};
 enum class VulkanBufferType {
   VertexBuffer,
   IndexBuffer,

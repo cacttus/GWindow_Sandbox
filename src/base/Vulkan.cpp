@@ -314,15 +314,27 @@ public:
         //We need to fix this to allow for optional samplerate shading.
         if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             deviceFeatures.geometryShader &&
-            deviceFeatures.fillModeNonSolid &&
+            
+            // ** This is mostly debugging stuff - If the driver doens't have it we should create one without it.
+            deviceFeatures.fillModeNonSolid && // VK_POLYGON_MODE
+            deviceFeatures.wideLines && 
+            deviceFeatures.largePoints && 
+            
+
+
+            //deviceFeatures. pipelineStatisticsQuery && // -- Query pools
+            //imageCubeArray
+            //logicOp should be supported
+
+            //MSAA
+            deviceFeatures.shaderStorageImageMultisample && //Again not necessary but pretty
+            //AF 
             deviceFeatures.samplerAnisotropy &&
             deviceFeatures.sampleRateShading) {
           _physicalDevice = device;
           _maxMSAASamples = getMaxUsableSampleCount();
           _deviceProperties = deviceProperties;
           _deviceFeatures = deviceFeatures;
-          int n = 0;
-          n++;
         }
       }
 
