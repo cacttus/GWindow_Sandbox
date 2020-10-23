@@ -1440,7 +1440,7 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
 std::shared_ptr<Pipeline> PipelineShader::getPipeline(VkPrimitiveTopology topo, VkPolygonMode mode) {
   //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
   //**TODO: HACK - create multiple pipelines for Vertex Format, Polygonmode & Topo.
-  BRLogWarn("- Multiple vertex types not implemented yet.");
+  //BRLogWarn("- Multiple vertex types not implemented yet.");
   std::shared_ptr<Pipeline> pipe = nullptr;
   if (_pipelines.size() == 0) {
     pipe = std::make_shared<Pipeline>(vulkan(), getThis<PipelineShader>(), nullptr, topo, mode);
@@ -1853,8 +1853,8 @@ void RenderFrame::createSyncObjects() {
     .pNext = nullptr,
     .flags = 0,
   };
-  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailable);
-  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinished);
+  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_imageAvailableSemaphore);
+  CheckVKR(vkCreateSemaphore, vulkan()->device(), &semaphoreInfo, nullptr, &_renderFinishedSemaphore);
 
   VkFenceCreateInfo fenceInfo = {
     .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -1865,8 +1865,8 @@ void RenderFrame::createSyncObjects() {
   CheckVKR(vkCreateFence, vulkan()->device(), &fenceInfo, nullptr, &_inFlightFence);
 }
 void RenderFrame::cleanupSyncObjects() {
-  vkDestroySemaphore(vulkan()->device(), _imageAvailable, nullptr);
-  vkDestroySemaphore(vulkan()->device(), _renderFinished, nullptr);
+  vkDestroySemaphore(vulkan()->device(), _imageAvailableSemaphore, nullptr);
+  vkDestroySemaphore(vulkan()->device(), _renderFinishedSemaphore, nullptr);
   vkDestroyFence(vulkan()->device(), _inFlightFence, nullptr);
 }
 void RenderFrame::beginFrame() {
@@ -1876,7 +1876,7 @@ void RenderFrame::beginFrame() {
   vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, UINT64_MAX);
 
   VkResult res;
-  res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), UINT64_MAX, _imageAvailable, VK_NULL_HANDLE, &_currentRenderingImageIndex);
+  res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), UINT64_MAX, _imageAvailableSemaphore, VK_NULL_HANDLE, &_currentRenderingImageIndex);
   if (res != VK_SUCCESS) {
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
       _pSwapchain->outOfDate();
@@ -1906,7 +1906,7 @@ void RenderFrame::endFrame() {
     //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
     //to finish rendering, or just wait for the framebuffer output.
     .waitSemaphoreCount = 1,
-    .pWaitSemaphores = &_imageAvailable,
+    .pWaitSemaphores = &_imageAvailableSemaphore,
     .pWaitDstStageMask = waitStages,
     .commandBufferCount = 1,
 
@@ -1914,7 +1914,7 @@ void RenderFrame::endFrame() {
 
     //The semaphore is signaled when the queue has completed the requested wait stages.
     .signalSemaphoreCount = 1,
-    .pSignalSemaphores = &_renderFinished,
+    .pSignalSemaphores = &_renderFinishedSemaphore,
   };
 
   vkResetFences(vulkan()->device(), 1, &_inFlightFence);
@@ -1926,7 +1926,7 @@ void RenderFrame::endFrame() {
     .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
     .pNext = nullptr,
     .waitSemaphoreCount = 1,
-    .pWaitSemaphores = &_renderFinished,
+    .pWaitSemaphores = &_renderFinishedSemaphore,
     .swapchainCount = static_cast<uint32_t>(chains.size()),
     .pSwapchains = chains.data(),
     .pImageIndices = &_currentRenderingImageIndex,
@@ -2003,6 +2003,7 @@ bool Swapchain::findValidPresentMode(VkPresentModeKHR& pm_out) {
   std::vector<VkPresentModeKHR> presentModes(presentModeCount);
   CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
 
+  //**FIFO will use vsync 
   pm_out = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
   for (const auto& availablePresentMode : presentModes) {
     if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {

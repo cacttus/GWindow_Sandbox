@@ -1,8 +1,44 @@
 #include "./GameClasses.h"
 #include "./VulkanClasses.h"
-
+#include "./SandboxHeader.h"
 
 namespace VG {
+
+bool FpsMeter::deltaMs(uint64_t& __inout_ last, uint64_t ms) {
+  uint64_t cur = Gu::getMicroseconds();
+  if (cur - last >= ms) {
+    last = cur;
+    return true;
+  }
+  return false;
+}
+void FpsMeter::update() {
+  //Only call this once per frame.
+  uint64_t cur = Gu::getMicroseconds();
+
+  //Average FPS over 1/2s (new method, less choppy)
+  uint64_t delta = cur - _last;
+  double fps_numerator = 1000000;
+  if (delta == 0) {
+    delta = (uint64_t)fps_numerator;
+  }
+  accum += fps_numerator / delta;
+  divisor += 1.0f;
+  _last = cur;
+
+  if (cur - _tmr > 500000) {  //Update .5s
+    if (divisor == 0) {
+      divisor = accum;
+    }
+    _fpsLast = accum/ divisor;
+    _tmr = cur;
+    accum = 0;
+    divisor = 0;
+  }
+
+  _iFrame++;
+}
+
 #pragma region Mesh
 
 Mesh::Mesh(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
@@ -12,7 +48,6 @@ Mesh::~Mesh() {
 uint32_t Mesh::maxRenderInstances() { return _maxRenderInstances; }
 
 void Mesh::drawIndexed(std::shared_ptr<CommandBuffer> cmd, uint32_t instanceCount) {
-  
   vkCmdDrawIndexed(cmd->getVkCommandBuffer(), static_cast<uint32_t>(_boxInds.size()), instanceCount, 0, 0, 0);
 }
 void Mesh::bindBuffers(std::shared_ptr<CommandBuffer> cmd) {
@@ -30,7 +65,6 @@ void Mesh::bindBuffers(std::shared_ptr<CommandBuffer> cmd) {
   vkCmdBindVertexBuffers(cmd->getVkCommandBuffer(), 0, 1, vertexBuffers, offsets);
   vkCmdBindIndexBuffer(cmd->getVkCommandBuffer(), _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 }
-
 
 void Mesh::makePlane() {
   //    vec2(0.0, -.5),
@@ -161,6 +195,4 @@ void Mesh::makeBox() {
 
 #pragma endregion
 
-
-
-}//ns Game
+}  // namespace VG

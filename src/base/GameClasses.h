@@ -13,6 +13,28 @@ namespace VG {
 class Mesh;
 class GameDummy;
 
+class FpsMeter {
+public:
+  bool deltaMs(uint64_t& __inout_ last, uint64_t ms);
+  float getFps() { return _fpsLast; }
+  float getFpsAvg() { return _fpsLast; }
+  void update();
+  uint64_t getFrameNumber() { return _iFrame; }
+  bool frameMod(uint64_t i) {
+    return (_iFrame % i) == 0;
+  }
+
+private:
+  double accum=0;
+  double divisor=0;
+
+  uint64_t _last = 0;
+  uint64_t _tmr = 0;
+  float _fpsLast = 60;
+  uint64_t _iFrame = 0;  //Current frame number
+};
+
+
 #pragma region GameDummy
 
 //A dummy game with meshes &c to test command buffer rendering

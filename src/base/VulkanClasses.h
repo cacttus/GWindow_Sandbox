@@ -462,8 +462,8 @@ private:
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
-  VkSemaphore _imageAvailable = VK_NULL_HANDLE;
-  VkSemaphore _renderFinished = VK_NULL_HANDLE;
+  VkSemaphore _imageAvailableSemaphore = VK_NULL_HANDLE;
+  VkSemaphore _renderFinishedSemaphore = VK_NULL_HANDLE;
   uint32_t _currentRenderingImageIndex = 0;
 
 };
@@ -472,7 +472,7 @@ private:
  * */
 class Swapchain : public VulkanObject {
 public:
-  Swapchain(std::shared_ptr<Vulkan> v);
+  Swapchain(std::shared_ptr<Vulkan> v);//TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
   //Get the next available frame if one is available. Non-Blocking

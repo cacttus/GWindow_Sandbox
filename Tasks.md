@@ -1,22 +1,30 @@
 
+## Shader Pipeline Metadata
+* Depth FBO
+* We need The Swapchain Group - A group of swapchain images in a pipeline
+* We need to understand the async rendering going on to fix it
+    * This is also a good opportunity to change the engine cycle.
+    * Deferred Group
+    * Forward Group
+    * Default / Blit group (Default FBO)
+        * Default FBO has a Renderbuffer, e.g. depth buffer attached.
+        * Any group can have a depth buffer + multiple renderbuffers
 
 ## Roadmap
 1. continue implementing supported BR2 pipeline features
+  * Depth FBOs (testing)
   * Multisampling
   * MRT's 
     * Picking
     * Shadowmapping
   * Deferred Lighting.
-  * Depth FBOs (testing)
   * Vertex Formats, and Fill/Mode data (in getPipeline)
     * Integrate BR2::VertexFormat
-  * 
 2. Implement the GWindow_Sandbox UI
   * Multiple Vulkan Windows.
 3. Move GWindow_Sandbox Vulkan code to Vulkan
-
-
-
+    * Alternatively - move Vulkan to GWindow Sandbox
+    * Isolate the GL classes.
 
 ## Bugs 
 * Address concern of Shader output format not matching FBO format

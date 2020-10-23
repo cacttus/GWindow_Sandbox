@@ -23,7 +23,7 @@ struct InstanceData
     mat4 model;
 };
 layout (binding = 1) uniform Instances {
-  InstanceData instances[10]; // This is a member
+  InstanceData instances[1000]; // This is a member
 } _uboInstanceData;
 
 // struct Blah {

@@ -303,7 +303,7 @@ public:
     cmd->begin();
     {
       if (cmd->beginPass(_pShader, frame)) {
-        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_LINE);
+        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
         pipe->bind(cmd);
 
         cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
@@ -447,6 +447,7 @@ bool SDLVulkan::doInput() {
   }
   return false;
 }
+FpsMeter m;
 void SDLVulkan::renderLoop() {
   bool exit = false;
   auto last_time = std::chrono::high_resolution_clock::now();
@@ -454,6 +455,15 @@ void SDLVulkan::renderLoop() {
     exit = doInput();
     double t01ms = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
     last_time = std::chrono::high_resolution_clock::now();
+
+    //FPS
+    m.update();
+    if (m.getFrameNumber() % 2==0) {
+      float f = m.getFps();
+      string_t fp = std::to_string(f);
+      SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
+    }
+    
 
     _pInt->drawFrame(t01ms);
   }
