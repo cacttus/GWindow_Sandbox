@@ -75,42 +75,36 @@ public:
 private:
   std::unique_ptr<VulkanBuffer_Internal> _pInt;
 };
-
+/**
+* @class VulkanImage
+* @brief 2D images residing on GPU.
+*/
 class VulkanImage : public VulkanObject {
 public:
   VulkanImage(std::shared_ptr<Vulkan> pvulkan);
   virtual ~VulkanImage() override;
 
-  VkImageView imageView() { return _textureImageView; }
+  VkImageView imageView() { return _imageView; }
   VkFormat format() { return _format; }
   VkImage image() { return _image; }
 
   void allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                       VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
-                      VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+                      VkSampleCountFlagBits samples);
+  void createView (VkFormat fmt, VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t mipLevel=1);
 
 protected:
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
-  VkDeviceMemory _textureImageMemory = VK_NULL_HANDLE;
-  VkImageView _textureImageView = VK_NULL_HANDLE;
+  VkDeviceMemory _imageMemory = VK_NULL_HANDLE;
+  VkImageView _imageView = VK_NULL_HANDLE;
   uint32_t _width = 0;
   uint32_t _height = 0;
-  VkFormat _format = (VkFormat)0;  //Invalid format
+  VkFormat _format = VK_FORMAT_UNDEFINED;  //Invalid format
 };
-class VulkanDepthImage : public VulkanImage {
-public:
-  VulkanDepthImage(std::shared_ptr<Vulkan> pvulkan) : VulkanImage(pvulkan) {
-  }
-};
-
-//We should say like RenderPipe->createAttachment .. or sth. It uses the swapchain images.
-class VulkanAttachment : public VulkanImage {
-public:
-  VulkanAttachment(std::shared_ptr<Vulkan> v, AttachmentType type) : VulkanImage(v) {
-  }
-};
-
-//Used for graphics commands.
+/**
+* @class VulkanCommands
+* @brief Common graphics commands.
+*/
 class VulkanCommands : public VulkanObject {
 public:
   VulkanCommands(std::shared_ptr<Vulkan> v);
@@ -140,7 +134,7 @@ private:
 */
 class VulkanTextureImage : public VulkanImage {
 public:
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
 
@@ -159,7 +153,7 @@ private:
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
   void flipImage20161206(uint8_t* image, int width, int height);
 
-};  // namespace VG
+}; 
 /**
  * @class VulkanShaderModule
  * @brief Shader module with reflection tanks to Spirv-Reflect.
@@ -215,7 +209,6 @@ enum class FBOType {
   Color,
   Depth
 };
-
 /**
  * @class ShaderOutput
  * @brief Intermediary FBO metadata.
@@ -228,6 +221,9 @@ public:
   BlendFunc _blending = BlendFunc::AlphaBlend;
   FBOType _type = FBOType::Color;
   BR2::vec4 _clearColor{ 0, 0, 0, 1 };  //R&G are Depth&Stencil(casted to integer for stencil)
+  float _clearDepth = 1;                //R&G are Depth&Stencil(casted to integer for stencil)
+  uint32_t _clearStencil = 0;                //R&G are Depth&Stencil(casted to integer for stencil)
+
 };
 /**
  * @class FramebufferAttachment
@@ -235,10 +231,10 @@ public:
 class FramebufferAttachment : public VulkanObject {
 public:
   FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
-                        const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor, BlendFunc blending);
+                        const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor, BlendFunc blending, float clearDepth, uint32_t clearStencil);
   virtual ~FramebufferAttachment() override;
 
-  bool init();
+  bool init(std::shared_ptr<PipelineShader> shader);
   VkImageView getVkImageView() { return _swapchainImageView; }
   const string_t& name() { return _name; }
   uint32_t location() { return _location; }
@@ -247,11 +243,15 @@ public:
   FBOType type() { return _fboType; }
   const BR2::vec4& clearColor() { return _clearColor; }  // If this is a depth FBO x = clear color depth
   const BR2::usize2& imageSize() { return _imageSize; }
+  float clearDepth() { return _clearDepth; }  // If this is a depth FBO x = clear color depth
+  uint32_t clearStencil() { return _clearStencil; }
 
 private:
   string_t _name = "";
   uint32_t _location = 0;
   BR2::vec4 _clearColor = BR2::vec4(0, 0, 0, 1);
+  float _clearDepth = 1;
+  uint32_t _clearStencil = 0;
   BlendFunc _blending = BlendFunc::Disabled;
   VkFormat _fboFormat = VK_FORMAT_UNDEFINED;
   VkImage _swapchainImage = VK_NULL_HANDLE;
@@ -307,12 +307,13 @@ public:
   bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, BR2::urect2* extent = nullptr);
   std::shared_ptr<Pipeline> getPipeline(VkPrimitiveTopology topo, VkPolygonMode mode);
   void bindDescriptors(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe, uint32_t swapchainImageIndex);
-  bool recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz);
+  bool recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format, VkImage depth_image, VkFormat depth_format, const BR2::usize2& swap_siz);
   std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
   
   bool createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize = VK_WHOLE_SIZE);
   std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<RenderFrame> frame);
-  
+  bool hasDepthBuffer() { return _bHasDepthBuffer; }
+
 private:
   bool init();
   bool checkGood();
@@ -339,6 +340,8 @@ private:
   std::unordered_map<string_t, std::shared_ptr<Descriptor>> _descriptors;
   std::vector<std::shared_ptr<VertexAttribute>> _attributes;
   std::vector<ShaderOutput> _shaderOutputs;
+  bool _bHasDepthBuffer = true;
+
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
   std::vector<std::shared_ptr<Pipeline>> _pipelines;
   bool _bValid = true;
@@ -423,6 +426,11 @@ public:
   std::unordered_map<std::string, std::shared_ptr<ShaderDataUBO>> _uniformBuffers;
   std::shared_ptr<ShaderDataUBO> getUBOData(const string_t& name);
 };
+enum class FrameState {
+  Unset,
+  FrameBegin,
+  FrameEnd,
+};
 /**
  * @class RenderFrame
  *  RenderPass is Shadred among FBOS and shaders
@@ -435,13 +443,13 @@ public:
   const BR2::usize2& imageSize();
   VkFormat imageFormat();
   std::shared_ptr<Swapchain> getSwapchain() { return _pSwapchain; }
-  VkImageView getVkImageView() { return _imageView; }
+  //VkImageView getVkImageView() { return _swapImageView; }
   std::shared_ptr<CommandBuffer> commandBuffer() { return _pCommandBuffer; }     //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
   uint32_t currentRenderingImageIndex() { return _currentRenderingImageIndex; }  //TODO: remove later
   uint32_t frameIndex() { return _frameIndex; }                                  //Image index in the swapchain array
 
   void init();
-  void beginFrame();
+  bool beginFrame();
   void endFrame();
   void registerShader(std::shared_ptr<PipelineShader> shader);
   bool rebindShader(std::shared_ptr<PipelineShader> shader);
@@ -450,15 +458,17 @@ private:
   void createSyncObjects();
   void cleanupSyncObjects();
 
+  FrameState _frameState = FrameState::Unset;
+
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
   std::shared_ptr<CommandBuffer> _pCommandBuffer = nullptr;
 
   uint32_t _frameIndex = 0;
 
   //* Default FBO
-  VkImage _image = VK_NULL_HANDLE;
-  VkImageView _imageView = VK_NULL_HANDLE;
+  VkImage _swapImage = VK_NULL_HANDLE;
   VkSurfaceFormatKHR _imageFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+  std::shared_ptr<VulkanImage> _depthImage = nullptr;
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
@@ -467,6 +477,7 @@ private:
   uint32_t _currentRenderingImageIndex = 0;
 
 };
+
 /**
  * @class Swapchain
  * */
@@ -478,7 +489,7 @@ public:
   //Get the next available frame if one is available. Non-Blocking
   std::shared_ptr<RenderFrame> acquireFrame();
 
-  void beginFrame(const BR2::usize2& windowsize);  //Remove
+  bool beginFrame(const BR2::usize2& windowsize);  //Remove
   void endFrame();    //Remove
 
   const BR2::usize2& imageSize();
@@ -498,7 +509,7 @@ private:
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
   void rebindShaders();
-
+  FrameState _frameState = FrameState::Unset;
   std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;
   //std::map<std::shared_ptr<PipelineShader>, std::vector<std::shared_ptr<ShaderData>>> _shaderData;
   std::vector<std::shared_ptr<RenderFrame>> _frames;

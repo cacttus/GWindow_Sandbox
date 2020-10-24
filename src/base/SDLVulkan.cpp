@@ -32,7 +32,8 @@ public:
   string_t c_instanceUBO_1 = "c_instanceUBO_1";
   string_t c_instanceUBO_2 = "c_instanceUBO_2";
 
-  int32_t _numInstances = 10;
+  uint32_t _numInstances = 25;
+  FpsMeter _fpsMeter;
 
 #pragma endregion
 
@@ -227,8 +228,8 @@ public:
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
-        rots_delta.push_back(rnd(-M_2PI, M_2PI));  //rotation delta.
-        rots_ini.push_back(rnd(-M_2PI, M_2PI));    // Initial rotation, and also the value of current rotation.
+        rots_delta.push_back((float)rnd(-M_2PI, M_2PI));  //rotation delta.
+        rots_ini.push_back((float)rnd(-M_2PI, M_2PI));    // Initial rotation, and also the value of current rotation.
       }
     }
   }
@@ -243,7 +244,7 @@ public:
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection(BR2::MathUtils::radians(45.0f), (float)_pSwapchain->imageSize().width, -(float)_pSwapchain->imageSize().height, 0.1f, 100.0f)
+      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_pSwapchain->imageSize().width, -(float)_pSwapchain->imageSize().height, 0.1f, 100.0f)
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
   }
@@ -252,12 +253,14 @@ public:
     float t02 = pingpong_t01(10000);
     tryInitializeOffsets(offsets, rots_delta, rots_ini);
 
+    //This slowdown (e.g. 2500fps -> 80fps) is my code mat4 multiplies.
+    // We could dispatch the "instance update" and also any additional physics into a compute shader to get the result more quickily.
+    // Will we really have 1000's of dynamic instances updating per frame? Probably not, but it's fun to think about.
     float d = 20;
     BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
-
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     std::vector<BR2::mat4> mats(_numInstances);
     for (uint32_t i = 0; i < _numInstances; ++i) {
@@ -278,14 +281,18 @@ public:
 
   uint64_t g_iFrameNumber = 0;
   void drawFrame(double dt) {
-    _pSwapchain->beginFrame(getWindowDims().size);
-    {
+    if (_pSwapchain->beginFrame(getWindowDims().size)) {
       std::shared_ptr<RenderFrame> frame = _pSwapchain->acquireFrame();
       if (frame != nullptr) {
         recordCommandBuffer(frame, dt);
       }
+      _pSwapchain->endFrame();
     }
-    _pSwapchain->endFrame();
+    else {
+      int n = 0;
+      n++;
+    }
+
     g_iFrameNumber++;
   }
   void recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
@@ -295,19 +302,19 @@ public:
     auto inst1 = _pShader->getUBO(c_instanceUBO_1, frame);
     auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
     updateViewProjUniformBuffer(viewProj);
-    updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, dt);
-    updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, dt);
+    //if (fpsMeter.frameMod(50)) {
+    updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt);
+    updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
+    //}
 
     //Technically we don't need to re-record this every frame for this demo.
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
       if (cmd->beginPass(_pShader, frame)) {
+        cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
         auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
         pipe->bind(cmd);
-
-        cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
-
         _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
         _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
         _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
@@ -369,7 +376,7 @@ public:
     cleanupShaderMemory();
 
     createUniformBuffers();
-    createTextureImages(); 
+    createTextureImages();
   }
   void cleanupShaderMemory() {
     _testTexture1 = nullptr;
@@ -447,7 +454,6 @@ bool SDLVulkan::doInput() {
   }
   return false;
 }
-FpsMeter m;
 void SDLVulkan::renderLoop() {
   bool exit = false;
   auto last_time = std::chrono::high_resolution_clock::now();
@@ -457,13 +463,12 @@ void SDLVulkan::renderLoop() {
     last_time = std::chrono::high_resolution_clock::now();
 
     //FPS
-    m.update();
-    if (m.getFrameNumber() % 2==0) {
-      float f = m.getFps();
+    _pInt->_fpsMeter.update();
+    if (_pInt->_fpsMeter.getFrameNumber() % 2 == 0) {
+      float f = _pInt->_fpsMeter.getFps();
       string_t fp = std::to_string(f);
       SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
     }
-    
 
     _pInt->drawFrame(t01ms);
   }

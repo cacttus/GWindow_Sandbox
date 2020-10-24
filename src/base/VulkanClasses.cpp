@@ -196,13 +196,20 @@ void VulkanBuffer::writeData(void* data, size_t off, size_t datasize) {
 VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan) : VulkanObject(pvulkan) {
 }
 VulkanImage::~VulkanImage() {
-  vkDestroyImage(vulkan()->device(), _image, nullptr);
-  vkFreeMemory(vulkan()->device(), _textureImageMemory, nullptr);
-  vkDestroyImageView(vulkan()->device(), _textureImageView, nullptr);
+  if (_image != VK_NULL_HANDLE) {
+    vkDestroyImage(vulkan()->device(), _image, nullptr);
+  }
+  if (_imageMemory != VK_NULL_HANDLE) {
+    vkFreeMemory(vulkan()->device(), _imageMemory, nullptr);
+  }
+  if (_imageView != VK_NULL_HANDLE) {
+    vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
+  }
 }
 void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                                  VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
                                  VkSampleCountFlagBits samples) {
+  //Allocates Image memory and binds it.
   if (mipLevels < 1) {
     BRLogError("Miplevels was < 1 for image. Setting to 1");
     mipLevels = 1;
@@ -222,7 +229,7 @@ void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat forma
       .depth = 1 },                              // VkExtent3D
     .mipLevels = mipLevels,                      // uint32_t
     .arrayLayers = 1,                            // uint32_t
-    .samples = VK_SAMPLE_COUNT_1_BIT,            // VkSampleCountFlagBits
+    .samples = samples,                          // VkSampleCountFlagBits
     .tiling = tiling,                            // VkImageTiling
     .usage = usage,                              // VkImageUsageFlags
     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,    // VkSharingMode
@@ -240,10 +247,12 @@ void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat forma
     .allocationSize = mem_req.size,
     .memoryTypeIndex = vulkan()->findMemoryType(mem_req.memoryTypeBits, properties)
   };
-  CheckVKR(vkAllocateMemory, vulkan()->device(), &allocInfo, nullptr, &_textureImageMemory);
-  CheckVKR(vkBindImageMemory, vulkan()->device(), _image, _textureImageMemory, 0);
+  CheckVKR(vkAllocateMemory, vulkan()->device(), &allocInfo, nullptr, &_imageMemory);
+  CheckVKR(vkBindImageMemory, vulkan()->device(), _image, _imageMemory, 0);
 }
-
+void VulkanImage::createView(VkFormat fmt, VkImageAspectFlagBits aspect, uint32_t mipLevel) {
+  _imageView = vulkan()->createImageView(_image, fmt, aspect, mipLevel);
+}
 #pragma endregion
 
 #pragma region VulkanCommands
@@ -323,7 +332,7 @@ void VulkanCommands::imageTransferBarrier(VkImage image,
 
 #pragma region VulkanTextureImage
 
-VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps) : VulkanImage(pvulkan) {
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples) : VulkanImage(pvulkan) {
   BRLogInfo("Creating Vulkan image");
   VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
   VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
@@ -342,7 +351,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
                  img_fmt,
                  VK_IMAGE_TILING_OPTIMAL,
                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
   // this was for OpenGL may not be needed
   //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
 
@@ -411,6 +420,7 @@ void VulkanTextureImage::generateMipmaps() {
                              _mipLevels - 1, VK_IMAGE_ASPECT_COLOR_BIT);
   cmds->end();
 }
+
 void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt) {
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
@@ -429,7 +439,8 @@ void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat im
   _host = nullptr;
 
   //Image view
-  _textureImageView = vulkan()->createImageView(_image, img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
+  //_imageView =
+  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
 
   //Sampler
   VkSamplerCreateInfo samplerInfo = {
@@ -633,12 +644,15 @@ const string_t& ShaderModule::name() {
 
 #pragma region FramebufferAttachment
 FramebufferAttachment::FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
-                                             const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor, BlendFunc blending) : VulkanObject(v) {
+                                             const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor,
+                                             BlendFunc blending, float clearDepth, uint32_t clearStencil) : VulkanObject(v) {
   _fboType = type;
   _name = name;
   _location = glsl_location;
   _imageSize = imageSize;
   _clearColor = clearColor;
+  _clearDepth = clearDepth;
+  _clearStencil = clearStencil;
   _blending = blending;
   _swapchainImageFormat = swap_format;
   _swapchainImage = swap_img;
@@ -649,9 +663,12 @@ FramebufferAttachment::~FramebufferAttachment() {
     vkDestroyImageView(vulkan()->device(), _swapchainImageView, nullptr);
   }
 }
-bool FramebufferAttachment::init() {
+bool FramebufferAttachment::init(std::shared_ptr<PipelineShader> shader) {
   if (_fboFormat != _swapchainImageFormat) {
-    BRLogError("Input FBO format '" + VulkanDebug::VkFormat_toString(_fboFormat) + "' was not equal to reference image format '" + VulkanDebug::VkFormat_toString(_swapchainImageFormat) + "'.");
+    shader->shaderError("Input FBO format '" +
+                        VulkanDebug::VkFormat_toString(_fboFormat) +
+                        "' was not equal to reference image format '" +
+                        VulkanDebug::VkFormat_toString(_swapchainImageFormat) + "'.");
     return false;
   }
   VkImageAspectFlagBits aspect;
@@ -662,7 +679,7 @@ bool FramebufferAttachment::init() {
     aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
   }
   else {
-    BRLogError("Unsupported FBOType enum: '" + std::to_string((int)_fboType) + "'");
+    shader->shaderError("Unsupported FBOType enum: '" + std::to_string((int)_fboType) + "'");
     return false;
   }
   _swapchainImageView = vulkan()->createImageView(_swapchainImage, _swapchainImageFormat, aspect, 1);
@@ -815,14 +832,14 @@ std::shared_ptr<ShaderModule> PipelineShader::getModule(VkShaderStageFlagBits st
 }
 bool PipelineShader::checkGood() {
   std::shared_ptr<ShaderModule> vert = getModule(VK_SHADER_STAGE_VERTEX_BIT);
-  int maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
+  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
   if (vert->reflectionData()->input_variable_count >= maxinputs) {
     BRLogError("Error creating shader '" + name() + "' - too many input variables");
     return false;
   }
 
   std::shared_ptr<ShaderModule> frag = getModule(VK_SHADER_STAGE_FRAGMENT_BIT);
-  int maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
+  auto maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
   if (frag->reflectionData()->output_variable_count >= maxAttachments) {
     BRLogError("Error creating shader '" + name() + "' - too many output attachments in fragment shader.");
     return false;
@@ -835,8 +852,8 @@ bool PipelineShader::checkGood() {
 bool PipelineShader::createInputs() {
   std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_VERTEX_BIT, true);
 
-  int maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
-  int maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
+  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
+  auto maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
 
   if (mod->reflectionData()->input_variable_count >= maxinputs) {
     BRLogError("Error creating shader '" + name() + "' - too many input variables");
@@ -845,7 +862,7 @@ bool PipelineShader::createInputs() {
 
   int iBindingIndex = 0;
   size_t iOffset = 0;
-  for (int ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
+  for (uint32_t ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
     auto& iv = mod->reflectionData()->input_variables[ii];
     std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
     attrib->_name = std::string(iv.name);
@@ -880,7 +897,7 @@ bool PipelineShader::createInputs() {
     attrib->_desc.binding = 0;
     attrib->_desc.location = iBindingIndex;
     attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
-    attrib->_desc.offset = iOffset;  //Default offset, for an exact-match vertex.
+    attrib->_desc.offset = static_cast<uint32_t>(iOffset);  // Default offset, for an exact-match vertex.
 
     if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
       _bInstanced = true;
@@ -943,8 +960,9 @@ bool PipelineShader::createOutputs() {
     Gu::debugBreak();
     return false;
   }
-
-  for (int inp = 0; inp < mod->reflectionData()->output_variable_count; ++inp) {
+  uint32_t iMaxLocation = 0;
+  std::vector<uint32_t> locations;
+  for (uint32_t inp = 0; inp < mod->reflectionData()->output_variable_count; ++inp) {
     string_t name = string_t(mod->reflectionData()->output_variables[inp].name);
 
     if (StringUtil::startsWith(name, "_outFBO")) {
@@ -958,17 +976,53 @@ bool PipelineShader::createOutputs() {
         fb._type = FBOType::Color;
       }
       else if (fb._format == VK_FORMAT_R32_SFLOAT) {
-        fb._type = FBOType::Depth;
+        shaderError("Depth format outputted from shader, this is not implemented.");
+        return false;
+        //fb._type = FBOType::Depth;
       }
       else {
         return shaderError("Unrecognized shader output variable type '" + VulkanDebug::VkFormat_toString(fb._format) + "'");
       }
+      locations.push_back(fb._location);
 
       _shaderOutputs.push_back(fb);
     }
     else {
       return shaderError("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
     }
+  }
+  //Validate sequential attachment Locations.
+  uint32_t lastLoc = 0;
+  for (size_t iloc = 0; iloc < locations.size(); ++iloc) {
+    auto it = std::find(locations.begin(), locations.end(), (uint32_t)iloc);
+    if (it == locations.end()) {
+      shaderError("Error one or more FBO locations missing '" + std::to_string(iloc) + "' - all locations to the maximum location must be filled.");
+      return false;
+    }
+  }
+
+  if (hasDepthBuffer()) {
+    //Get depth location
+    uint32_t depthLoc = 0;
+    auto it = std::max_element(locations.begin(), locations.end());
+    if (it == locations.end()) {
+      BRLogWarn("Failed to get renderbuffer location from output - setting to zero");
+      depthLoc = 0;
+    }
+    else {
+      depthLoc = *it + 1;
+    }
+
+    ShaderOutput fb;
+    fb._name = "_auto_depthBuffer";
+    fb._location = depthLoc;
+    fb._type = FBOType::Depth;
+    //We can't use shader output format to create the FBOs because SPV-Reflect doesn't know what format our FBO will be.
+    fb._format = vulkan()->findDepthFormat();
+    fb._clearColor = { 1, 1, 0, 1 };
+    fb._clearDepth = 1;
+    fb._clearStencil = 0;
+    _shaderOutputs.push_back(fb);
   }
 
   return true;
@@ -978,12 +1032,15 @@ bool PipelineShader::createRenderPass() {
   //https://www.saschawillems.de/blog/2018/07/19/vulkan-input-attachments-and-sub-passes/
   //https://github.com/KhronosGroup/GLSL/blob/master/extensions/khr/GL_KHR_vulkan_glsl.txt
   //FOr now we just use this for work.
-  std::vector<VkAttachmentDescription> colorAttachments;
-  std::vector<VkAttachmentReference> attachmentRefs;
+  std::vector<VkAttachmentDescription> attachments;
+  std::vector<VkAttachmentReference> colorAttachmentRefs;
+
+  VkAttachmentReference* depthRefPtr = nullptr;
+  VkAttachmentReference depthAttachmentRef;
   for (size_t iatt = 0; iatt < _shaderOutputs.size(); ++iatt) {
     //Make sure this data matches the data in Framebuffer creation (FramebufferAttachment)
     if (_shaderOutputs[iatt]._type == FBOType::Color) {
-      colorAttachments.push_back({
+      attachments.push_back({
         .flags = 0,
         .format = _shaderOutputs[iatt]._format,
         .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -994,10 +1051,35 @@ bool PipelineShader::createRenderPass() {
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
         .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,  //** This needs to be changed for Deferred MRTs
       });
-      attachmentRefs.push_back({
+      colorAttachmentRefs.push_back({
         .attachment = _shaderOutputs[iatt]._location,  //layout (location=x)
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
       });
+    }
+    else if (_shaderOutputs[iatt]._type == FBOType::Depth) {
+      if (depthRefPtr != nullptr) {
+        shaderError("Multiple Renderbuffer depth buffers found in shader Output FBOs");
+        return false;
+      }
+      //TODO: testing - testing using a renderbuffer
+      VkAttachmentDescription depthStencilAttachment = {
+        .flags = 0,
+        .format = _shaderOutputs[iatt]._format,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,  //** This needs to be changed for Deferred MRTs
+      };
+      attachments.push_back(depthStencilAttachment);
+      depthAttachmentRef = {
+        //Layout location of depth buffer is +1 the last location.
+        .attachment = _shaderOutputs[iatt]._location,  //layout (location=x)
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      };
+      depthRefPtr = &depthAttachmentRef;
     }
     else {
       BRThrowNotImplementedException();
@@ -1010,10 +1092,10 @@ bool PipelineShader::createRenderPass() {
     .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
     .inputAttachmentCount = 0,
     .pInputAttachments = nullptr,
-    .colorAttachmentCount = static_cast<uint32_t>(attachmentRefs.size()),
-    .pColorAttachments = attachmentRefs.data(),
+    .colorAttachmentCount = static_cast<uint32_t>(colorAttachmentRefs.size()),
+    .pColorAttachments = colorAttachmentRefs.data(),
     .pResolveAttachments = nullptr,
-    .pDepthStencilAttachment = nullptr,  // TODO
+    .pDepthStencilAttachment = depthRefPtr,  // TODO
     .preserveAttachmentCount = 0,
     .pPreserveAttachments = nullptr,
   };
@@ -1021,8 +1103,8 @@ bool PipelineShader::createRenderPass() {
     .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
     .pNext = nullptr,
     .flags = 0,
-    .attachmentCount = static_cast<uint32_t>(colorAttachments.size()),
-    .pAttachments = colorAttachments.data(),
+    .attachmentCount = static_cast<uint32_t>(attachments.size()),
+    .pAttachments = attachments.data(),
     .subpassCount = 1,
     .pSubpasses = &subpass,
     .dependencyCount = 0,
@@ -1286,7 +1368,7 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, u
     }
     else {
       //Get the descriptor size.
-      uint32_t size = bufsize;
+      uint32_t size = (uint32_t)bufsize;
       if (bufsize == VK_WHOLE_SIZE) {
         size = desc->_blockSize;
       }
@@ -1389,8 +1471,8 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   for (auto att : fbo->attachments()) {
     VkClearValue cv;
     if (att->type() == FBOType::Depth) {
-      cv.depthStencil.depth = att->clearColor().x;
-      cv.depthStencil.stencil = (uint32_t)att->clearColor().y;
+      cv.depthStencil = { att->clearDepth(),
+                          att->clearStencil() };
     }
     else if (att->type() == FBOType::Color) {
       cv.color = {
@@ -1487,7 +1569,8 @@ std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<Render
   return _shaderData[frame->frameIndex()];
 }
 
-bool PipelineShader::recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format, const BR2::usize2& swap_siz) {
+bool PipelineShader::recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_image, VkFormat swap_format,
+                                           VkImage depth_image, VkFormat depth_format, const BR2::usize2& swap_siz) {
   std::shared_ptr<ShaderData> sd = nullptr;
   while (_shaderData.size() <= frameIndex) {
     _shaderData.push_back(std::make_shared<ShaderData>());
@@ -1537,24 +1620,42 @@ bool PipelineShader::recreateShaderDataFBO(uint32_t frameIndex, VkImage swap_ima
   //FBO
   sd->_framebuffer = std::make_shared<Framebuffer>(vulkan(), getThis<PipelineShader>(), swap_siz);
   for (auto out_att : outputFBOs()) {
+    VkImage img_img;
+    VkFormat img_fmt;
+    if (out_att._type == FBOType::Color) {
+      img_img = swap_image;
+      img_fmt = swap_format;
+    }
+    else if (out_att._type == FBOType::Depth) {
+      img_img = depth_image;
+      img_fmt = depth_format;
+    }
+    else {
+      shaderError("Invalid swapchain FBO type '" + std::to_string((int)out_att._type) + "'");
+      return false;
+    }
+
     auto att = std::make_shared<FramebufferAttachment>(
       vulkan(),
       out_att._type,
       out_att._name,
-      swap_format,  //using the spv-reflect format causes problems
+      img_fmt,  //using the spv-reflect format causes problems
       out_att._location,
       swap_siz,
-      swap_image,
-      swap_format,
+      img_img,
+      img_fmt,
       out_att._clearColor,  //TODO
-      out_att._blending);   //TODO
+      out_att._blending,
+      out_att._clearDepth,
+      out_att._clearStencil);  //TODO
 
-    if (!att->init()) {
+    if (!att->init(getThis<PipelineShader>())) {
       return shaderError("Failed to initialize fbo attachment.");
     }
 
     sd->_framebuffer->addAttachment(att);
   }
+
   if (!sd->_framebuffer->createFBO()) {
     return shaderError("Failed to create FBO.");
   }
@@ -1637,7 +1738,25 @@ Pipeline::Pipeline(std::shared_ptr<Vulkan> v,
     .scissorCount = 0,
     .pScissors = nullptr,
   };
-
+  VkPipelineDepthStencilStateCreateInfo depthStencil;
+  VkPipelineDepthStencilStateCreateInfo* depthStencilPtr = nullptr;
+  if (shader->hasDepthBuffer()) {
+    depthStencil = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .depthTestEnable = VK_TRUE,
+      .depthWriteEnable = VK_TRUE,
+      .depthCompareOp = VK_COMPARE_OP_LESS,
+      .depthBoundsTestEnable = VK_FALSE,
+      .stencilTestEnable = VK_FALSE,
+      .front = {},
+      .back = {},
+      .minDepthBounds = 0,
+      .maxDepthBounds = 1,
+    };
+    depthStencilPtr = &depthStencil;
+  }
   VkPipelineRasterizationStateCreateInfo rasterizer = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
     .pNext = nullptr,
@@ -1656,7 +1775,7 @@ Pipeline::Pipeline(std::shared_ptr<Vulkan> v,
   std::vector<VkDynamicState> dynamicStates = {
     VK_DYNAMIC_STATE_VIEWPORT,
     VK_DYNAMIC_STATE_SCISSOR,
-    VK_DYNAMIC_STATE_LINE_WIDTH,//Not always supported afaik.
+    VK_DYNAMIC_STATE_LINE_WIDTH,  //Not always supported afaik.
   };
   VkPipelineDynamicStateCreateInfo dynamicState = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -1692,7 +1811,7 @@ Pipeline::Pipeline(std::shared_ptr<Vulkan> v,
     .pViewportState = &viewportState,
     .pRasterizationState = &rasterizer,
     .pMultisampleState = &multisampling,
-    .pDepthStencilState = nullptr,
+    .pDepthStencilState = depthStencilPtr,
     .pColorBlendState = &colorBlending,
     .pDynamicState = &dynamicState,
     .layout = _pipelineLayout,
@@ -1831,7 +1950,7 @@ std::shared_ptr<ShaderDataUBO> ShaderData::getUBOData(const string_t& name) {
 
 RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt) : VulkanObject(v) {
   _pSwapchain = ps;
-  _image = img;
+  _swapImage = img;
   _frameIndex = frameIndex;
   _imageFormat = fmt;
 }
@@ -1839,13 +1958,23 @@ RenderFrame::~RenderFrame() {
   //Cleanup
   cleanupSyncObjects();
 
-  vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
+  _depthImage = nullptr;
 }
 void RenderFrame::init() {
-  _imageView = vulkan()->createImageView(_image, _imageFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
   createSyncObjects();
 
   _pCommandBuffer = std::make_shared<CommandBuffer>(vulkan(), getThis<RenderFrame>());
+
+  uint32_t w = _pSwapchain->imageSize().width;
+  uint32_t h = _pSwapchain->imageSize().height;
+
+  //**This si still an issue - binding the swapchain format to the FBO format - there could be discrpencies.
+  VkFormat depthFmt = vulkan()->findDepthFormat();
+  _depthImage = std::make_shared<VulkanImage>(vulkan());
+  _depthImage->allocateMemory(w, h, depthFmt, VK_IMAGE_TILING_OPTIMAL,
+                              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1,
+                              VK_SAMPLE_COUNT_1_BIT);
+  //  _depthImage->createView(depthFmt, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 }
 void RenderFrame::createSyncObjects() {
   VkSemaphoreCreateInfo semaphoreInfo = {
@@ -1869,22 +1998,50 @@ void RenderFrame::cleanupSyncObjects() {
   vkDestroySemaphore(vulkan()->device(), _renderFinishedSemaphore, nullptr);
   vkDestroyFence(vulkan()->device(), _inFlightFence, nullptr);
 }
-void RenderFrame::beginFrame() {
+bool RenderFrame::beginFrame() {
   //I feel like the async aspect of RenderFrame might need to be a separate DispatchedFrame structure or..
-
-  //Wait forever TODO: we can keep updating the game in case the rendering isn't available.
-  vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, UINT64_MAX);
-
   VkResult res;
-  res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), UINT64_MAX, _imageAvailableSemaphore, VK_NULL_HANDLE, &_currentRenderingImageIndex);
+  uint64_t wait_fences = UINT64_MAX;
+  wait_fences = 0;  //Don't wait if no image available.
+
+  res = vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, wait_fences);
   if (res != VK_SUCCESS) {
-    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (res == VK_NOT_READY) {
+      std::cout << "WAITED!!" << std::endl;
+      return false;
+    }
+    else if (res == VK_ERROR_DEVICE_LOST) {
+      //**TODO: create new logical device from physical (if it's not lost)
+      // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
+      Gu::debugBreak();
+      vulkan()->errorExit("Lost device!");
+    }
+    else {
+      std::cout << "Res was not correct" << std::endl;
+    }
+  }
+
+  //The semaphore passed into vkAcquireNextImageKHR makes sure the iamge is not still being read to via the VkQueueSubmit. You must use the same semaphore for both images.
+  res = vkAcquireNextImageKHR(vulkan()->device(), _pSwapchain->getVkSwapchain(), wait_fences, _imageAvailableSemaphore, VK_NULL_HANDLE, &_currentRenderingImageIndex);
+  if (res != VK_SUCCESS) {
+    if (res == VK_NOT_READY || res == VK_TIMEOUT) {
+      std::cout << "WAITED2!!" << std::endl;
+      return false;
+    }
+    else if (res == VK_ERROR_DEVICE_LOST) {
+      //**TODO: create new logical device from physical (if it's not lost)
+      // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
+      Gu::debugBreak();
+      vulkan()->errorExit("Lost device!");
+    }
+    else if (res == VK_ERROR_OUT_OF_DATE_KHR) {
       _pSwapchain->outOfDate();
-      return;
+      return false;
     }
     else if (res == VK_SUBOPTIMAL_KHR) {
+      //This is considered success in the tutorial.
       _pSwapchain->outOfDate();
-      return;
+      return false;
     }
     else {
       vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
@@ -1892,8 +2049,15 @@ void RenderFrame::beginFrame() {
   }
 
   _pSwapchain->waitImage(_currentRenderingImageIndex, _inFlightFence);
+
+  _frameState = FrameState::FrameBegin;
+  return true;
 }
 void RenderFrame::endFrame() {
+  if (_frameState != FrameState::FrameBegin) {
+    BRLogError("Called RenderFrame::endFrame invalid.");
+    return;
+  }
   //Submit the recorded command buffer.
   VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1946,6 +2110,7 @@ void RenderFrame::endFrame() {
       vulkan()->validateVkResult(res, "vkAcquireNextImageKHR");
     }
   }
+  _frameState = FrameState::FrameEnd;
 }
 VkFormat RenderFrame::imageFormat() {
   return _imageFormat.format;
@@ -1956,7 +2121,11 @@ const BR2::usize2& RenderFrame::imageSize() {
 bool RenderFrame::rebindShader(std::shared_ptr<PipelineShader> s) {
   //Recreate Framebuffer
   BR2::usize2 fb_siz = { _pSwapchain->imageSize().width, _pSwapchain->imageSize().height };
-  if (!s->recreateShaderDataFBO(frameIndex(), _image, _imageFormat.format, fb_siz)) {
+  if (!s->recreateShaderDataFBO(
+        frameIndex(),
+        _swapImage, _imageFormat.format,
+        _depthImage->image(), _depthImage->format(),
+        fb_siz)) {
     return s->shaderError("Failed to create shaderdata for shader '" + s->name() + "'");
   }
   return true;
@@ -2003,17 +2172,24 @@ bool Swapchain::findValidPresentMode(VkPresentModeKHR& pm_out) {
   std::vector<VkPresentModeKHR> presentModes(presentModeCount);
   CheckVKR(vkGetPhysicalDeviceSurfacePresentModesKHR, vulkan()->physicalDevice(), vulkan()->windowSurface(), &presentModeCount, presentModes.data());
 
-  //**FIFO will use vsync 
+  //**FIFO will use vsync
   pm_out = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
-  for (const auto& availablePresentMode : presentModes) {
-    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-      pm_out = availablePresentMode;
-      return true;
+  if (!vulkan()->vsyncEnabled()) {
+    BRLogInfo("Vsync disabled");
+    for (const auto& availablePresentMode : presentModes) {
+      if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        pm_out = availablePresentMode;
+        return true;
+      }
+    }
+    if (pm_out == VK_PRESENT_MODE_FIFO_KHR) {
+      BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
     }
   }
-  if (pm_out == VK_PRESENT_MODE_FIFO_KHR) {
-    BRLogWarn("Mailbox present mode was not found for presenting swapchain.");
+  else {
+    BRLogInfo("Vsync enabled.");
   }
+
   return true;
 }
 bool Swapchain::findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out) {
@@ -2105,7 +2281,7 @@ void Swapchain::createSwapChain(const BR2::usize2& window_size) {
   for (size_t idx = 0; idx < swapChainImages.size(); ++idx) {
     auto& image = swapChainImages[idx];
     //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
-    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), idx, image, surfaceFormat);
+    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat);
     f->init();
     _frames.push_back(f);
   }
@@ -2119,20 +2295,27 @@ void Swapchain::cleanupSwapChain() {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
   }
 }
-void Swapchain::beginFrame(const BR2::usize2& windowsize) {
+bool Swapchain::beginFrame(const BR2::usize2& windowsize) {
+  //Returns true if we acquired an image to draw to
   if (isOutOfDate()) {
     initSwapchain(windowsize);
   }
 
-  _frames[_currentFrame]->beginFrame();
+  bool ret = _frames[_currentFrame]->beginFrame();
+  if (ret) {
+    _frameState = FrameState::FrameBegin;
+  }
+  return ret;
 }
 void Swapchain::endFrame() {
+  if (_frameState != FrameState::FrameBegin) {
+    BRLogError("Called Swapchain::endFrame invalid.");
+    return;
+  }
   _frames[_currentFrame]->endFrame();
   _currentFrame = (_currentFrame + 1) % _frames.size();
+  _frameState = FrameState::FrameEnd;
 
-  //**CONTINUE TUTORIAL AFTER THIS POINT
-  //https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
-  // We add additional threads for async the rendering.
   //vkQueueWaitIdle(_presentQueue);  //Waits for operations to complete to prevent overfilling the command buffers .
 }
 void Swapchain::waitImage(uint32_t imageIndex, VkFence myFence) {

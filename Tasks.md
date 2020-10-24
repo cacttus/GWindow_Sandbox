@@ -1,5 +1,8 @@
 
 ## Shader Pipeline Metadata
+* TODO: increase geometry of cube to test out the skip rendering.
+    4,000,000 cubes rendered and still getting 1,000fps 
+
 * Depth FBO
 * We need The Swapchain Group - A group of swapchain images in a pipeline
 * We need to understand the async rendering going on to fix it
@@ -29,9 +32,13 @@
 ## Bugs 
 * Address concern of Shader output format not matching FBO format
 * Multiple FBOs (deferred MRTs)
+* UBO Copy for instance data is very slow. Figure out how to optimize this.
 
 ## Wishlist (Backlog)
 * Instanced meshes as a system.
+    * __Instance Dispatch__ - Updating JUST 2000 instances ubo causes severe lag (2400fps -> 80fps in debug, 2400fps -> 600fps RT) due to matrix multiplication (It's not the UBO copy I tested it)
+    * Dispatch instance updates to the GPU. This may not be necessary really but it's fun to think about.
+        * Fun Note the GPU is so freaking fast that I have yet to make a swapchain semaphore wait drawing thousands of instances...
 * Separate UBO / Image into ShaderTexture ShaderUniform Classes
 * PBR (testing)
 * Auto UBO creation
@@ -62,7 +69,6 @@
 * Shader Skinning
 * Component model (replace old Spec/Instance system)
 
-### Backlog
 * Mipmap testing is broken right now because the texture isn't recreated when we update the swapchain.
   * Since the imageview and sampler depends on mipmap information, its best to reallocate the texture image (for now).
   * We want something like
