@@ -22,7 +22,6 @@ public:
 
   std::shared_ptr<VulkanTextureImage> _testTexture1 = nullptr;
   std::shared_ptr<VulkanTextureImage> _testTexture2 = nullptr;
-  std::shared_ptr<VulkanDepthImage> _depthTexture = nullptr;  //This is not implemented
 
   std::shared_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
@@ -307,26 +306,30 @@ public:
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
     //}
 
-    //Technically we don't need to re-record this every frame for this demo.
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
-      if (cmd->beginPass(_pShader, frame)) {
-        cmd->cmdSetViewport({ { 0, 0 }, _pSwapchain->imageSize() });
-        auto pipe = _pShader->getPipeline(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL);
-        pipe->bind(cmd);
-        _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
-        _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
-        _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
-        _pShader->bindDescriptors(cmd, pipe, frameIndex);
-        pipe->drawIndexed(cmd, _game->_mesh1, _numInstances);
+      auto pass = _pShader->getPass(frame);
+      //pass->setOutput(OutputFBO::RT_DF_Color, _myTexture);
+      pass->setOutput(OutputDescription::getColorDF());
+      pass->setOutput(OutputDescription::getDepthDF());
+      if (_pShader->beginRenderPass(cmd, frame, pass)) {
+        _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
 
-        _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
-        _pShader->bindUBO("_uboInstanceData", frameIndex, inst2);
-        _pShader->bindDescriptors(cmd, pipe, frameIndex);
-        pipe->drawIndexed(cmd, _game->_mesh2, _numInstances);
+        if (_pShader->bindPipeline(cmd, nullptr, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL)) {
+          _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
+          _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
+          _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
+          _pShader->bindDescriptors(cmd,  frameIndex);
+          _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);//Changed from pipe::drawIndexed
 
-        cmd->endPass();
+          _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
+          _pShader->bindUBO("_uboInstanceData", frameIndex, inst2);
+          _pShader->bindDescriptors(cmd, frameIndex);
+          _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances); //Changed from pipe::drawIndexed
+        }
+
+          _pShader->endRenderPass(cmd);
       }
     }
     cmd->end();
@@ -381,7 +384,6 @@ public:
   void cleanupShaderMemory() {
     _testTexture1 = nullptr;
     _testTexture2 = nullptr;
-    _depthTexture = nullptr;
   }
   void cleanup() {
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.

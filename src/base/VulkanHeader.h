@@ -62,28 +62,91 @@ enum class CommandBufferState {
   BeginPass,
   EndPass
 };
+enum class DescriptorFunction {
+  Unset,
+  Custom,
+  ViewProjMatrixUBO,
+  InstnaceMatrixUBO,
+};
+enum class BlendFunc {
+  Disabled,
+  AlphaBlend
+};
+enum class FBOType {
+  Undefined,
+  Color,
+  Depth
+};
+//"_outFBO_ ..
+enum class OutputMRT {
+  RT_Undefined,
+  RT_DefaultColor,  //Default FBO
+  RT_DefaultDepth,
+  RT_DF_Position,
+  RT_DF_Color,
+  RT_DF_Depth_Plane,
+  RT_DF_Normal,
+  RT_DF_Pick,
+  RT_Custom0,
+  RT_Custom1,
+  RT_Custom2,
+  RT_Custom3,
+  RT_Custom4,
+  RT_Custom5,
+  RT_Custom6,
+  RT_Custom7,
+  RT_Custom8,
+  RT_Custom9,
+  MaxOutputs,
+};
+enum class CompareOp {
+  Never,
+  Less,
+  Equal,
+  Less_Or_Equal,
+  Greater,
+  Not_Equal,
+  Greater_or_Equal,
+  CompareAlways
+};
+
+enum class FrameState {
+  Unset,
+  FrameBegin,
+  FrameEnd,
+};
 /////////////////////////////////////////////////////////////////////////////////
 //FWD
+
+//Vulakn
 class Vulkan;
 class VulkanObject;
 class VulkanDeviceBuffer;
 class VulkanBuffer;
 class VulkanImage;
-class VulkanDepthImage;
-class VulkanAttachment;
 class VulkanCommands;
 class VulkanTextureImage;
-
+class ShaderModule;
+class Descriptor;
+class ShaderOutputBinding;
+class OutputDescription;
+class ShaderOutputArray;
+class ShaderOutputCache;
+class FramebufferAttachment;
+class Framebuffer;
 class PipelineShader;
-class Swapchain;
-class RenderFrame;
-class Mesh;
-class ShaderData;
 class Pipeline;
-class MeshComponent;
 class CommandBuffer;
+class InstanceUBOClassData;
+class UBOClassData;
+class ShaderDataUBO;
+class ShaderData;
+class RenderFrame;
+class Swapchain;
 
 //Dummies
+class Mesh;
+class MeshComponent;
 class MaterialDummy;
 class GameDummy;
 

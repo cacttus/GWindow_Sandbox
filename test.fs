@@ -4,7 +4,7 @@
 layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
 
-layout(location = 0) out vec4 _outFBOColor;
+layout(location = 0) out vec4 _outFBO_DefaultColor;
 //layout(location = 1) out float _outFBODepth;
 
 //layout(location = 0) out vec4 _gPositionOut; 
@@ -17,5 +17,5 @@ layout(location = 0) out vec4 _outFBOColor;
 layout(binding = 2) uniform sampler2D _ufTexture0;
 
 void main() {  
-    _outFBOColor = vec4(fragColor.rgb, fragColor.a) * texture(_ufTexture0, fragTexCoord);
+    _outFBO_DefaultColor = vec4(fragColor.rgb, fragColor.a) * texture(_ufTexture0, fragTexCoord);
 } 
