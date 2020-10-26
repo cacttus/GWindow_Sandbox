@@ -307,7 +307,8 @@ public:
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
     //}
     if (test_render_texture == nullptr) {
-      test_render_texture = std::make_shared<VulkanTextureImage>(vulkan(), 500, 500, VG::MipmapMode::Disabled, VK_SAMPLE_COUNT_1_BIT);
+      test_render_texture = std::make_shared<VulkanTextureImage>(
+        vulkan(), 500, 500, VG::MipmapMode::Disabled, VK_SAMPLE_COUNT_1_BIT);
     }
 
     auto cmd = frame->commandBuffer();
@@ -322,15 +323,15 @@ public:
 //         if (_pShader->beginRenderPass(cmd, frame, pass)) {
 //           _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
 //           if (_pShader->bindPipeline(cmd, nullptr, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL)) {
-//             _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
-//             _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
-//             _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
-//             _pShader->bindDescriptors(cmd, frameIndex);
+//             _pShader->bindSampler("_ufTexture0", _testTexture1);
+//             _pShader->bindUBO("_uboViewProj", viewProj);
+//             _pShader->bindUBO("_uboInstanceData", inst1);
+//             _pShader->bindDescriptors(cmd);
 //             _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
 // 
-//             _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture2);
-//             _pShader->bindUBO("_uboInstanceData", frameIndex, inst2);
-//             _pShader->bindDescriptors(cmd, frameIndex);
+//             _pShader->bindSampler("_ufTexture0", _testTexture2);
+//             _pShader->bindUBO("_uboInstanceData", inst2);
+//             _pShader->bindDescriptors(cmd);
 //             _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
 //           }
 //           _pShader->endRenderPass(cmd);
@@ -345,10 +346,11 @@ public:
         if (_pShader->beginRenderPass(cmd, frame, pass2)) {
           _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
           if (_pShader->bindPipeline(cmd, nullptr, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL)) {
-            _pShader->bindSampler("_ufTexture0", frameIndex, _testTexture1);
-            _pShader->bindUBO("_uboViewProj", frameIndex, viewProj);
-            _pShader->bindUBO("_uboInstanceData", frameIndex, inst1);
-            _pShader->bindDescriptors(cmd, frameIndex);
+
+            _pShader->bindSampler("_ufTexture0", _testTexture1);
+            _pShader->bindUBO("_uboViewProj", viewProj);
+            _pShader->bindUBO("_uboInstanceData", inst1);
+            _pShader->bindDescriptors(cmd);
             _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
 
           }

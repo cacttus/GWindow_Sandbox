@@ -380,12 +380,12 @@ public:
   std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame);
   bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
   void endRenderPass(std::shared_ptr<CommandBuffer> buf);
-  bool bindUBO(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
-  bool bindSampler(const string_t& name, uint32_t swapchainImageIndex, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
+  bool bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
+  bool bindSampler(const string_t& name, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
   bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VkPolygonMode mode = VK_POLYGON_MODE_FILL);
   bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe);
   void bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size);
-  bool bindDescriptors(std::shared_ptr<CommandBuffer> cmd, uint32_t swapchainImageIndex);
+  bool bindDescriptors(std::shared_ptr<CommandBuffer> cmd);
   void drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances);
 
 private:
@@ -411,7 +411,7 @@ private:
   std::vector<string_t> _files;
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
-  std::vector<VkDescriptorSet> _descriptorSets;
+  std::vector<VkDescriptorSet> _descriptorSets; // TODO: put these on ShaderData (one per frame)
   std::vector<VkVertexInputAttributeDescription> _attribDescriptions;
   VkVertexInputBindingDescription _bindingDesc;
   std::vector<std::shared_ptr<ShaderModule>> _modules;
@@ -421,6 +421,7 @@ private:
   std::shared_ptr<Framebuffer> _pBoundFBO = nullptr;
   std::shared_ptr<Pipeline> _pBoundPipeline = nullptr;
   std::shared_ptr<ShaderData> _pBoundData = nullptr;
+  std::shared_ptr<RenderFrame> _pBoundFrame = nullptr;
 
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
   bool _bValid = true;

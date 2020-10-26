@@ -378,7 +378,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
 }
 VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples) : VulkanImage(pvulkan) {
   BRLogInfo("Creating Vulkan image");
-  VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
+  VkFormat img_fmt = VK_FORMAT_B8G8R8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
 
   _mipmap = mipmaps;
 
@@ -395,14 +395,15 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t
   allocateMemory(w, h,
                  img_fmt,
                  VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
-  // this was for OpenGL may not be needed
-  //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
 
   createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
 
-  //copyImageToGPU(pimg, img_fmt);
+  //IDK
+  transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
   createSampler();
 
   if (_mipmap != MipmapMode::Disabled) {
@@ -412,8 +413,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t
 VulkanTextureImage::~VulkanTextureImage() {
   vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
 }
-void VulkanTextureImage::createSampler(){
-
+void VulkanTextureImage::createSampler() {
   //Sampler
   VkSamplerCreateInfo samplerInfo = {
     .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // VkStructureType
@@ -508,7 +508,7 @@ void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat im
   //Undefined layout will be discard image data.
   transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   copyBufferToImage(pimg);
-  transitionImageLayout(img_fmt /*? - transition to the same format?*/, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   //Cleanup host buffer. We are done with it.
   _host = nullptr;
@@ -1457,8 +1457,11 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, u
 
   return true;
 }
-bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
+bool PipelineShader::bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
   //Binds a shader Uniform to this shader for the given swapchain image.
+  if (_pBoundFrame == nullptr) {
+    return renderError("No frame was bound (call to beginRender) ");
+  }
   std::shared_ptr<Descriptor> desc = getDescriptor(name);
   if (desc == nullptr) {
     BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
@@ -1474,7 +1477,7 @@ bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std:
   VkWriteDescriptorSet descWrite = {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
     .pNext = nullptr,
-    .dstSet = _descriptorSets[swapchainImage],
+    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
     .dstBinding = desc->_binding,
     .dstArrayElement = 0,
     .descriptorCount = 1,
@@ -1489,7 +1492,7 @@ bool PipelineShader::bindUBO(const string_t& name, uint32_t swapchainImage, std:
 
   return true;
 }
-bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
+bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
   std::shared_ptr<Descriptor> desc = getDescriptor(name);
   if (desc == nullptr) {
     BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
@@ -1505,7 +1508,7 @@ bool PipelineShader::bindSampler(const string_t& name, uint32_t swapchainImage, 
   VkWriteDescriptorSet descriptorWrite = {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
     .pNext = nullptr,
-    .dstSet = _descriptorSets[swapchainImage],
+    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
     .dstBinding = desc->_binding,
     .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
     .descriptorCount = 1,
@@ -1540,6 +1543,7 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
 
   _pBoundFBO = fbo;
   _pBoundData = sd;
+  _pBoundFrame = frame;
 
   if (_pBoundFBO->attachments().size() == 0) {
     BRLogError("No output FBOs have been created.");
@@ -1627,10 +1631,12 @@ std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::Verte
   }
   return pipe;
 }
-bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd, uint32_t swapchainImageIndex) {
+bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd) {
+  if (_pBoundFrame == nullptr) {
+    return renderError("RenderFrame was not bound calling bindDescriptors");
+  }
   if (_pBoundPipeline == nullptr) {
-    BRLogErrorOnce("Pipeline was not bound calling bindDescriptors");
-    return false;
+    return renderError("Pipeline was not bound calling bindDescriptors");
   }
   for (auto desc : _descriptors) {
     if (desc.second->_isBound == false) {
@@ -1641,7 +1647,7 @@ bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd, uint32_
   vkCmdBindDescriptorSets(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pBoundPipeline->getVkPipelineLayout(),
                           0,  //Layout ID
                           1,
-                          &_descriptorSets[swapchainImageIndex], 0, nullptr);
+                          &_descriptorSets[_pBoundFrame->frameIndex()], 0, nullptr);
   return true;
 }
 bool PipelineShader::shaderError(const string_t& msg) {
@@ -1804,6 +1810,7 @@ void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
   _pBoundFBO = nullptr;
   _pBoundPipeline = nullptr;
   _pBoundData = nullptr;
+  _pBoundFrame = nullptr;
   buf->endPass();
 }
 void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
