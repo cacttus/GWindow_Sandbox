@@ -370,12 +370,74 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
 
   copyImageToGPU(pimg, img_fmt);
 
+  createSampler();
+
+  if (_mipmap != MipmapMode::Disabled) {
+    generateMipmaps();
+  }
+}
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples) : VulkanImage(pvulkan) {
+  BRLogInfo("Creating Vulkan image");
+  VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
+
+  _mipmap = mipmaps;
+
+  VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
+  if (_mipmap != MipmapMode::Disabled) {
+    _mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(w, h)))) + 1;
+    transfer_src = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  //We need to use this image as a src transfer to fill each mip level.
+  }
+  else {
+    _mipLevels = 1;
+  }
+
+  //Not called if we are passing in a VulaknImage alrady created.
+  allocateMemory(w, h,
+                 img_fmt,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
+  // this was for OpenGL may not be needed
+  //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
+
+  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
+
+  //copyImageToGPU(pimg, img_fmt);
+  createSampler();
+
   if (_mipmap != MipmapMode::Disabled) {
     generateMipmaps();
   }
 }
 VulkanTextureImage::~VulkanTextureImage() {
   vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
+}
+void VulkanTextureImage::createSampler(){
+
+  //Sampler
+  VkSamplerCreateInfo samplerInfo = {
+    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // VkStructureType
+    .pNext = nullptr,                                // const void*
+    .flags = 0,                                      // VkSamplerCreateFlags
+    //Filtering
+    .magFilter = VK_FILTER_LINEAR,                // VkFilter
+    .minFilter = VK_FILTER_LINEAR,                // VkFilter
+    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,  // VkSamplerMipmapMode
+    //Texture repeat
+    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
+    .mipLodBias = 0,                                  // float
+    .anisotropyEnable = VK_TRUE,                      // VkBool32
+    .maxAnisotropy = 16.0f,                           // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
+    .compareEnable = VK_FALSE,                        // VkBool32
+    .compareOp = VK_COMPARE_OP_ALWAYS,                // VkCompareOp - used for PCF
+    .minLod = 0,                                      // float
+    .maxLod = static_cast<float>(_mipLevels),         // float
+    .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,  // VkBorderColor
+    .unnormalizedCoordinates = VK_FALSE,              // VkBool32  [0,width] vs [0,1]
+  };
+  CheckVKR(vkCreateSampler, vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
 }
 VkSampler VulkanTextureImage::sampler() { return _textureSampler; }
 
@@ -450,31 +512,6 @@ void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat im
 
   //Cleanup host buffer. We are done with it.
   _host = nullptr;
-
-  //Sampler
-  VkSamplerCreateInfo samplerInfo = {
-    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // VkStructureType
-    .pNext = nullptr,                                // const void*
-    .flags = 0,                                      // VkSamplerCreateFlags
-    //Filtering
-    .magFilter = VK_FILTER_LINEAR,                // VkFilter
-    .minFilter = VK_FILTER_LINEAR,                // VkFilter
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,  // VkSamplerMipmapMode
-    //Texture repeat
-    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .mipLodBias = 0,                                  // float
-    .anisotropyEnable = VK_TRUE,                      // VkBool32
-    .maxAnisotropy = 16.0f,                           // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
-    .compareEnable = VK_FALSE,                        // VkBool32
-    .compareOp = VK_COMPARE_OP_ALWAYS,                // VkCompareOp - used for PCF
-    .minLod = 0,                                      // float
-    .maxLod = static_cast<float>(_mipLevels),         // float
-    .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,  // VkBorderColor
-    .unnormalizedCoordinates = VK_FALSE,              // VkBool32  [0,width] vs [0,1]
-  };
-  CheckVKR(vkCreateSampler, vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
 }
 void VulkanTextureImage::copyBufferToImage(std::shared_ptr<Img32> pimg) {
   //todo:
@@ -1392,7 +1429,8 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, u
     return shaderError("Shader data was uninitialized when creating UBO.");
   }
 
-  for (auto data : _shaderData) {
+  for (auto pair : _shaderData) {
+    std::shared_ptr<ShaderData> data = pair.second;
     auto desc = getDescriptor(var_name);
     if (desc == nullptr) {
       return shaderError("Failed to locate UBO descriptor for shader variable '" + var_name + "'");
@@ -1406,14 +1444,14 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, u
       if (bufsize == VK_WHOLE_SIZE) {
         size = desc->_blockSize;
       }
-      std::shared_ptr<ShaderDataUBO> dat = std::make_shared<ShaderDataUBO>();
-      dat->_buffer = std::make_shared<VulkanBuffer>(
+      std::shared_ptr<ShaderDataUBO> datUBO = std::make_shared<ShaderDataUBO>();
+      datUBO->_buffer = std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         size, nullptr, 0);
-      dat->_descriptor = desc;
-      data->_uniformBuffers.insert(std::make_pair(name, dat));
+      datUBO->_descriptor = desc;
+      data->_uniformBuffers.insert(std::make_pair(name, datUBO));
     }
   }
 
@@ -1489,11 +1527,9 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   auto sd = getShaderData(frame);
   auto fbo = findFramebuffer(sd, desc);
   if (fbo == nullptr) {
-    for (auto sd : _shaderData) {
-      if (!createFBO(sd, frame, desc)) {
-        BRLogError("Failed to create FBO for shader '" + name() + "'.");
-        return false;
-      }
+    if (!createFBO(sd, frame, desc)) {
+      BRLogError("Failed to create FBO for shader '" + name() + "'.");
+      return false;
     }
     fbo = findFramebuffer(sd, desc);
     if (fbo == nullptr) {
@@ -1503,6 +1539,7 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   }
 
   _pBoundFBO = fbo;
+  _pBoundData = sd;
 
   if (_pBoundFBO->attachments().size() == 0) {
     BRLogError("No output FBOs have been created.");
@@ -1568,8 +1605,12 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   return true;
 }
 std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode) {
+  if (_pBoundData == nullptr) {
+    BRLogError("Pipeline: ShaderData was not set.");
+    return nullptr;
+  }
   std::shared_ptr<Pipeline> pipe = nullptr;
-  for (auto the_pipe : _pipelines) {
+  for (auto the_pipe : _pBoundData->_pipelines) {
     if (the_pipe->primitiveTopology() == topo &&
         the_pipe->polygonMode() == mode &&
         the_pipe->vertexFormat() == vertexFormat &&
@@ -1582,9 +1623,9 @@ std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::Verte
     std::shared_ptr<BR2::VertexFormat> format = nullptr;  // ** TODO create multiple pipelines for Vertex Format, Polygonmode & Topo.
     pipe = std::make_shared<Pipeline>(vulkan(), topo, mode);
     pipe->init(getThis<PipelineShader>(), format, _pBoundFBO);
-    _pipelines.push_back(pipe);
+    _pBoundData->_pipelines.push_back(pipe);
   }
-  return _pipelines[0];
+  return pipe;
 }
 bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd, uint32_t swapchainImageIndex) {
   if (_pBoundPipeline == nullptr) {
@@ -1631,16 +1672,6 @@ std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<Render
     BRThrowException("Tried to access out of bounds shader data.");
   }
   return _shaderData[frame->frameIndex()];
-}
-bool PipelineShader::recreateShaderDataFBO(uint32_t frameIndex) {
-  //Recreate the FBO for each swapchain frame for the given pipeline.
-  std::shared_ptr<ShaderData> sd = nullptr;
-  while (_shaderData.size() <= frameIndex) {
-    _shaderData.push_back(std::make_shared<ShaderData>());
-  }
-  sd = _shaderData[frameIndex];
-
-  return true;
 }
 std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
   //Returns an exact match on the given input PassDescription and the FBO PassDescription.
@@ -1772,19 +1803,27 @@ void PipelineShader::bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2:
 void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
   _pBoundFBO = nullptr;
   _pBoundPipeline = nullptr;
+  _pBoundData = nullptr;
   buf->endPass();
 }
-void PipelineShader::recreateShaderData() {
+void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
   //Per-swapchain-frame shader data - recreated when window resizes.
-  _shaderData.resize(0);
-  for (auto frame : vulkan()->swapchain()->frames()) {
-    _shaderData.push_back(std::make_shared<ShaderData>());
+  std::shared_ptr<ShaderData> data = nullptr;
+  auto it = _shaderData.find(frame->frameIndex());
+  if (it == _shaderData.end()) {
+    std::shared_ptr<ShaderData> dat = std::make_shared<ShaderData>();
+    _shaderData.insert(std::make_pair(frame->frameIndex(), dat));
+    it = _shaderData.find(frame->frameIndex());
   }
+  data = it->second;
+  data->_framebuffers.clear();
+  data->_pipelines.clear();
 }
 std::shared_ptr<PassDescription> PipelineShader::getPass(std::shared_ptr<RenderFrame> frame) {
   std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>();
 
   //TODO: fill default outputs here with default framebuffers.
+  // ** TODO: **
   //for example RT_DF_Color is stored in each RenderFrame so use it as default.
 
   return d;
@@ -1873,24 +1912,30 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
   //Blending
   std::vector<VkPipelineColorBlendAttachmentState> attachmentBlending;
   for (auto& att : pfbo->passDescription()->outputs()) {
-    VkPipelineColorBlendAttachmentState cba{};
-    if (att->_blending == BlendFunc::Disabled) {
-      cba.blendEnable = VK_FALSE;
+    //https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkGraphicsPipelineCreateInfo.html
+    //attachmentCount member of pColorBlendState must be equal to the colorAttachmentCount used to create subpass
+    //No depth attachments here
+    if (att->_type == FBOType::Color) {
+      VkPipelineColorBlendAttachmentState cba{};
+
+      if (att->_blending == BlendFunc::Disabled) {
+        cba.blendEnable = VK_FALSE;
+      }
+      else if (att->_blending == BlendFunc::AlphaBlend) {
+        cba.blendEnable = VK_TRUE;
+        cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        cba.colorBlendOp = VK_BLEND_OP_ADD;
+        cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        cba.alphaBlendOp = VK_BLEND_OP_ADD;
+        cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+      }
+      else {
+        shader->shaderError("Unhandled _blending state '" + std::to_string((int)att->_blending) + "' set on ShaderOutput");
+      }
+      attachmentBlending.push_back(cba);
     }
-    else if (att->_blending == BlendFunc::AlphaBlend) {
-      cba.blendEnable = VK_TRUE;
-      cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-      cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      cba.colorBlendOp = VK_BLEND_OP_ADD;
-      cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-      cba.alphaBlendOp = VK_BLEND_OP_ADD;
-      cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    }
-    else {
-      shader->shaderError("Unhandled _blending state '" + std::to_string((int)att->_blending) + "' set on ShaderOutput");
-    }
-    attachmentBlending.push_back(cba);
   }
   VkPipelineColorBlendStateCreateInfo colorBlending = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -2102,7 +2147,7 @@ void CommandBuffer::end() {
   _state = CommandBufferState::End;
 }
 bool CommandBuffer::beginPass() {
-  validateState(_state == CommandBufferState::Begin);
+  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::EndPass);
 
   _state = CommandBufferState::BeginPass;
   return true;
@@ -2204,7 +2249,7 @@ bool RenderFrame::beginFrame() {
   //I feel like the async aspect of RenderFrame might need to be a separate DispatchedFrame structure or..
   VkResult res;
   uint64_t wait_fences = UINT64_MAX;
-  wait_fences = 0;  //Don't wait if no image available.
+  //wait_fences = 0;  //Don't wait if no image available.
 
   res = vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, wait_fences);
   if (res != VK_SUCCESS) {
@@ -2232,7 +2277,7 @@ bool RenderFrame::beginFrame() {
     if (res == VK_NOT_READY) {
       return false;
     }
-    else if(res==VK_TIMEOUT){
+    else if (res == VK_TIMEOUT) {
       return false;
     }
     else if (res == VK_ERROR_DEVICE_LOST) {
@@ -2338,7 +2383,9 @@ void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
   if (_shaders.find(shader) == _shaders.end()) {
     _shaders.insert(shader);
   }
-  shader->recreateShaderData();
+  for (auto frame : frames()) {
+    shader->clearShaderDataCache(frame);
+  }
 }
 void Swapchain::initSwapchain(const BR2::usize2& window_size) {
   vkDeviceWaitIdle(vulkan()->device());

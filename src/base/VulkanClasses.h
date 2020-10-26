@@ -137,6 +137,7 @@ private:
 class VulkanTextureImage : public VulkanImage {
 public:
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
 
@@ -148,6 +149,7 @@ private:
   uint32_t _mipLevels = 1;
   MipmapMode _mipmap = MipmapMode::Linear;
 
+  void createSampler();
   bool mipmappingSupported();
   void generateMipmaps();
   void copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt);
@@ -370,11 +372,10 @@ public:
   VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
 
   std::shared_ptr<Pipeline> getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode);
-  bool recreateShaderDataFBO(uint32_t frameIndex);
   std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
   bool createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize = VK_WHOLE_SIZE);
   std::shared_ptr<Pipeline> boundPipeline() { return _pBoundPipeline; }
-  void recreateShaderData();
+  void clearShaderDataCache(std::shared_ptr<RenderFrame> frame);
 
   std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame);
   bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
@@ -419,11 +420,12 @@ private:
   std::vector<std::shared_ptr<ShaderOutputBinding>> _outputBindings;
   std::shared_ptr<Framebuffer> _pBoundFBO = nullptr;
   std::shared_ptr<Pipeline> _pBoundPipeline = nullptr;
+  std::shared_ptr<ShaderData> _pBoundData = nullptr;
 
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
-  std::vector<std::shared_ptr<Pipeline>> _pipelines;
   bool _bValid = true;
-  std::vector<std::shared_ptr<ShaderData>> _shaderData;
+  //std::vector<std::shared_ptr<ShaderData>> _shaderData;
+  std::map<uint32_t, std::shared_ptr<ShaderData>> _shaderData;
 };
 /**
  * @class Pipeline
@@ -504,6 +506,7 @@ public:
   std::unordered_map<std::string, std::shared_ptr<ShaderDataUBO>> _uniformBuffers;
   std::shared_ptr<ShaderDataUBO> getUBOData(const string_t& name);
   std::vector<std::shared_ptr<Framebuffer>> _framebuffers;  //In the future we can optimize this search.
+  std::vector<std::shared_ptr<Pipeline>> _pipelines;        // All pipelines bound to this data.
 };
 /**
  * @class RenderFrame

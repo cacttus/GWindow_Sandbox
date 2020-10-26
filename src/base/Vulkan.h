@@ -30,7 +30,7 @@ public:
   VkQueue& presentQueue();
   VkSurfaceCapabilitiesKHR& surfaceCaps();
   uint32_t swapchainImageCount();
-  bool vsyncEnabled() { return true; }
+  bool vsyncEnabled() { return false; }
 
   //Errors
   void checkErrors();
