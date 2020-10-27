@@ -12,6 +12,7 @@ static bool g_samplerate_shading = true;
 static bool g_poly_line = false;
 static bool g_use_rtt = false;
 static int g_pass_test_idx = 1;
+static float g_anisotropy = 1;
 
 #pragma region SDLVulkan_Internal
 
@@ -311,7 +312,7 @@ public:
     //}
     if (test_render_texture == nullptr) {
       test_render_texture = std::make_shared<VulkanTextureImage>(
-        vulkan(), 500, 500, VG::MipmapMode::Disabled, VK_SAMPLE_COUNT_1_BIT);
+        vulkan(), 500, 500, VG::MipmapMode::Linear, VK_SAMPLE_COUNT_1_BIT);
     }
 
     auto cmd = frame->commandBuffer();
@@ -420,16 +421,16 @@ public:
   }
   void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
-    auto img = loadImage(App::rootFile("white-smiley.png"));  //TexturesCom_MetalBare0253_2_M.png
+    auto img = loadImage(App::rootFile("char-1.png"));  //TexturesCom_MetalBare0253_2_M.png
     if (img) {
-      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
+      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 1.");
     }
-    auto img2 = loadImage(App::rootFile("black-smiley.png"));
+    auto img2 = loadImage(App::rootFile("char-2.png"));
     if (img2) {
-      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_mipmap_mode);
+      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 2.");
@@ -501,12 +502,9 @@ bool SDLVulkan::doInput() {
       else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
         g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
 
-        string_t mmm = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")));
+        _pInt->createTextureImages();
 
-        string_t mode = _pInt->base_title + " (" + mmm + ") ";
-
-        SDL_SetWindowTitle(_pInt->_pSDLWindow, mode.c_str());
-        _pInt->_pSwapchain->outOfDate();
+        //_pInt->_pSwapchain->outOfDate();
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
@@ -529,6 +527,15 @@ bool SDLVulkan::doInput() {
         }
         break;
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F9) {
+        g_anisotropy += 0.5;
+        float max = _pInt->vulkan()->deviceLimits().maxSamplerAnisotropy;
+        if (g_anisotropy > max) {
+          g_anisotropy = 0;
+        }
+        _pInt->createTextureImages();
+        break;
+      }
     }
   }
   return false;
@@ -546,7 +553,10 @@ void SDLVulkan::renderLoop() {
     if (_pInt->_fpsMeter.getFrameNumber() % 2 == 0) {
       float f = _pInt->_fpsMeter.getFps();
       string_t fp = std::to_string((int)f);
-      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT";
+      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")));
+      string_t mode = " mipmap=F1 (" + mmip_mode + ") ";
+      string_t aniso = std::string(" anisotropy=F9 (") + std::to_string(g_anisotropy) + ")";
+      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode  + aniso;
       SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
     }
 

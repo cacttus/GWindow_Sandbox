@@ -48,6 +48,7 @@ public:
   std::unordered_map<std::string, VkLayerProperties> supported_validation_layers;
   VkSurfaceCapabilitiesKHR _surfaceCaps;
   uint32_t _swapchainImageCount = 2;
+  bool _bPhysicalDeviceAcquired = false;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -57,6 +58,7 @@ public:
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
   VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
   VkPhysicalDeviceProperties _deviceProperties;
+  VkPhysicalDeviceLimits _physicalDeviceLimits;
   VkPhysicalDeviceFeatures _deviceFeatures;
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
@@ -124,7 +126,7 @@ public:
 
     VkLoadExt(_instance, vkCreateDebugUtilsMessengerEXT);
     VkLoadExt(_instance, vkDestroyDebugUtilsMessengerEXT);
-    
+
     VkDebugUtilsMessengerCreateInfoEXT msginfo = {
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
       .pNext = nullptr,
@@ -304,7 +306,6 @@ public:
       VkPhysicalDeviceFeatures deviceFeatures;
       vkGetPhysicalDeviceProperties(device, &deviceProperties);
       vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
       devInfo += Stz " Device " + i + ": " + deviceProperties.deviceName + "\r\n";
       devInfo += Stz "  Driver Version: " + deviceProperties.driverVersion + "\r\n";
       devInfo += Stz "  API Version: " + deviceProperties.apiVersion + "\r\n";
@@ -314,27 +315,27 @@ public:
         //We need to fix this to allow for optional samplerate shading.
         if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             deviceFeatures.geometryShader &&
-            
-            // ** This is mostly debugging stuff - If the driver doens't have it we should create one without it.
-            deviceFeatures.fillModeNonSolid && // VK_POLYGON_MODE
-            deviceFeatures.wideLines && 
-            deviceFeatures.largePoints && 
-            
 
+            // ** This is mostly debugging stuff - If the driver doens't have it we should create one without it.
+            deviceFeatures.fillModeNonSolid &&  // VK_POLYGON_MODE
+            deviceFeatures.wideLines &&
+            deviceFeatures.largePoints &&
 
             //deviceFeatures. pipelineStatisticsQuery && // -- Query pools
             //imageCubeArray
             //logicOp should be supported
 
             //MSAA
-            deviceFeatures.shaderStorageImageMultisample && //Again not necessary but pretty
-            //AF 
+            deviceFeatures.shaderStorageImageMultisample &&  //Again not necessary but pretty
+            //AF
             deviceFeatures.samplerAnisotropy &&
             deviceFeatures.sampleRateShading) {
           _physicalDevice = device;
-          _maxMSAASamples = getMaxUsableSampleCount();
-          _deviceProperties = deviceProperties;
+          _deviceProperties = deviceProperties;  //Make sure this comes before getMaxUsableSampleCount!
           _deviceFeatures = deviceFeatures;
+          _bPhysicalDeviceAcquired = true;
+
+          _maxMSAASamples = getMaxUsableSampleCount();
         }
       }
 
@@ -466,10 +467,10 @@ public:
     return _pQueueFamilies.get();
   }
   VkSampleCountFlagBits getMaxUsableSampleCount() {
-    VkPhysicalDeviceProperties physicalDeviceProperties;
-    vkGetPhysicalDeviceProperties(_physicalDevice, &physicalDeviceProperties);
+    //Returns the max samples we can have in a framebuffer.
+    VkSampleCountFlags counts = _deviceProperties.limits.framebufferColorSampleCounts &
+                                _deviceProperties.limits.framebufferDepthSampleCounts;
 
-    VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
     if (counts & VK_SAMPLE_COUNT_64_BIT) {
       return VK_SAMPLE_COUNT_64_BIT;
     }
@@ -560,9 +561,26 @@ VkCommandPool& Vulkan::commandPool() { return _pInt->_commandPool; }
 VkQueue& Vulkan::graphicsQueue() { return _pInt->_graphicsQueue; }
 VkQueue& Vulkan::presentQueue() { return _pInt->_presentQueue; }
 
-VkPhysicalDeviceProperties Vulkan::deviceProperties() { return _pInt->_deviceProperties; }
-VkPhysicalDeviceFeatures Vulkan::deviceFeatures() { return _pInt->_deviceFeatures; }
-
+const VkPhysicalDeviceProperties& Vulkan::deviceProperties() {
+  AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
+  return _pInt->_deviceProperties;
+}
+const VkPhysicalDeviceFeatures& Vulkan::deviceFeatures() {
+  AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
+  return _pInt->_deviceFeatures;
+}
+const VkPhysicalDeviceLimits& Vulkan::deviceLimits() {
+  AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
+  return _pInt->_deviceProperties.limits;
+}
+const VkSurfaceCapabilitiesKHR& Vulkan::surfaceCaps() {
+  AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
+  return _pInt->_surfaceCaps;
+}
+VkSampleCountFlagBits Vulkan::getMaxUsableSampleCount() {
+  AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
+  return _pInt->getMaxUsableSampleCount();
+}
 #pragma region Errors
 void Vulkan::checkErrors() {
   _pInt->checkErrors();
@@ -576,9 +594,7 @@ void Vulkan::errorExit(const string_t& str) {
 #pragma endregion
 
 #pragma region Helpers
-VkSampleCountFlagBits Vulkan::getMaxUsableSampleCount() {
-  return _pInt->getMaxUsableSampleCount();
-}
+
 VkImageView Vulkan::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels) {
   VkImageViewCreateInfo createInfo = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,  //VkStructureType
@@ -682,9 +698,6 @@ void Vulkan::endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
 }
 uint32_t Vulkan::swapchainImageCount() {
   return _pInt->_swapchainImageCount;
-}
-VkSurfaceCapabilitiesKHR& Vulkan::surfaceCaps() {
-  return _pInt->_surfaceCaps;
 }
 std::shared_ptr<Swapchain> Vulkan::swapchain() {
   return _pInt->_pSwapchain;

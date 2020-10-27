@@ -215,7 +215,7 @@ VulkanImage::~VulkanImage() {
 }
 void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                                  VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
-                                 VkSampleCountFlagBits samples) {
+                                 VkSampleCountFlagBits samples, VkImageLayout initialLayout) {
   if (_image != VK_NULL_HANDLE) {
     BRThrowException("Tried to reallocate an image that was already allocated.");
   }
@@ -232,20 +232,20 @@ void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat forma
     .pNext = nullptr,                              // const void*
     .flags = 0,                                    // VkImageCreateFlags
     .imageType = VK_IMAGE_TYPE_2D,                 // VkImageType
-    .format = format,                              //,         // VkFormat
+    .format = format,                              // VkFormat
     .extent = {
       .width = width,
       .height = height,
-      .depth = 1 },                              // VkExtent3D
-    .mipLevels = mipLevels,                      // uint32_t
-    .arrayLayers = 1,                            // uint32_t
-    .samples = samples,                          // VkSampleCountFlagBits
-    .tiling = tiling,                            // VkImageTiling
-    .usage = usage,                              // VkImageUsageFlags
-    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,    // VkSharingMode
-    .queueFamilyIndexCount = 0,                  // uint32_t
-    .pQueueFamilyIndices = nullptr,              // const uint32_t*
-    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,  // VkImageLayout
+      .depth = 1 },                            // VkExtent3D
+    .mipLevels = mipLevels,                    // uint32_t
+    .arrayLayers = 1,                          // uint32_t
+    .samples = samples,                        // VkSampleCountFlagBits
+    .tiling = tiling,                          // VkImageTiling
+    .usage = usage,                            // VkImageUsageFlags
+    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // VkSharingMode
+    .queueFamilyIndexCount = 0,                // uint32_t
+    .pQueueFamilyIndices = nullptr,            // const uint32_t*
+    .initialLayout = initialLayout,            // VkImageLayout
   };
   CheckVKR(vkCreateImage, vulkan()->device(), &imageInfo, nullptr, &_image);
 
@@ -429,10 +429,18 @@ void CommandBuffer::endPass() {
 
 #pragma region VulkanTextureImage
 
-VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples) : VulkanImage(pvulkan) {
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
+                                       std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan) {
   BRLogInfo("Creating Vulkan image");
   VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
 
+  _anisotropy = anisotropy;
+  if (_anisotropy > pvulkan->deviceLimits().maxSamplerAnisotropy) {
+    _anisotropy = pvulkan->deviceLimits().maxSamplerAnisotropy;
+  }
+  else if (_anisotropy <= 0) {
+    _anisotropy = 0;  // Disabled
+  }
   _mipmap = mipmaps;
 
   VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
@@ -453,7 +461,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
   // this was for OpenGL may not be needed
   //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
 
-  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
+  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
 
   copyImageToGPU(pimg, img_fmt);
 
@@ -463,15 +471,22 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
     generateMipmaps();
   }
 }
-VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples) : VulkanImage(pvulkan) {
-
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
+                                       uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan) {
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
-  //**This is a test constructor for MRT images.
+  //**This is a test constructor for MRT images. VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
   BRLogInfo("Creating Vulkan image");
-  VkFormat img_fmt = VK_FORMAT_B8G8R8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
+  VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
 
+  _anisotropy = anisotropy;
+  if (_anisotropy > pvulkan->deviceLimits().maxSamplerAnisotropy) {
+    _anisotropy = pvulkan->deviceLimits().maxSamplerAnisotropy;
+  }
+  else if (_anisotropy <= 0) {
+    _anisotropy = 0;  // Disabled
+  }
   _mipmap = mipmaps;
 
   VkImageUsageFlagBits transfer_src = (VkImageUsageFlagBits)0;
@@ -482,15 +497,15 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t
   else {
     _mipLevels = 1;
   }
-
+  //mage must be in the GENERAL layout if an image is used both as src and ds
   //Not called if we are passing in a VulaknImage alrady created.
   allocateMemory(w, h,
                  img_fmt,
                  VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
+                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT);
+  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
 
   //IDK
   transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -506,28 +521,43 @@ VulkanTextureImage::~VulkanTextureImage() {
   vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
 }
 void VulkanTextureImage::createSampler() {
+  //This may not exactly work for every case, but the reason I use nearest filtering is
+  //for game sprites or FBO's. In that case we want the mipmap interpolation to be nearest.
+  VkSamplerMipmapMode mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  if (this->_mipmap == MipmapMode::Linear) {
+    mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  }
+  else if (_mipmap == MipmapMode::Nearest) {
+    mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  }
+
+  VkBool32 anisotropy_enable = VK_TRUE;
+  if(_anisotropy < 0.001f){
+    anisotropy_enable = VK_FALSE;
+  }
+
   //Sampler
   VkSamplerCreateInfo samplerInfo = {
-    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // VkStructureType
-    .pNext = nullptr,                                // const void*
-    .flags = 0,                                      // VkSamplerCreateFlags
+    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
     //Filtering
-    .magFilter = VK_FILTER_LINEAR,                // VkFilter
-    .minFilter = VK_FILTER_LINEAR,                // VkFilter
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,  // VkSamplerMipmapMode
+    .magFilter = VK_FILTER_LINEAR,
+    .minFilter = VK_FILTER_LINEAR,
+    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
     //Texture repeat
-    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,   // VkSamplerAddressMode
-    .mipLodBias = 0,                                  // float
-    .anisotropyEnable = VK_TRUE,                      // VkBool32
-    .maxAnisotropy = 16.0f,                           // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
-    .compareEnable = VK_FALSE,                        // VkBool32
-    .compareOp = VK_COMPARE_OP_ALWAYS,                // VkCompareOp - used for PCF
-    .minLod = 0,                                      // float
-    .maxLod = static_cast<float>(_mipLevels),         // float
-    .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,  // VkBorderColor
-    .unnormalizedCoordinates = VK_FALSE,              // VkBool32  [0,width] vs [0,1]
+    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .mipLodBias = 0,
+    .anisotropyEnable = anisotropy_enable,  // VkBool32
+    .maxAnisotropy = _anisotropy,                                     // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
+    .compareEnable = VK_FALSE,
+    .compareOp = VK_COMPARE_OP_ALWAYS,
+    .minLod = 0,
+    .maxLod = static_cast<float>(_mipLevels),
+    .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+    .unnormalizedCoordinates = VK_FALSE,
   };
   CheckVKR(vkCreateSampler, vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
 }
@@ -612,17 +642,17 @@ void VulkanTextureImage::copyBufferToImage(std::shared_ptr<Img32> pimg) {
 
   auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
   VkBufferImageCopy region = {
-    .bufferOffset = 0,       //VkDeviceSize
-    .bufferRowLength = 0,    //uint32_t
-    .bufferImageHeight = 0,  //uint32_t
+    .bufferOffset = 0,
+    .bufferRowLength = 0,
+    .bufferImageHeight = 0,
     .imageSubresource = {
-      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,          //VkImageAspectFlags
-      .mipLevel = 0,                                    //uint32_t
-      .baseArrayLayer = 0,                              //uint32_t
-      .layerCount = 1,                                  //uint32_t
-    },                                                  //VkImageSubresourceLayers
-    .imageOffset = { 0, 0, 0 },                         //VkOffset3D
-    .imageExtent = { pimg->_width, pimg->_height, 1 },  //VkExtent3D
+      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .mipLevel = 0,
+      .baseArrayLayer = 0,
+      .layerCount = 1,
+    },
+    .imageOffset = { 0, 0, 0 },
+    .imageExtent = { pimg->_width, pimg->_height, 1 },
   };
   vkCmdCopyBufferToImage(commandBuffer, _host->buffer(), _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
   vulkan()->endOneTimeGraphicsCommands(commandBuffer);
@@ -655,22 +685,22 @@ void VulkanTextureImage::transitionImageLayout(VkFormat format, VkImageLayout ol
   }
 
   VkImageMemoryBarrier barrier = {
-    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,  //VkStructureType
-    .pNext = nullptr,                                 //const void*
-    .srcAccessMask = (VkAccessFlags)srcAccessMask,    //VkAccessFlags
-    .dstAccessMask = (VkAccessFlags)dstAccessMask,    //VkAccessFlags
-    .oldLayout = oldLayout,                           //VkImageLayout
-    .newLayout = newLayout,                           //VkImageLayout
-    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t
-    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,   //uint32_t
-    .image = _image,                                  //VkImage
+    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    .pNext = nullptr,
+    .srcAccessMask = (VkAccessFlags)srcAccessMask,
+    .dstAccessMask = (VkAccessFlags)dstAccessMask,
+    .oldLayout = oldLayout,
+    .newLayout = newLayout,
+    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+    .image = _image,
     .subresourceRange = {
-      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  //VkImageAspectFlags
-      .baseMipLevel = 0,                        //uint32_t
-      .levelCount = _mipLevels,                 //uint32_t
-      .baseArrayLayer = 0,                      //uint32_t
-      .layerCount = 1,                          //uint32_t
-    },                                          //VkImageSubresourceRange
+      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .baseMipLevel = 0,
+      .levelCount = _mipLevels,
+      .baseArrayLayer = 0,
+      .layerCount = 1,
+    },
   };
   vkCmdPipelineBarrier(commandBuffer,
                        srcStage, dstStage,  //Pipeline stages
@@ -756,13 +786,13 @@ public:
     }
 
     VkPipelineShaderStageCreateInfo stage = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,  //VkStructureType
-      .pNext = nullptr,                                              //const void*
-      .flags = (VkPipelineShaderStageCreateFlags)0,                  //VkPipelineShaderStageCreateFlags
-      .stage = type,                                                 //VkShaderStageFlagBits
-      .module = _vkShaderModule,                                     //VkShaderModule
-      .pName = _spvReflectModule->entry_point_name,                  //const char*
-      .pSpecializationInfo = nullptr,                                //const VkSpecializationInfo*
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = (VkPipelineShaderStageCreateFlags)0,
+      .stage = type,
+      .module = _vkShaderModule,
+      .pName = _spvReflectModule->entry_point_name,
+      .pSpecializationInfo = nullptr,
     };
     return stage;
   }
@@ -1052,7 +1082,7 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
 
     //Clear Values
     if (odesc->_type == FBOType::Color) {
-      VkImageLayout finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL;  //VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;//VK_IMAGE_LAYOUT_PREINITIALIZED
       if (odesc->_isSwapchainColorImage) {
         finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
       }
@@ -2160,8 +2190,7 @@ std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<Sha
         //TODO: Find a less error-prone way to match FBOs with pipeline state.
         if (
           fboDescOut->_output != inDescOut->_output || fboDescOut->_clear != inDescOut->_clear  //This sucks, but this is because the LOAD_OP is hard set in the render pass.
-        || fboDescOut->_isSwapchainColorImage != inDescOut->_isSwapchainColorImage
-        ) {
+          || fboDescOut->_isSwapchainColorImage != inDescOut->_isSwapchainColorImage) {
           match = false;
         }
       }

@@ -92,7 +92,7 @@ public:
 
   void allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                       VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
-                      VkSampleCountFlagBits samples);
+                      VkSampleCountFlagBits samples, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
   void createView(VkFormat fmt, VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t mipLevel = 1);
 
 protected:
@@ -177,8 +177,8 @@ public:
 */
 class VulkanTextureImage : public VulkanImage {
 public:
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
 
@@ -189,7 +189,8 @@ private:
   VkSampler _textureSampler = VK_NULL_HANDLE;
   uint32_t _mipLevels = 1;
   MipmapMode _mipmap = MipmapMode::Linear;
-
+  float _anisotropy = 16.0f;
+  
   void createSampler();
   bool mipmappingSupported();
   void generateMipmaps();

@@ -28,7 +28,10 @@ public:
   VkCommandPool& commandPool();
   VkQueue& graphicsQueue();
   VkQueue& presentQueue();
-  VkSurfaceCapabilitiesKHR& surfaceCaps();
+  const VkSurfaceCapabilitiesKHR& surfaceCaps();
+  const VkPhysicalDeviceProperties& deviceProperties();
+  const VkPhysicalDeviceLimits& deviceLimits();
+  const VkPhysicalDeviceFeatures& deviceFeatures();
   uint32_t swapchainImageCount();
   bool vsyncEnabled() { return false; }
 
@@ -45,9 +48,6 @@ public:
   uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
   VkCommandBuffer beginOneTimeGraphicsCommands();
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer);
-
-  VkPhysicalDeviceProperties deviceProperties();
-  VkPhysicalDeviceFeatures deviceFeatures();
 
   void setSwapchain(std::shared_ptr<Swapchain> s);
   std::shared_ptr<Swapchain> swapchain();
