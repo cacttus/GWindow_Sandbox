@@ -193,14 +193,17 @@ void VulkanBuffer::writeData(void* data, size_t off, size_t datasize) {
 
 #pragma region VulkanImage
 
-VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan) : VulkanObject(pvulkan) {
+VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format) : VulkanObject(pvulkan) {
+  _size.width = w;
+  _size.height = h;
+  _format = format;
 }
 VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat) : VulkanObject(pvulkan) {
   //This is for passing the swapchain image in for render-to-texture system.
   _image = img;
   _format = imgFormat;
-  _width = w;
-  _height = h;
+  _size.width = w;
+  _size.height = h;
 }
 VulkanImage::~VulkanImage() {
   if (_image != VK_NULL_HANDLE) {
@@ -213,9 +216,9 @@ VulkanImage::~VulkanImage() {
     vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
   }
 }
-void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                                 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
+void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
                                  VkSampleCountFlagBits samples, VkImageLayout initialLayout) {
+  AssertOrThrow2(_format != VK_FORMAT_UNDEFINED && _size.width > 0 && _size.height > 0);
   if (_image != VK_NULL_HANDLE) {
     BRThrowException("Tried to reallocate an image that was already allocated.");
   }
@@ -224,18 +227,16 @@ void VulkanImage::allocateMemory(uint32_t width, uint32_t height, VkFormat forma
     BRLogError("Miplevels was < 1 for image. Setting to 1");
     mipLevels = 1;
   }
-  _width = width;
-  _height = height;
-  _format = format;
+
   VkImageCreateInfo imageInfo = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,  // VkStructureType
     .pNext = nullptr,                              // const void*
     .flags = 0,                                    // VkImageCreateFlags
     .imageType = VK_IMAGE_TYPE_2D,                 // VkImageType
-    .format = format,                              // VkFormat
+    .format = _format,                             // VkFormat
     .extent = {
-      .width = width,
-      .height = height,
+      .width = _size.width,
+      .height = _size.height,
       .depth = 1 },                            // VkExtent3D
     .mipLevels = mipLevels,                    // uint32_t
     .arrayLayers = 1,                          // uint32_t
@@ -429,10 +430,11 @@ void CommandBuffer::endPass() {
 
 #pragma region VulkanTextureImage
 
-VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
-                                       std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan) {
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, TexFilter min_filter, TexFilter mag_filter, MipmapMode mipmaps,
+                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, pimg->_width, pimg->_height, VK_FORMAT_R8G8B8A8_SRGB) {
   BRLogInfo("Creating Vulkan image");
-  VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
+  _min_filter = min_filter;
+  _mag_filter = mag_filter;
 
   _anisotropy = anisotropy;
   if (_anisotropy > pvulkan->deviceLimits().maxSamplerAnisotropy) {
@@ -453,33 +455,24 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
   }
 
   //Not called if we are passing in a VulaknImage alrady created.
-  allocateMemory(pimg->_width, pimg->_height,
-                 img_fmt,
-                 VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
+  allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
-  // this was for OpenGL may not be needed
-  //flipImage20161206(pimg->_data, pimg->_width, pimg->_height);
-
-  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
-
-  copyImageToGPU(pimg, img_fmt);
-
+  createView(_format, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
+  copyImageToGPU(pimg, _format);
   createSampler();
-
   if (_mipmap != MipmapMode::Disabled) {
     generateMipmaps();
   }
 }
-VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
-                                       uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan) {
+VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, TexFilter min_filter, TexFilter mag_filter, MipmapMode mipmaps,
+                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, w, h, VK_FORMAT_R8G8B8A8_SRGB) {
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images. VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
   BRLogInfo("Creating Vulkan image");
-  VkFormat img_fmt = VK_FORMAT_R8G8B8A8_SRGB;  //VK_FORMAT_R8G8B8A8_UINT;
-
+  _min_filter = min_filter;
+  _mag_filter = mag_filter;
   _anisotropy = anisotropy;
   if (_anisotropy > pvulkan->deviceLimits().maxSamplerAnisotropy) {
     _anisotropy = pvulkan->deviceLimits().maxSamplerAnisotropy;
@@ -497,22 +490,14 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
   else {
     _mipLevels = 1;
   }
-  //mage must be in the GENERAL layout if an image is used both as src and ds
+  //mage must be in the GENERAL layout if an image is used both as src and dst transfer
   //Not called if we are passing in a VulaknImage alrady created.
-  allocateMemory(w, h,
-                 img_fmt,
-                 VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
+  allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-  createView(img_fmt, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
-
-  //IDK
-  transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
+  createView(_format, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
+  transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   createSampler();
-
   if (_mipmap != MipmapMode::Disabled) {
     generateMipmaps();
   }
@@ -520,38 +505,84 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan,
 VulkanTextureImage::~VulkanTextureImage() {
   vkDestroySampler(vulkan()->device(), _textureSampler, nullptr);
 }
+VkFilter VulkanTextureImage::convertFilter(TexFilter in_filter, bool cubicSupported) {
+  VkFilter ret = VK_FILTER_LINEAR;
+  if (in_filter == TexFilter::Linear) {
+    ret = VK_FILTER_LINEAR;
+  }
+  else if (in_filter == TexFilter::Cubic) {
+    ret = VK_FILTER_CUBIC_IMG;
+  }
+  else if (in_filter == TexFilter::Nearest) {
+    ret = VK_FILTER_NEAREST;
+  }
+  else {
+    BRLogError("Invalid TexFilter mode.");
+  }
+
+  if (ret == VK_FILTER_CUBIC_IMG && !cubicSupported) {
+    BRLogError("Cubic interpolation not supported.");
+    ret = VK_FILTER_LINEAR;
+  }
+
+  return ret;
+}
+VkSamplerMipmapMode VulkanTextureImage::convertMipmapMode(MipmapMode mode, TexFilter filter) {
+  VkSamplerMipmapMode ret = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  if (mode == MipmapMode::Linear) {
+    ret = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  }
+  else if (mode == MipmapMode::Nearest) {
+    ret = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  }
+  else if (mode == MipmapMode::Auto) {
+    //The actual meaning of this is up for grabs.
+    if (filter == TexFilter::Linear || filter == TexFilter::Cubic) {
+      ret = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+    else if (filter == TexFilter::Nearest) {
+      ret = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    }
+    else {
+      BRLogError("Invalid TexFilter mode.");
+    }
+  }
+  else if (mode == MipmapMode::Disabled) {
+  }
+  else {
+    BRLogError("Invalid mipmap mode.");
+  }
+  return ret;
+}
 void VulkanTextureImage::createSampler() {
   //This may not exactly work for every case, but the reason I use nearest filtering is
   //for game sprites or FBO's. In that case we want the mipmap interpolation to be nearest.
-  VkSamplerMipmapMode mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  if (this->_mipmap == MipmapMode::Linear) {
-    mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  }
-  else if (_mipmap == MipmapMode::Nearest) {
-    mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-  }
+  bool cubicFilteringSupported = isFeatureSupported(VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG);
+  VkFilter minFilter = convertFilter(_min_filter, cubicFilteringSupported);
+  VkFilter magFilter = convertFilter(_mag_filter, cubicFilteringSupported);
+  VkSamplerMipmapMode mipMode = convertMipmapMode(_mipmap, _mag_filter);
 
   VkBool32 anisotropy_enable = VK_TRUE;
-  if(_anisotropy < 1.00f){
+  if (_anisotropy < 1.00f) {
+    //Note: Gpu will segfault if aniso is less than 1
     anisotropy_enable = VK_FALSE;
   }
 
-  //Sampler
   VkSamplerCreateInfo samplerInfo = {
     .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
     .pNext = nullptr,
     .flags = 0,
     //Filtering
-    .magFilter = VK_FILTER_LINEAR,
-    .minFilter = VK_FILTER_LINEAR,
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .magFilter = magFilter,
+    .minFilter = minFilter,
+    .mipmapMode = mipMode,
     //Texture repeat
     .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
     .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
     .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
     .mipLodBias = 0,
-    .anisotropyEnable = anisotropy_enable,  // VkBool32
-    .maxAnisotropy = _anisotropy,                                     // float There is no graphics hardware available today that will use more than 16 samples, because the difference is negligible beyond that point.
+    .anisotropyEnable = anisotropy_enable,
+    .maxAnisotropy = _anisotropy,
     .compareEnable = VK_FALSE,
     .compareOp = VK_COMPARE_OP_ALWAYS,
     .minLod = 0,
@@ -562,26 +593,25 @@ void VulkanTextureImage::createSampler() {
   CheckVKR(vkCreateSampler, vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
 }
 VkSampler VulkanTextureImage::sampler() { return _textureSampler; }
-
-bool VulkanTextureImage::mipmappingSupported() {
+bool VulkanTextureImage::isFeatureSupported(VkFormatFeatureFlagBits flag) {
   VkFormatProperties formatProperties;
   vkGetPhysicalDeviceFormatProperties(vulkan()->physicalDevice(), format(), &formatProperties);
-  bool supported = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+  bool supported = formatProperties.optimalTilingFeatures & flag;
   return supported;
 }
 void VulkanTextureImage::recreateMipmaps(MipmapMode mipmaps) {
 }
 void VulkanTextureImage::generateMipmaps() {
   //https://vulkan-tutorial.com/Generating_Mipmaps
-  if (!mipmappingSupported()) {
+  if (!isFeatureSupported(VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
     BRLogWarnOnce("Mipmapping is not supported.");
     return;
   }
   std::unique_ptr<VulkanCommands> cmds = std::make_unique<VulkanCommands>(vulkan());
   cmds->begin();
 
-  int32_t last_level_width = static_cast<int32_t>(_width);
-  int32_t last_level_height = static_cast<int32_t>(_height);
+  int32_t last_level_width = static_cast<int32_t>(_size.width);
+  int32_t last_level_height = static_cast<int32_t>(_size.height);
   for (uint32_t iMipLevel = 1; iMipLevel < this->_mipLevels; ++iMipLevel) {
     int32_t level_width = last_level_width / 2;
     int32_t level_height = last_level_height / 2;
@@ -629,13 +659,13 @@ void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat im
 
   //Undefined layout will be discard image data.
   transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(pimg);
+  copyBufferToImage();
   transitionImageLayout(img_fmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   //Cleanup host buffer. We are done with it.
   _host = nullptr;
 }
-void VulkanTextureImage::copyBufferToImage(std::shared_ptr<Img32> pimg) {
+void VulkanTextureImage::copyBufferToImage() {
   //todo:
   //GraphicsCommands g
   //g->copyBufferToImage(..)
@@ -652,7 +682,7 @@ void VulkanTextureImage::copyBufferToImage(std::shared_ptr<Img32> pimg) {
       .layerCount = 1,
     },
     .imageOffset = { 0, 0, 0 },
-    .imageExtent = { pimg->_width, pimg->_height, 1 },
+    .imageExtent = { _size.width, _size.height, 1 },
   };
   vkCmdCopyBufferToImage(commandBuffer, _host->buffer(), _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
   vulkan()->endOneTimeGraphicsCommands(commandBuffer);
@@ -728,7 +758,174 @@ void VulkanTextureImage::flipImage20161206(uint8_t* image, int width, int height
 
   delete[] rowTmp1;
 }
+void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_mag_filter, MipmapMode& g_mipmap_mode) {
+  //Cycle through all texture filters for testing.
+  if (g_mipmap_mode == MipmapMode::Nearest) {
+    if (g_min_filter == TexFilter::Nearest) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+    else if (g_min_filter == TexFilter::Linear) {
 
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Nearest;
+      }
+
+    }
+    else if (g_min_filter == TexFilter::Cubic) {
+
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Nearest;
+      }
+
+    }
+  }
+  else if (g_mipmap_mode == MipmapMode::Linear) {
+    if (g_min_filter == TexFilter::Nearest) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+    else if (g_min_filter == TexFilter::Linear) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+    else if (g_min_filter == TexFilter::Cubic) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Linear;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+  }
+  else if (g_mipmap_mode == MipmapMode::Disabled) {
+    if (g_min_filter == TexFilter::Nearest) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+    else if (g_min_filter == TexFilter::Linear) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Linear;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+    else if (g_min_filter == TexFilter::Cubic) {
+      if (g_mag_filter == TexFilter::Nearest) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Linear;
+      }
+      else if (g_mag_filter == TexFilter::Linear) {
+        g_mipmap_mode = MipmapMode::Disabled;
+        g_min_filter = TexFilter::Cubic;
+        g_mag_filter = TexFilter::Cubic;
+      }
+      else if (g_mag_filter == TexFilter::Cubic) {
+        g_mipmap_mode = MipmapMode::Nearest;
+        g_min_filter = TexFilter::Nearest;
+        g_mag_filter = TexFilter::Nearest;
+      }
+    }
+  }
+
+
+}
 #pragma endregion
 
 #pragma region ShaderModule
@@ -2294,9 +2491,8 @@ void RenderFrame::init() {
 
   //**This si still an issue - binding the swapchain format to the FBO format - there could be discrpencies.
   VkFormat depthFmt = vulkan()->findDepthFormat();
-  _depthImage = std::make_shared<VulkanImage>(vulkan());
-  _depthImage->allocateMemory(w, h, depthFmt, VK_IMAGE_TILING_OPTIMAL,
-                              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1,
+  _depthImage = std::make_shared<VulkanImage>(vulkan(), w, h, depthFmt);
+  _depthImage->allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1,
                               VK_SAMPLE_COUNT_1_BIT);
   //**DFB images.
 }

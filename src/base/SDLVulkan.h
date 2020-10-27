@@ -12,25 +12,18 @@
 namespace VG {
 /**
  *  @class SDLVulkan
- *  @brief
+ *  @brief Test class for Vulkan.
  */
-class SDLVulkan_Internal;
-
-class VirtualMemory {
-public:
-  VirtualMemory() {}
-  virtual ~VirtualMemory() {}
-};
-
-class SDLVulkan : public VirtualMemory {
+class SDLVulkan  {
 public:
   SDLVulkan();
-  virtual ~SDLVulkan() override;
-
+  virtual ~SDLVulkan();
+   
   bool doInput();
   void init();
   void renderLoop();
 
+class SDLVulkan_Internal;
   std::unique_ptr<SDLVulkan_Internal> _pInt;
 };
 

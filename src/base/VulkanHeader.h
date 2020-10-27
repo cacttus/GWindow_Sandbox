@@ -28,13 +28,20 @@ namespace VG {
 
 /////////////////////////////////////////////////////////////////////////////////
 //Enums
+//Texture filter mode.
+enum class TexFilter {
+  Nearest,
+  Linear,
+  Cubic,
+  Filter_Count,
+};
 enum class MipmapMode {
   Disabled,
   Nearest,
   Linear,
+  Auto,  //Will select based on selected nearest TexFilter
   MipmapMode_Count
 };
-
 enum class AttachmentType {
   ColorAttachment,
   DepthAttachment

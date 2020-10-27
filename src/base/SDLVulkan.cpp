@@ -7,7 +7,9 @@
 
 namespace VG {
 
-static MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
+static MipmapMode g_mipmap_mode = MipmapMode::Nearest;  //**TESTING**
+static TexFilter g_min_filter = TexFilter::Nearest;     //**TESTING**
+static TexFilter g_mag_filter = TexFilter::Nearest;     //**TESTING**
 static bool g_samplerate_shading = true;
 static bool g_poly_line = false;
 static bool g_use_rtt = false;
@@ -20,7 +22,7 @@ const bool g_vsync_enable = false;
 #pragma region SDLVulkan_Internal
 
 //Data from Vulkan-Tutorial
-class SDLVulkan_Internal {
+class SDLVulkan::SDLVulkan_Internal {
 public:
 #pragma region Members
   SDL_Window* _pSDLWindow = nullptr;
@@ -126,7 +128,7 @@ public:
     sdl_PrintVideoDiagnostics();
 
     _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable);
- 
+
     _game = std::make_shared<GameDummy>();
     _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
     _game->_mesh1->makeBox();
@@ -310,7 +312,7 @@ public:
     //}
     if (test_render_texture == nullptr) {
       test_render_texture = std::make_shared<VulkanTextureImage>(
-        vulkan(), 500, 500, VG::MipmapMode::Linear, VK_SAMPLE_COUNT_1_BIT);
+        vulkan(), 500, 500, TexFilter::Nearest, TexFilter::Nearest, MipmapMode::Nearest, VK_SAMPLE_COUNT_1_BIT);
     }
 
     auto cmd = frame->commandBuffer();
@@ -421,14 +423,14 @@ public:
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile("char-1.png"));  //TexturesCom_MetalBare0253_2_M.png
     if (img) {
-      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 1.");
     }
     auto img2 = loadImage(App::rootFile("char-2.png"));
     if (img2) {
-      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 2.");
@@ -447,6 +449,9 @@ public:
     _testTexture2 = nullptr;
   }
   void cleanup() {
+    //This stops all threads before we cleanup.
+    vkDeviceWaitIdle(vulkan()->device());
+
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
     cleanupShaderMemory();
     _pShader = nullptr;
@@ -454,7 +459,7 @@ public:
 
     SDL_DestroyWindow(_pSDLWindow);
   }
-};  // namespace VG
+};
 
 #pragma endregion
 
@@ -497,10 +502,9 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
-        g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
-
+        //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
+        VulkanTextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
         _pInt->createTextureImages();
-
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
@@ -549,18 +553,17 @@ void SDLVulkan::renderLoop() {
     if (_pInt->_fpsMeter.getFrameNumber() % 2 == 0) {
       float f = _pInt->_fpsMeter.getFps();
       string_t fp = std::to_string((int)f);
-      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ("Undefined-Error")));
+      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ((g_mipmap_mode == MipmapMode::Auto) ? ("Auto") : ("Undefined-Error"))));
+      string_t min_f = (g_min_filter == TexFilter::Linear) ? ("Linear") : ((g_min_filter == TexFilter::Nearest) ? ("Nearest") : ((g_min_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
+      string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("Linear") : ((g_mag_filter == TexFilter::Nearest) ? ("Nearest") : ((g_mag_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
       string_t mode = " mipmap=F1 (" + mmip_mode + ") ";
       string_t aniso = std::string(" anisotropy=F9 (") + std::to_string(g_anisotropy) + ")";
-      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode  + aniso;
+      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode + "(min=" + min_f + ")(mag=" + mag_f + ")" + aniso;
       SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
     }
 
     _pInt->drawFrame(t01ms);
   }
-  //This stops all threads before we cleanup.
-  vkDeviceWaitIdle(_pInt->vulkan()->device());
-  _pInt->cleanup();
 }
 
 #pragma endregion

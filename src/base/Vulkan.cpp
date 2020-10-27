@@ -33,6 +33,9 @@ public:
   };
 
 #pragma region Props
+  std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
+  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
+
   VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
   VkDevice _device = VK_NULL_HANDLE;
   VkInstance _instance = VK_NULL_HANDLE;
@@ -43,13 +46,11 @@ public:
   VkSampleCountFlagBits _msaaSamples = VK_SAMPLE_COUNT_1_BIT;
   VkSurfaceKHR _windowSurface;
   bool _bEnableValidationLayers = true;  // TODO: set this in settings
-  std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
   std::unordered_map<string_t, VkExtensionProperties> _deviceExtensions;
   std::unordered_map<std::string, VkLayerProperties> supported_validation_layers;
   VkSurfaceCapabilitiesKHR _surfaceCaps;
-  uint32_t _swapchainImageCount = 2;
+  uint32_t _swapchainImageCount = 0;
   bool _bPhysicalDeviceAcquired = false;
-
   bool _vsync_enabled = false;
   bool _wait_fences = false;
 
@@ -63,13 +64,17 @@ public:
   VkPhysicalDeviceProperties _deviceProperties;
   VkPhysicalDeviceLimits _physicalDeviceLimits;
   VkPhysicalDeviceFeatures _deviceFeatures;
-  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
 #pragma endregion
 
   Vulkan_Internal() {
   }
   virtual ~Vulkan_Internal() {
+    vkDeviceWaitIdle(_device);
+
+    _pSwapchain = nullptr;
+    _pQueueFamilies = nullptr;
+
     vkDestroyCommandPool(_device, _commandPool, nullptr);
     vkDestroyDevice(_device, nullptr);
     if (debugMessenger != VK_NULL_HANDLE) {

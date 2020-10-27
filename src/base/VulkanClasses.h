@@ -76,7 +76,7 @@ private:
 */
 class VulkanImage : public VulkanObject {
 public:
-  VulkanImage(std::shared_ptr<Vulkan> pvulkan);
+  VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format);
   VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat);
 
   virtual ~VulkanImage() override;
@@ -85,8 +85,7 @@ public:
   VkFormat format() { return _format; }
   VkImage image() { return _image; }
 
-  void allocateMemory(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                      VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
+  void allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
                       VkSampleCountFlagBits samples, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
   void createView(VkFormat fmt, VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t mipLevel = 1);
 
@@ -94,8 +93,9 @@ protected:
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
   VkDeviceMemory _imageMemory = VK_NULL_HANDLE;
   VkImageView _imageView = VK_NULL_HANDLE;
-  uint32_t _width = 0;
-  uint32_t _height = 0;
+  BR2::usize2 _size{ 0, 0 };
+  //uint32_t _width = 0;
+  //uint32_t _height = 0;
   VkFormat _format = VK_FORMAT_UNDEFINED;  //Invalid format
 };
 /**
@@ -172,12 +172,15 @@ public:
 */
 class VulkanTextureImage : public VulkanImage {
 public:
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
-  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, MipmapMode mipmaps, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, TexFilter min_filter = TexFilter::Linear, TexFilter mag_filter = TexFilter::Linear,
+                     MipmapMode mipmaps = MipmapMode::Auto, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
+  VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, TexFilter min_filter = TexFilter::Linear, TexFilter mag_filter = TexFilter::Linear,
+                     MipmapMode mipmaps = MipmapMode::Auto, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
   virtual ~VulkanTextureImage() override;
   VkSampler sampler();
 
   void recreateMipmaps(MipmapMode mipmaps);
+  static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -185,14 +188,19 @@ private:
   uint32_t _mipLevels = 1;
   MipmapMode _mipmap = MipmapMode::Linear;
   float _anisotropy = 16.0f;
-  
+  TexFilter _min_filter = TexFilter::Linear;
+  TexFilter _mag_filter = TexFilter::Linear;
+
   void createSampler();
-  bool mipmappingSupported();
+  bool isFeatureSupported(VkFormatFeatureFlagBits flag);
   void generateMipmaps();
   void copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt);
-  void copyBufferToImage(std::shared_ptr<Img32> pimg);
+  void copyBufferToImage();
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
   void flipImage20161206(uint8_t* image, int width, int height);
+  VkFilter convertFilter(TexFilter filter,  bool cubicSupported);
+  VkSamplerMipmapMode convertMipmapMode(MipmapMode mode, TexFilter filter);
+  
 };
 /**
  * @class VulkanShaderModule
@@ -331,7 +339,7 @@ class PassDescription {
 public:
   PassDescription(std::shared_ptr<PipelineShader> shader);
   void setOutput(std::shared_ptr<OutputDescription> output);
-  void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend,bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
+  void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
   std::vector<VkClearValue> getClearValues();
 
