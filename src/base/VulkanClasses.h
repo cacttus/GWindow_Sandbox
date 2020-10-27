@@ -593,7 +593,7 @@ public:
   Swapchain(std::shared_ptr<Vulkan> v);  //TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
-  std::shared_ptr<RenderFrame> acquireFrame();
+  std::shared_ptr<RenderFrame> currentFrame();
   bool beginFrame(const BR2::usize2& windowsize);
   void endFrame();
   const BR2::usize2& imageSize();

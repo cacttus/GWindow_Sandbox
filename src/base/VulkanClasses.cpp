@@ -2923,7 +2923,7 @@ void Swapchain::cleanupSwapChain() {
   }
 }
 bool Swapchain::beginFrame(const BR2::usize2& windowsize) {
-  //Returns true if we acquired an image to draw to
+  //Returns true if we acquired an image to draw to, false if none are ready.
   if (isOutOfDate()) {
     initSwapchain(windowsize);
   }
@@ -2960,14 +2960,9 @@ VkFormat Swapchain::imageFormat() {
 const BR2::usize2& Swapchain::imageSize() {
   return _imageSize;
 }
-std::shared_ptr<RenderFrame> Swapchain::acquireFrame() {
+std::shared_ptr<RenderFrame> Swapchain::currentFrame() {
   std::shared_ptr<RenderFrame> frame = nullptr;
-
-  //INVALID:
   frame = _frames[_currentFrame];
-  //TODO:
-  //Find the next available frame. Do not block.
-
   return frame;
 }
 

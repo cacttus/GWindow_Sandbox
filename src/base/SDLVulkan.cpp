@@ -39,7 +39,8 @@ public:
   string_t c_instanceUBO_2 = "c_instanceUBO_2";
 
   uint32_t _numInstances = 25;
-  FpsMeter _fpsMeter;
+  FpsMeter _fpsMeter_Render;
+  FpsMeter _fpsMeter_Update;
 
 #pragma endregion
 
@@ -283,19 +284,20 @@ public:
 #pragma region Vulkan Rendering
 
   uint64_t g_iFrameNumber = 0;
-  void drawFrame(double dt) {
+  void drawFrame() {
     if (_vulkan->swapchain()->beginFrame(getWindowDims().size)) {
-      std::shared_ptr<RenderFrame> frame = _vulkan->swapchain()->acquireFrame();
+      static auto last_time = std::chrono::high_resolution_clock::now();
+      double t01 = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
+      last_time = std::chrono::high_resolution_clock::now();
+
+      std::shared_ptr<RenderFrame> frame = _vulkan->swapchain()->currentFrame();
       if (frame != nullptr) {
-        recordCommandBuffer(frame, dt);
+        recordCommandBuffer(frame, t01);
       }
       _vulkan->swapchain()->endFrame();
+      _fpsMeter_Render.update();
+      g_iFrameNumber++;
     }
-    else {
-      Gu::debugBreak();
-    }
-
-    g_iFrameNumber++;
   }
   std::shared_ptr<RenderTexture> test_render_texture = nullptr;
   void recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
@@ -381,7 +383,7 @@ public:
         //black face Smiley
         auto tex = g_use_rtt ? test_render_texture->texture() : _testTexture2;
         auto pass2 = _pShader->getPass(frame);
-        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt) ));
+        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
         pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
         if (_pShader->beginRenderPass(cmd, frame, pass2)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
@@ -510,7 +512,6 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
-
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F3) {
@@ -543,27 +544,28 @@ bool SDLVulkan::doInput() {
 }
 void SDLVulkan::renderLoop() {
   bool exit = false;
-  auto last_time = std::chrono::high_resolution_clock::now();
   while (!exit) {
     exit = doInput();
-    double t01ms = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
-    last_time = std::chrono::high_resolution_clock::now();
 
     //FPS
-    _pInt->_fpsMeter.update();
-    if (_pInt->_fpsMeter.getFrameNumber() % 2 == 0) {
-      float f = _pInt->_fpsMeter.getFps();
-      string_t fp = std::to_string((int)f);
+    _pInt->_fpsMeter_Update.update();
+    if (_pInt->_fpsMeter_Update.getFrameNumber() % 2 == 0) {
+      float f_upd = _pInt->_fpsMeter_Update.getFps();
+      string_t fp_upd = std::to_string((int)f_upd);
+      float f_r = _pInt->_fpsMeter_Render.getFps();
+      string_t fp_r = std::to_string((int)f_r);
+
       string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ((g_mipmap_mode == MipmapMode::Auto) ? ("Auto") : ("Undefined-Error"))));
       string_t min_f = (g_min_filter == TexFilter::Linear) ? ("Linear") : ((g_min_filter == TexFilter::Nearest) ? ("Nearest") : ((g_min_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
       string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("Linear") : ((g_mag_filter == TexFilter::Nearest) ? ("Nearest") : ((g_mag_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
       string_t mode = " mipmap=F1 (" + mmip_mode + ") ";
       string_t aniso = std::string(" anisotropy=F9 (") + std::to_string(g_anisotropy) + ")";
-      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode + "(min=" + min_f + ")(mag=" + mag_f + ")" + aniso;
-      SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
+      string_t frame = std::string(" frame:") + std::to_string(_pInt->g_iFrameNumber);
+      string_t out = "u:" + fp_upd + "fps r:" + fp_r + std::string("fps") + frame + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode + "(min=" + min_f + ")(mag=" + mag_f + ")" + aniso;
+      SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
     }
 
-    _pInt->drawFrame(t01ms);
+    _pInt->drawFrame();
   }
 }
 
