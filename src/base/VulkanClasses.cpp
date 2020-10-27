@@ -465,7 +465,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
   }
 }
 VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, TexFilter min_filter, TexFilter mag_filter, MipmapMode mipmaps,
-                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, w, h, VK_FORMAT_R8G8B8A8_SRGB) {
+                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, w, h, VK_FORMAT_B8G8R8A8_SRGB) {
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
@@ -495,8 +495,8 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t
   allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   createView(_format, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
-  transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  //transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  //transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   createSampler();
   if (_mipmap != MipmapMode::Disabled) {
     generateMipmaps();
@@ -779,7 +779,6 @@ void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_
       }
     }
     else if (g_min_filter == TexFilter::Linear) {
-
       if (g_mag_filter == TexFilter::Nearest) {
         g_mipmap_mode = MipmapMode::Nearest;
         g_min_filter = TexFilter::Linear;
@@ -795,10 +794,8 @@ void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_
         g_min_filter = TexFilter::Cubic;
         g_mag_filter = TexFilter::Nearest;
       }
-
     }
     else if (g_min_filter == TexFilter::Cubic) {
-
       if (g_mag_filter == TexFilter::Nearest) {
         g_mipmap_mode = MipmapMode::Nearest;
         g_min_filter = TexFilter::Cubic;
@@ -814,7 +811,6 @@ void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_
         g_min_filter = TexFilter::Nearest;
         g_mag_filter = TexFilter::Nearest;
       }
-
     }
   }
   else if (g_mipmap_mode == MipmapMode::Linear) {
@@ -923,8 +919,6 @@ void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_
       }
     }
   }
-
-
 }
 #pragma endregion
 
@@ -1077,7 +1071,7 @@ std::vector<VkClearValue> PassDescription::getClearValues() {
 void PassDescription::setOutput(std::shared_ptr<OutputDescription> output) {
   addValidOutput(output);
 }
-void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<VulkanTextureImage> tex,
+void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<RenderTexture> tex,
                                 BlendFunc blend, bool clear, float clear_r, float clear_g, float clear_b) {
   auto output = std::make_shared<OutputDescription>();
   output->_name = "custom_output";
@@ -1090,6 +1084,8 @@ void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<VulkanTextur
   output->_clearStencil = 0;
   output->_output = output_e;
   output->_clear = clear;
+  output->_isSwapchainColorImage = false;  // True if this is the presentable swapchain image.
+  output->_compareOp = CompareOp::Less;
   addValidOutput(output);
 }
 void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att) {
@@ -1123,7 +1119,7 @@ FramebufferAttachment::~FramebufferAttachment() {
   }
 }
 
-bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<OutputDescription> desc, const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_img_fmt) {
+bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<OutputDescription> desc, const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_img_fmt, uint32_t mipLevels) {
   _desc = desc;
   _imageSize = imageSize;
 
@@ -1142,7 +1138,7 @@ bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo, std::shared_p
     return fbo->pipelineError("Unsupported FBOType enum: '" + std::to_string((int)_desc->_type) + "'");
   }
   //If texture, what mipmap levels then
-  _outputImageView = vulkan()->createImageView(swap_img, swap_img_fmt, aspect, 1);
+  _outputImageView = vulkan()->createImageView(swap_img, swap_img_fmt, aspect, mipLevels);
   return true;
 }
 
@@ -1196,7 +1192,7 @@ bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Pas
   CheckVKR(vkCreateFramebuffer, vulkan()->device(), &framebufferInfo, nullptr, &_framebuffer);
 
   //Validate image sizes
-  int32_t def_w = -1;
+  /*int32_t def_w = -1;
   int32_t def_h = -1;
   for (size_t i = 0; i < attachments().size(); ++i) {
     if (def_w == -1) {
@@ -1219,7 +1215,7 @@ bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Pas
 
   if (def_w == -1 || def_h == -1) {
     return pipelineError("Invalid FBO image size.");
-  }
+  }*/
 
   return true;
 }
@@ -1230,8 +1226,10 @@ bool Framebuffer::createAttachments() {
     auto out_att = _passDescription->outputs()[i];
     VkImage img_img;
     VkFormat img_fmt;
+    BR2::usize2 img_siz;
+    uint32_t img_miplevels;
 
-    if (!getOutputImageDataForMRTType(_frame, out_att, img_img, img_fmt)) {
+    if (!getOutputImageDataForMRTType(_frame, out_att, img_img, img_fmt, img_siz, img_miplevels)) {
       return false;
     }
 
@@ -1243,11 +1241,11 @@ bool Framebuffer::createAttachments() {
       location = out_att->_outputBinding->_location;
     }
 
-    auto swap_siz = _frame->imageSize();  //Change for Dynamic MRT's
+    // auto swap_siz = _frame->imageSize();  //Change for Dynamic MRT's
 
     auto fb_a = std::make_shared<FramebufferAttachment>(vulkan());
 
-    if (!fb_a->init(getThis<Framebuffer>(), out_att, swap_siz, img_img, img_fmt)) {
+    if (!fb_a->init(getThis<Framebuffer>(), out_att, img_siz, img_img, img_fmt, img_miplevels)) {
       return pipelineError("Failed to initialize fbo attachment '" + std::to_string(i) + "'.");
     }
 
@@ -1357,24 +1355,38 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
   return true;
 }
 bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame,
-                                               std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format) {
+                                               std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format, BR2::usize2& out_size, uint32_t& out_miplevels) {
   //Convert an MRT bind point into an image descriptor.
 
   OutputMRT type = out_att->_output;
 
-  if (type == OutputMRT::RT_DefaultColor) {
-    //Default framebuffer
-    out_image = frame->swapImage();
-    out_format = frame->imageFormat();
-  }
-  else if (type == OutputMRT::RT_DefaultDepth) {
-    //Default renderbuffer
-    out_image = frame->depthImage();
-    out_format = frame->depthFormat();
+  //If texture is NOT nullptr - output specifies JUST the name of the output in the shader.
+  //If texture is nullptr - output specifies BOTH the output name AND supplies a system framebuffer to render this output to.
+  if (out_att->_texture == nullptr) {
+    if (type == OutputMRT::RT_DefaultColor) {
+      //Default framebuffer
+      out_image = frame->swapImage();
+      out_format = frame->imageFormat();
+      out_size = frame->imageSize();
+      out_miplevels = 1;
+    }
+    else if (type == OutputMRT::RT_DefaultDepth) {
+      //Default renderbuffer
+      out_image = frame->depthImage();
+      out_format = frame->depthFormat();
+      out_size = frame->imageSize();
+      out_miplevels = 1;
+    }
+    //TODO: put other types here for the other output formats. ex. MRT_Color, MRT_Depth_Plane, etc.
+    else {
+      return pipelineError("No texture value give given for default output format");
+    }
   }
   else {
-    out_image = out_att->_texture->image();
-    out_format = out_att->_texture->format();
+    out_image = out_att->_texture->texture()->image();
+    out_format = out_att->_texture->texture()->format();
+    out_size = out_att->_texture->texture()->imageSize();
+    out_miplevels = out_att->_texture->texture()->mipLevels();
   }
 
   return true;
@@ -2531,6 +2543,8 @@ bool RenderFrame::beginFrame() {
       return false;
     }
     else if (res == VK_ERROR_DEVICE_LOST) {
+      //This will happen if the gpu has a fatal error
+      // For example binding a texture to the FBO that is a different size than the FBO
       //**TODO: create new logical device from physical (if it's not lost)
       // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
       Gu::debugBreak();
@@ -2647,6 +2661,7 @@ const BR2::usize2& RenderFrame::imageSize() {
 Swapchain::Swapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
 }
 Swapchain::~Swapchain() {
+  _renderTextures.clear();
   cleanupSwapChain();
   _shaders.clear();
 }
@@ -2666,7 +2681,12 @@ void Swapchain::initSwapchain(const BR2::usize2& window_size) {
 
   vkDeviceWaitIdle(vulkan()->device());
 
-  createSwapChain(window_size);  // *  - recreate
+  createSwapChain(window_size);
+
+  //Redo RenderTextures (do this before any FBO stuff)
+  for (auto r : _renderTextures) {
+    recreateRenderTexture(r);
+  }
 
   //Frames will be new here.
   for (auto shader : _shaders) {
@@ -2800,6 +2820,10 @@ void Swapchain::cleanupSwapChain() {
   _frames.clear();
   _imagesInFlight.clear();
 
+  for (auto r : _renderTextures) {
+    r->_texture = nullptr;
+  }
+
   if (_swapChain != VK_NULL_HANDLE) {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
   }
@@ -2851,6 +2875,29 @@ std::shared_ptr<RenderFrame> Swapchain::acquireFrame() {
   //Find the next available frame. Do not block.
 
   return frame;
+}
+
+std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filter, TexFilter mag_filter) {
+  std::shared_ptr<RenderTexture> renderTex = std::make_shared<RenderTexture>();
+  renderTex->_min_filter = min_filter;
+  renderTex->_mag_filter = mag_filter;
+  //Set other parameters
+  //TODO: sample count.
+
+  recreateRenderTexture(renderTex);
+
+  _renderTextures.push_back(renderTex);
+
+  return renderTex;
+}
+void Swapchain::recreateRenderTexture(std::shared_ptr<RenderTexture> r) {
+  //TODO: sample count.
+  r->_texture = nullptr;
+
+  r->_texture = std::make_shared<VulkanTextureImage>(
+                   vulkan(), imageSize().width, imageSize().height,
+                   r->_min_filter, r->_mag_filter,
+                   r->_mipmap_mode, VK_SAMPLE_COUNT_1_BIT);
 }
 
 #pragma endregion

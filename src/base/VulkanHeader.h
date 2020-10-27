@@ -150,6 +150,7 @@ class ShaderDataUBO;
 class ShaderData;
 class RenderFrame;
 class Swapchain;
+class RenderTexture;
 
 //Dummies
 class Mesh;

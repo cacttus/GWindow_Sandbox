@@ -10,10 +10,9 @@ namespace VG {
 static MipmapMode g_mipmap_mode = MipmapMode::Nearest;  //**TESTING**
 static TexFilter g_min_filter = TexFilter::Nearest;     //**TESTING**
 static TexFilter g_mag_filter = TexFilter::Nearest;     //**TESTING**
-static bool g_samplerate_shading = true;
 static bool g_poly_line = false;
-static bool g_use_rtt = false;
-static int g_pass_test_idx = 1;
+static bool g_use_rtt = true;
+static int g_pass_test_idx = 3;
 static float g_anisotropy = 1;
 
 const bool g_wait_fences = false;
@@ -298,7 +297,7 @@ public:
 
     g_iFrameNumber++;
   }
-  std::shared_ptr<VulkanTextureImage> test_render_texture = nullptr;
+  std::shared_ptr<RenderTexture> test_render_texture = nullptr;
   void recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
     uint32_t frameIndex = frame->frameIndex();
 
@@ -311,15 +310,14 @@ public:
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
     //}
     if (test_render_texture == nullptr) {
-      test_render_texture = std::make_shared<VulkanTextureImage>(
-        vulkan(), 500, 500, TexFilter::Nearest, TexFilter::Nearest, MipmapMode::Nearest, VK_SAMPLE_COUNT_1_BIT);
+      test_render_texture = vulkan()->swapchain()->createRenderTexture(TexFilter::Nearest, TexFilter::Nearest);
     }
 
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
       //Testing clear color
-      float speed = 0.001;
+      float speed = 0.001f;
       static float c_r = speed;
       static float c_g = 0;
       static float c_b = 0;
@@ -352,7 +350,9 @@ public:
       if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
         auto pass1 = _pShader->getPass(frame);
         if (g_use_rtt) {
-          pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled, true, c_r, c_g, c_b);
+          //The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.
+          //Fix this.
+          pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::AlphaBlend, true, c_r, c_g, c_b);
         }
         else {
           //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
@@ -377,10 +377,10 @@ public:
       }
       if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
         //black face Smiley
-        auto tex = g_use_rtt ? test_render_texture : _testTexture2;
+        auto tex = g_use_rtt ? test_render_texture->texture() : _testTexture2;
         auto pass2 = _pShader->getPass(frame);
-        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2));
-        pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2));
+        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt) ));
+        pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
         if (_pShader->beginRenderPass(cmd, frame, pass2)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
             _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->imageSize() });
@@ -508,8 +508,7 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
-        g_samplerate_shading = !g_samplerate_shading;
-        _pInt->_vulkan->swapchain()->outOfDate();
+
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F3) {

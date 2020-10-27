@@ -84,6 +84,7 @@ public:
   VkImageView imageView() { return _imageView; }
   VkFormat format() { return _format; }
   VkImage image() { return _image; }
+  const BR2::usize2& imageSize() { return _size; }
 
   void allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
                       VkSampleCountFlagBits samples, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
@@ -181,6 +182,7 @@ public:
 
   void recreateMipmaps(MipmapMode mipmaps);
   static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
+  uint32_t mipLevels() { return _mipLevels; }
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -198,9 +200,8 @@ private:
   void copyBufferToImage();
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
   void flipImage20161206(uint8_t* image, int width, int height);
-  VkFilter convertFilter(TexFilter filter,  bool cubicSupported);
+  VkFilter convertFilter(TexFilter filter, bool cubicSupported);
   VkSamplerMipmapMode convertMipmapMode(MipmapMode mode, TexFilter filter);
-  
 };
 /**
  * @class VulkanShaderModule
@@ -289,7 +290,7 @@ class OutputDescription {
 public:
   static FBOType outputTypeToFBOType(OutputMRT out);
   string_t _name = "";
-  std::shared_ptr<VulkanTextureImage> _texture = nullptr;
+  std::shared_ptr<RenderTexture> _texture = nullptr;
   BlendFunc _blending = BlendFunc::AlphaBlend;
   FBOType _type = FBOType::Undefined;
   BR2::vec4 _clearColor{ 0, 0, 0, 1 };
@@ -315,7 +316,7 @@ public:
     outd->_isSwapchainColorImage = false;
     return outd;
   }
-  static std::shared_ptr<OutputDescription> getColorDF(std::shared_ptr<VulkanTextureImage> tex = nullptr,
+  static std::shared_ptr<OutputDescription> getColorDF(std::shared_ptr<RenderTexture> tex = nullptr,
                                                        bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0) {
     auto outd = std::make_shared<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultColor;
@@ -339,7 +340,7 @@ class PassDescription {
 public:
   PassDescription(std::shared_ptr<PipelineShader> shader);
   void setOutput(std::shared_ptr<OutputDescription> output);
-  void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
+  void setOutput(OutputMRT output, std::shared_ptr<RenderTexture> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
   std::vector<VkClearValue> getClearValues();
 
@@ -356,7 +357,7 @@ public:
   FramebufferAttachment(std::shared_ptr<Vulkan> v);
   virtual ~FramebufferAttachment() override;
 
-  bool init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<OutputDescription> desc, const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_img_fmt);
+  bool init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<OutputDescription> desc, const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_img_fmt, uint32_t mipLevels);
   VkImageView getVkImageView() { return _outputImageView; }
   const BR2::usize2& imageSize() { return _imageSize; }
   std::shared_ptr<OutputDescription> desc() { return _desc; }
@@ -388,7 +389,7 @@ public:
 private:
   bool createAttachments();
   bool createRenderPass(std::shared_ptr<Framebuffer> fbo);
-  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format);
+  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format, BR2::usize2& out_size, uint32_t& out_miplevels);
 
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
   std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
@@ -561,6 +562,22 @@ private:
   uint32_t _currentRenderingImageIndex = 0;
 };
 /**
+* @class RenderTexture
+* Stores Encapsulates textures that update when window resizes.
+*/
+class RenderTexture {
+  friend class Swapchain;
+
+public:
+  std::shared_ptr<VulkanTextureImage> texture() { return _texture; }
+
+private:
+  TexFilter _min_filter = TexFilter::Nearest;
+  TexFilter _mag_filter = TexFilter::Nearest;
+  MipmapMode _mipmap_mode = MipmapMode::Disabled;
+  std::shared_ptr<VulkanTextureImage> _texture = nullptr;
+};
+/**
  * @class Swapchain
  * */
 class Swapchain : public VulkanObject {
@@ -580,12 +597,14 @@ public:
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
   const std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
   void registerShader(std::shared_ptr<PipelineShader> shader);
+  std::shared_ptr<RenderTexture> createRenderTexture(TexFilter min_filter, TexFilter mag_filter);
 
 private:
   void createSwapChain(const BR2::usize2& window_size);
   void cleanupSwapChain();
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
+  void recreateRenderTexture(std::shared_ptr<RenderTexture> r);
 
   FrameState _frameState = FrameState::Unset;
   std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;
@@ -595,6 +614,7 @@ private:
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   BR2::usize2 _imageSize{ 0, 0 };
   bool _bSwapChainOutOfDate = false;
+  std::vector<std::shared_ptr<RenderTexture>> _renderTextures;
 };
 
 }  // namespace VG
