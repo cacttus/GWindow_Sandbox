@@ -318,6 +318,11 @@ public:
     {
 
       //Trying to get multiple renderpasses to work.
+
+      //Somethjing's wrong with the renderpass data 
+      //setting clear values to false for the same inputs on the second pass doens't thrwo an exception like in the first
+      //pass TODO: investigate this.
+      
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
       {
         auto pass1 = _pShader->getPass(frame);
@@ -384,14 +389,14 @@ public:
   }
   void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
-    auto img = loadImage(App::rootFile("TexturesCom_MetalBare0253_2_M.png"));
+    auto img = loadImage(App::rootFile("white-smiley.png"));//TexturesCom_MetalBare0253_2_M.png
     if (img) {
       _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
     }
     else {
       vulkan()->errorExit("Could not load test image 1.");
     }
-    auto img2 = loadImage(App::rootFile("test.png"));
+    auto img2 = loadImage(App::rootFile("black-smiley.png"));
     if (img2) {
       _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_mipmap_mode);
     }
