@@ -532,7 +532,7 @@ void VulkanTextureImage::createSampler() {
   }
 
   VkBool32 anisotropy_enable = VK_TRUE;
-  if(_anisotropy < 0.001f){
+  if(_anisotropy < 1.00f){
     anisotropy_enable = VK_FALSE;
   }
 
