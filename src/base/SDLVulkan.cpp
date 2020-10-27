@@ -310,7 +310,7 @@ public:
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
     //}
     if (test_render_texture == nullptr) {
-      test_render_texture = vulkan()->swapchain()->createRenderTexture(TexFilter::Nearest, TexFilter::Nearest);
+      test_render_texture = vulkan()->swapchain()->createRenderTexture(TexFilter::Linear, TexFilter::Linear);
     }
 
     auto cmd = frame->commandBuffer();
@@ -372,9 +372,11 @@ public:
               _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
             }
           }
+
           _pShader->endRenderPass(cmd);
         }
       }
+
       if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
         //black face Smiley
         auto tex = g_use_rtt ? test_render_texture->texture() : _testTexture2;

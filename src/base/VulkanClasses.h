@@ -140,6 +140,11 @@ public:
   void end();
   bool beginPass();
   void endPass();
+  void blitImage(VkImage srcImg, VkImage dstImg, const BR2::irect2& srcRegion, const BR2::irect2& dstRegion,
+                 VkImageLayout srcLayout, VkImageLayout dstLayout, uint32_t srcMipLevel, uint32_t dstMipLevel,
+                 VkImageAspectFlagBits aspectFlags, VkFilter filter);
+  void imageTransferBarrier(VkImage image, VkAccessFlagBits srcAccessFlags, VkAccessFlagBits dstAccessFlags,
+                            VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t baseMipLevel, VkImageAspectFlagBits subresourceMask);
 
 private:
   void validateState(bool b);
@@ -183,6 +188,10 @@ public:
   void recreateMipmaps(MipmapMode mipmaps);
   static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
   uint32_t mipLevels() { return _mipLevels; }
+  MipmapMode mipmapMode() { return _mipmap; }
+  TexFilter magFilter() { return _mag_filter; }
+
+  void generateMipmaps(VkImageLayout finalLayout, std::shared_ptr<CommandBuffer> buf = nullptr);
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -195,7 +204,6 @@ private:
 
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
-  void generateMipmaps();
   void copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt);
   void copyBufferToImage();
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
