@@ -7,7 +7,7 @@ namespace VG {
 
 #pragma region VulkanDeviceBuffer
 
-class VulkanDeviceBuffer_Internal {
+class VulkanDeviceBuffer::VulkanDeviceBuffer_Internal {
 public:
   VkBuffer _buffer = VK_NULL_HANDLE;  // If a UniformBuffer, VertexBuffer, or IndexBuffer
   VkDeviceMemory _bufferMemory = VK_NULL_HANDLE;
@@ -113,7 +113,7 @@ void VulkanDeviceBuffer::cleanup() {
 
 #pragma region VulkanBuffer
 
-class VulkanBuffer_Internal {
+class VulkanBuffer::VulkanBuffer_Internal {
 public:
   std::shared_ptr<VulkanDeviceBuffer> _hostBuffer = nullptr;
   std::shared_ptr<VulkanDeviceBuffer> _gpuBuffer = nullptr;
@@ -336,6 +336,92 @@ void VulkanCommands::imageTransferBarrier(VkImage image,
                        0, nullptr,
                        0, nullptr,
                        1, &barrier);
+}
+
+#pragma endregion
+
+#pragma region CommandBuffer
+
+CommandBuffer::CommandBuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFrame> pframe) : VulkanObject(v) {
+  _sharedPool = vulkan()->commandPool();
+  _pRenderFrame = pframe;
+
+  //_commandBuffers.resize(_swapChainFramebuffers.size());
+  VkCommandBufferAllocateInfo allocInfo = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .pNext = nullptr,
+    .commandPool = _sharedPool,
+    .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+    .commandBufferCount = 1,
+
+  };
+  CheckVKR(vkAllocateCommandBuffers, vulkan()->device(), &allocInfo, &_commandBuffer);
+}
+CommandBuffer::~CommandBuffer() {
+  vkFreeCommandBuffers(vulkan()->device(), _sharedPool, 1, &_commandBuffer);
+}
+void CommandBuffer::validateState(bool b) {
+  if (!b) {
+    Gu::debugBreak();
+    BRThrowException("Invalid Command Buffer State.");
+  }
+}
+void CommandBuffer::begin() {
+  validateState(_state == CommandBufferState::End || _state == CommandBufferState::Unset);
+
+  //VkCommandBufferResetFlags
+  CheckVKR(vkResetCommandBuffer, _commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+
+  VkCommandBufferBeginInfo beginInfo = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+    .pNext = nullptr,
+    .flags = 0,  //VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    .pInheritanceInfo = nullptr,
+  };
+  CheckVKR(vkBeginCommandBuffer, _commandBuffer, &beginInfo);
+  _state = CommandBufferState::Begin;
+}
+void CommandBuffer::end() {
+  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::EndPass);
+
+  CheckVKR(vkEndCommandBuffer, _commandBuffer);
+  _state = CommandBufferState::End;
+}
+bool CommandBuffer::beginPass() {
+  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::EndPass);
+
+  _state = CommandBufferState::BeginPass;
+  return true;
+}
+void CommandBuffer::cmdSetViewport(const BR2::urect2& extent) {
+  validateState(_state == CommandBufferState::BeginPass);
+  if (_state != CommandBufferState::BeginPass) {
+    BRLogError("setViewport called on invalid command buffer state, state='" + std::to_string((int)_state) + "'");
+    return;
+  }
+  VkViewport viewport = {
+    .x = static_cast<float>(extent.pos.x),
+    .y = static_cast<float>(extent.pos.y),
+    .width = static_cast<float>(extent.size.width),
+    .height = static_cast<float>(extent.size.height),
+    .minDepth = 0,
+    .maxDepth = 1,
+  };
+
+  VkRect2D scissor{};
+  scissor.offset = { 0, 0 };
+  scissor.extent = {
+    .width = _pRenderFrame->getSwapchain()->imageSize().width,
+    .height = _pRenderFrame->getSwapchain()->imageSize().height
+  };
+  vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
+  vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
+}
+void CommandBuffer::endPass() {
+  validateState(_state == CommandBufferState::BeginPass);
+  //This is called once when all pipeline rendering is complete
+  vkCmdEndRenderPass(_commandBuffer);
+  _state = CommandBufferState::EndPass;
 }
 
 #pragma endregion
@@ -610,7 +696,7 @@ void VulkanTextureImage::flipImage20161206(uint8_t* image, int width, int height
 #pragma endregion
 
 #pragma region ShaderModule
-class ShaderModule_Internal : VulkanObject {
+class ShaderModule::ShaderModule_Internal : VulkanObject {
 public:
   string_t _name = "*unset*";
   VkShaderModule _vkShaderModule = nullptr;
@@ -692,6 +778,82 @@ const string_t& ShaderModule::name() {
 }
 #pragma endregion
 
+#pragma region OutputDescription
+
+FBOType OutputDescription::outputTypeToFBOType(OutputMRT out) {
+  if (out == OutputMRT::RT_Undefined) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DefaultColor) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DefaultDepth) {
+    return FBOType::Depth;
+  }
+  if (out == OutputMRT::RT_DF_Position) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DF_Color) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DF_Depth_Plane) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DF_Normal) {
+    return FBOType::Color;
+  }
+  if (out == OutputMRT::RT_DF_Pick) {
+    return FBOType::Color;
+  }
+  return FBOType::Undefined;
+}
+
+#pragma endregion
+
+#pragma region PassDescription
+
+PassDescription::PassDescription(std::shared_ptr<PipelineShader> shader) {
+  _shader = shader;
+}
+void PassDescription::setOutput(std::shared_ptr<OutputDescription> output) {
+  addValidOutput(output);
+}
+void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear) {
+  auto output = std::make_shared<OutputDescription>();
+  output->_name = "custom_output";
+  output->_texture = tex;
+  output->_blending = blend;
+  output->_type = OutputDescription::outputTypeToFBOType(output_e);
+  output->_clearColor = { 0, 0, 1, 1 };
+  output->_clearDepth = 1;
+  output->_clearStencil = 0;
+  output->_output = output_e;
+  output->_clear = clear;
+  addValidOutput(output);
+}
+void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att) {
+  AssertOrThrow2(_shader!=nullptr);
+  bool valid=true;
+  //Find Location.
+  for (auto& binding : _shader->outputBindings()) {
+    if (binding->_output == OutputMRT::RT_Undefined) {
+      //**If you get here then you didn't name the variable correctly in the shader.
+      _shader->shaderError("Output MRT was not set for binding '" + binding->_name + "' location '" + binding->_location + "'");
+      valid=false;
+    }
+    else if (binding->_output == out_att->_output) {
+      out_att->_outputBinding = binding;
+    }
+  }
+  if(valid)
+  {
+    _outputs.push_back(out_att);
+  }
+  
+}
+
+#pragma endregion
+
 #pragma region FramebufferAttachment
 FramebufferAttachment::FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
                                              const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor,
@@ -717,9 +879,9 @@ FramebufferAttachment::~FramebufferAttachment() {
 bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo) {
   if (_fboFormat != _outputImageFormat) {
     return fbo->pipelineError("Input FBO format '" +
-                               VulkanDebug::VkFormat_toString(_fboFormat) +
-                               "' was not equal to reference image format '" +
-                               VulkanDebug::VkFormat_toString(_outputImageFormat) + "'.");
+                              VulkanDebug::VkFormat_toString(_fboFormat) +
+                              "' was not equal to reference image format '" +
+                              VulkanDebug::VkFormat_toString(_outputImageFormat) + "'.");
   }
   VkImageAspectFlagBits aspect;
   if (_fboType == FBOType::Color) {
@@ -738,9 +900,7 @@ bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo) {
 #pragma endregion
 
 #pragma region Framebuffer
-Framebuffer::Framebuffer(std::shared_ptr<Vulkan> v, const BR2::usize2& size, std::shared_ptr<PassDescription> desc) : VulkanObject(v) {
-  _size = size;
-  _passDescription = desc;
+Framebuffer::Framebuffer(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
 }
 Framebuffer::~Framebuffer() {
   _attachments.clear();
@@ -748,24 +908,23 @@ Framebuffer::~Framebuffer() {
 }
 bool Framebuffer::pipelineError(const string_t& msg) {
   BRLogError(msg);
-  //Pipeline should be set to invalid.
-  //Gu::debugBreak();
-  _bValid=false;
+  _bValid = false;
   return false;
 }
-void Framebuffer::addAttachment(std::shared_ptr<FramebufferAttachment> at) {
-  _attachments.push_back(at);
-}
-bool Framebuffer::create() {
+bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc) {
+  _frame = frame;
+  _passDescription = desc;
+
+  createAttachments();
+
   if (_attachments.size() == 0) {
-    BRLogError("No framebuffer attachments supplied to Framebuffer::create");
-    return false;
+    return pipelineError("No framebuffer attachments supplied to Framebuffer::create");
   }
 
   createRenderPass(getThis<Framebuffer>());
 
-  uint32_t w = size().width;
-  uint32_t h = size().height;
+  uint32_t w = _frame->imageSize().width;
+  uint32_t h = _frame->imageSize().height;
 
   std::vector<VkImageView> vk_attachments;
   for (auto att : _attachments) {
@@ -797,24 +956,66 @@ bool Framebuffer::create() {
       def_h = attachments()[i]->imageSize().height;
     }
     if (attachments()[i]->imageSize().width != def_w) {
-      BRLogError("Output FBO " + std::to_string(i) + " width '" +
-                 std::to_string(attachments()[i]->imageSize().width) +
-                 "' did not match first FBO width '" + std::to_string(def_w) + "'.");
-      return false;
+      return pipelineError("Output FBO " + std::to_string(i) + " width '" +
+                           std::to_string(attachments()[i]->imageSize().width) +
+                           "' did not match first FBO width '" + std::to_string(def_w) + "'.");
     }
     if (attachments()[i]->imageSize().height != def_h) {
-      BRLogError("Output FBO " + std::to_string(i) + " height '" +
-                 std::to_string(attachments()[i]->imageSize().height) +
-                 "' did not match first FBO height '" + std::to_string(def_h) + "'.");
-      return false;
+      return pipelineError("Output FBO " + std::to_string(i) + " height '" +
+                           std::to_string(attachments()[i]->imageSize().height) +
+                           "' did not match first FBO height '" + std::to_string(def_h) + "'.");
     }
   }
 
   if (def_w == -1 || def_h == -1) {
-    BRLogError("Invalid FBO image size.");
-    return false;
+    return pipelineError("Invalid FBO image size.");
   }
 
+  return true;
+}
+bool Framebuffer::createAttachments() {
+  //Create attachments
+  for (auto out_att : _passDescription->outputs()) {
+    VkImage img_img;
+    VkFormat img_fmt;
+
+    if (!getOutputImageDataForMRTType(_frame, out_att, img_img, img_fmt)) {
+      return false;
+    }
+
+    uint32_t location = 0;
+    if (out_att->_outputBinding == nullptr) {
+      return pipelineError("Failed to find output binding for ShaderOutput '" + out_att->_name + "'");
+    }
+    else {
+      location = out_att->_outputBinding->_location;
+    }
+
+    auto swap_siz = _frame->imageSize();  //Change for Dynamic MRT's
+
+    auto att = std::make_shared<FramebufferAttachment>(
+      vulkan(),
+      out_att->_type,
+      out_att->_name,
+      img_fmt,
+      location,
+      swap_siz,
+      img_img,
+      img_fmt,
+      out_att->_clearColor,  //TODO
+      out_att->_blending,
+      out_att->_clearDepth,
+      out_att->_clearStencil,
+      out_att->_clear);  //TODO
+    _attachments.push_back(att);
+  }
+
+  //Init attachments
+  for (size_t i = 0; i < _attachments.size(); ++i) {
+    if (!_attachments[i]->init(getThis<Framebuffer>())) {
+      return pipelineError("Failed to initialize fbo attachment '" + std::to_string(i) + "'.");
+    }
+  }
   return true;
 }
 bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
@@ -836,6 +1037,7 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
       loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     }
 
+    //Clear Values
     if (_passDescription->outputs()[iatt]->_type == FBOType::Color) {
       attachments.push_back({
         .flags = 0,
@@ -910,869 +1112,8 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
 
   return true;
 }
-
-#pragma endregion
-
-#pragma region PipelineShader
-
-std::shared_ptr<PipelineShader> PipelineShader::create(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) {
-  std::shared_ptr<PipelineShader> s = std::make_shared<PipelineShader>(v, name, files);
-  s->init();
-  s->vulkan()->swapchain()->registerShader(s);
-  return s;
-}
-PipelineShader::PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
-  _name = name;
-  _files = files;
-}
-PipelineShader::~PipelineShader() {
-  cleanupDescriptors();
-  _modules.clear();
-}
-bool PipelineShader::init() {
-  for (auto& str : _files) {
-    std::shared_ptr<ShaderModule> mod = std::make_shared<ShaderModule>(vulkan(), _name, str);
-    _modules.push_back(mod);
-  }
-  if (!checkGood()) {
-    return false;
-  }
-  if (!createInputs()) {
-    return false;
-  }
-  if (!createOutputs()) {
-    return false;
-  }
-  if (!createDescriptors()) {
-    return false;
-  }
-  return true;
-}
-VkShaderStageFlagBits spvReflectShaderStageFlagBitsToVk(SpvReflectShaderStageFlagBits b) {
-  if (b == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
-    return VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
-    return VK_SHADER_STAGE_VERTEX_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
-    return VK_SHADER_STAGE_GEOMETRY_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT) {
-    return VK_SHADER_STAGE_COMPUTE_BIT;
-  }
-  else {
-    BRThrowException("Unsupported Spv->Vk shader stage conversion.");
-  }
-}
-std::shared_ptr<ShaderModule> PipelineShader::getModule(VkShaderStageFlagBits stage, bool throwIfNotFound) {
-  std::shared_ptr<ShaderModule> mod = nullptr;
-  for (auto module : _modules) {
-    auto vks = spvReflectShaderStageFlagBitsToVk(module->reflectionData()->shader_stage);
-    if (vks == stage) {
-      mod = module;
-      break;
-    }
-  }
-  if (mod == nullptr && throwIfNotFound) {
-    BRThrowException("Could not find vertex shader module for shader '" + name() + "'");
-  }
-
-  return mod;
-}
-bool PipelineShader::checkGood() {
-  std::shared_ptr<ShaderModule> vert = getModule(VK_SHADER_STAGE_VERTEX_BIT);
-  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
-  if (vert->reflectionData()->input_variable_count >= maxinputs) {
-    BRLogError("Error creating shader '" + name() + "' - too many input variables");
-    return false;
-  }
-
-  std::shared_ptr<ShaderModule> frag = getModule(VK_SHADER_STAGE_FRAGMENT_BIT);
-  auto maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
-  if (frag->reflectionData()->output_variable_count >= maxAttachments) {
-    BRLogError("Error creating shader '" + name() + "' - too many output attachments in fragment shader.");
-    return false;
-  }
-
-  //TODO: geom
-  std::shared_ptr<ShaderModule> geom = getModule(VK_SHADER_STAGE_GEOMETRY_BIT);
-  return true;
-}
-bool PipelineShader::createInputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_VERTEX_BIT, true);
-
-  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
-  auto maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
-
-  if (mod->reflectionData()->input_variable_count >= maxinputs) {
-    BRLogError("Error creating shader '" + name() + "' - too many input variables");
-    return false;
-  }
-
-  int iBindingIndex = 0;
-  size_t iOffset = 0;
-  for (uint32_t ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
-    auto& iv = mod->reflectionData()->input_variables[ii];
-    std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
-    attrib->_name = std::string(iv.name);
-
-    //Attrib Size
-    attrib->_componentCount = iv.numeric.vector.component_count;
-    attrib->_componentSizeBytes = iv.numeric.scalar.width / 8;
-    attrib->_matrixSize = iv.numeric.matrix.column_count * iv.numeric.matrix.row_count;
-    attrib->_totalSizeBytes = (attrib->_componentCount + attrib->_matrixSize) * attrib->_componentSizeBytes;
-
-    if ((iv.numeric.matrix.column_count != iv.numeric.matrix.row_count)) {
-      BRThrowException("Failure - non-square matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-    else if ((iv.numeric.matrix.column_count > 0) &&
-             (iv.numeric.matrix.column_count != 2) &&
-             (iv.numeric.matrix.column_count != 3) &&
-             (iv.numeric.matrix.column_count != 4)) {
-      BRThrowException("Failure - invalid matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-    else if (iv.numeric.matrix.stride > 0) {
-      BRThrowException("Failure - nonzero stride for matrix vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-
-    if (attrib->_matrixSize > 0 && attrib->_componentCount > 0) {
-      BRThrowException("Failure - matrix and vector dimensions present in attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-
-    //Attrib type.
-    //Note type_description.typeFlags is the int,scal,mat type.
-    attrib->_typeFlags = iv.type_description->type_flags;
-    attrib->_userType = parseUserType(attrib->_name);
-    attrib->_desc.binding = 0;
-    attrib->_desc.location = iBindingIndex;
-    attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
-    attrib->_desc.offset = static_cast<uint32_t>(iOffset);  // Default offset, for an exact-match vertex.
-
-    if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
-      _bInstanced = true;
-    }
-    else {
-      iOffset += attrib->_totalSizeBytes;
-      iBindingIndex++;
-      _attributes.push_back(attrib);
-    }
-  }
-
-  //I don't believe inputs are std430 aligned, however ..
-  // We need to create a new pipeline per new vertex input via the specification.
-  uint32_t size = 0;
-  _attribDescriptions.clear();
-  for (auto& attr : _attributes) {
-    _attribDescriptions.push_back(attr->_desc);
-    size += static_cast<uint32_t>(attr->_totalSizeBytes);
-  }
-
-  VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  if (_bInstanced) {
-    //**This doesn't seem to make a difference on my Nvidia 1660 driver
-    //inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-    //Test frame rate with this option..?
-    BRLogWarn("VK_VERTEX_INPUT_RATE_INSTANCE Not supported");
-  }
-  _bindingDesc = {
-    .binding = 0,
-    .stride = size,
-    .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-  };
-  return true;
-}
-VkFormat PipelineShader::spvReflectFormatToVulkanFormat(SpvReflectFormat in_fmt) {
-  VkFormat fmt = VK_FORMAT_UNDEFINED;
-#define CpySpvReflectFmtToVulkanFmt(x)    \
-  if (in_fmt == SPV_REFLECT_FORMAT_##x) { \
-    fmt = VK_FORMAT_##x;                  \
-  }
-  CpySpvReflectFmtToVulkanFmt(R32_SFLOAT);
-  CpySpvReflectFmtToVulkanFmt(R32G32_SFLOAT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32_SFLOAT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SFLOAT);
-  CpySpvReflectFmtToVulkanFmt(R32_UINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32_UINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32_UINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_UINT);
-  CpySpvReflectFmtToVulkanFmt(R32_SINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32_SINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32_SINT);
-  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SINT);
-
-  return fmt;
-}
-OutputMRT PipelineShader::parseShaderOutputTag(const string_t& tag) {
-#define PARSOUTTAG(x)                                              \
-  if (StringUtil::equals(tag, ShaderOutputBinding::_outFBO_##x)) { \
-    return OutputMRT::RT_##x;                                      \
-  }
-  PARSOUTTAG(DefaultColor);
-  PARSOUTTAG(DefaultDepth);
-  PARSOUTTAG(DF_Position);
-  PARSOUTTAG(DF_Color);
-  PARSOUTTAG(DF_Depth_Plane);
-  PARSOUTTAG(DF_Normal);
-  PARSOUTTAG(DF_Pick);
-  PARSOUTTAG(Custom0);
-  PARSOUTTAG(Custom1);
-  PARSOUTTAG(Custom2);
-  PARSOUTTAG(Custom3);
-  PARSOUTTAG(Custom4);
-  PARSOUTTAG(Custom5);
-  PARSOUTTAG(Custom6);
-  PARSOUTTAG(Custom7);
-  PARSOUTTAG(Custom8);
-  PARSOUTTAG(Custom9);
-  return OutputMRT::RT_Undefined;
-}
-bool PipelineShader::createOutputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_FRAGMENT_BIT, true);
-  if (mod == nullptr) {
-    BRLogError("Fragment module not found for shader '" + this->name() + "'");
-    Gu::debugBreak();
-    return false;
-  }
-  uint32_t iMaxLocation = 0;
-  std::vector<uint32_t> locations;
-  for (uint32_t inp = 0; inp < mod->reflectionData()->output_variable_count; ++inp) {
-    auto pvar = mod->reflectionData()->output_variables[inp];
-
-    string_t name = string_t(pvar.name);
-    if (StringUtil::startsWith(name, "_outFBO")) {
-      auto fb = std::make_shared<ShaderOutputBinding>();
-      fb->_name = name;
-      fb->_location = mod->reflectionData()->output_variables[inp].location;
-      fb->_output = parseShaderOutputTag(fb->_name);
-
-      //This should really be how we handle the format.
-      int type_w = pvar.type_description->traits.numeric.scalar.width;
-      int c_count = pvar.type_description->traits.numeric.vector.component_count;
-
-      fb->_format = spvReflectFormatToVulkanFormat(pvar.format);
-      if (fb->_format == VK_FORMAT_R32G32B32A32_SFLOAT) {
-        fb->_type = FBOType::Color;
-      }
-      else if (fb->_format == VK_FORMAT_R32_SFLOAT) {
-        return shaderError("Depth format output from shader, this is not implemented.");
-      }
-      else {
-        return shaderError("Unhandled shader output variable format '" + VulkanDebug::VkFormat_toString(fb->_format) + "'");
-      }
-      locations.push_back(fb->_location);
-
-      _outputBindings.push_back(fb);
-    }
-    else {
-      return shaderError("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
-    }
-  }
-  //Validate sequential attachment Locations.
-  uint32_t lastLoc = 0;
-  for (size_t iloc = 0; iloc < locations.size(); ++iloc) {
-    auto it = std::find(locations.begin(), locations.end(), (uint32_t)iloc);
-    if (it == locations.end()) {
-      return shaderError("Error one or more FBO locations missing '" + std::to_string(iloc) + "' - all locations to the maximum location must be filled.");
-    }
-  }
-
-  uint32_t depthLoc = 0;
-  auto it = std::max_element(locations.begin(), locations.end());
-  if (it == locations.end()) {
-    BRLogWarn("Failed to get renderbuffer location from output - setting to zero");
-    depthLoc = 0;
-  }
-  else {
-    depthLoc = *it + 1;
-  }
-
-  //Add Renderbuffer by default, ignore if not used.
-  auto fb = std::make_shared<ShaderOutputBinding>();
-  fb->_name = "_auto_depthBuffer";
-  fb->_location = depthLoc;
-  fb->_type = FBOType::Depth;
-  fb->_output = OutputMRT::RT_DefaultDepth;
-  fb->_format = vulkan()->findDepthFormat();
-  _outputBindings.push_back(fb);
-
-  return true;
-}
-BR2::VertexUserType PipelineShader::parseUserType(const string_t& zname) {
-  BR2::VertexUserType ret;
-  //TODO: integrate with the code in VG
-
-  string_t name = StringUtil::trim(zname);
-
-  //**In the old system we had a more generic approach to this, but here we just hard code it.
-  if (StringUtil::equals(name, "gl_InstanceIndex")) {
-    ret = BR2::VertexUserType::gl_InstanceIndex;
-  }
-  else if (StringUtil::equals(name, "gl_InstanceID")) {
-    ret = BR2::VertexUserType::gl_InstanceID;
-  }
-  else if (StringUtil::equals(name, "_v201")) {
-    ret = BR2::VertexUserType::v2_01;
-  }
-  else if (StringUtil::equals(name, "_v301")) {
-    ret = BR2::VertexUserType::v3_01;
-  }
-  else if (StringUtil::equals(name, "_v401")) {
-    ret = BR2::VertexUserType::v4_01;
-  }
-  else if (StringUtil::equals(name, "_v402")) {
-    ret = BR2::VertexUserType::v4_02;
-  }
-  else if (StringUtil::equals(name, "_v403")) {
-    ret = BR2::VertexUserType::v4_03;
-  }
-  else if (StringUtil::equals(name, "_n301")) {
-    ret = BR2::VertexUserType::n3_01;
-  }
-  else if (StringUtil::equals(name, "_c301")) {
-    ret = BR2::VertexUserType::c3_01;
-  }
-  else if (StringUtil::equals(name, "_c401")) {
-    ret = BR2::VertexUserType::c4_01;
-  }
-  else if (StringUtil::equals(name, "_x201")) {
-    ret = BR2::VertexUserType::x2_01;
-  }
-  else if (StringUtil::equals(name, "_i201")) {
-    ret = BR2::VertexUserType::i2_01;
-  }
-  else if (StringUtil::equals(name, "_u201")) {
-    ret = BR2::VertexUserType::u2_01;
-  }
-  else {
-    //Wer're going to hit this in the beginning because we can have a lot of different attrib types.
-    BRLogInfo("  Unrecognized vertex attribute '" + name + "'.");
-    Gu::debugBreak();
-  }
-  return ret;
-}
-VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt) {
-  //This is basically a glsl attribute specifying a layout identifier
-  //So we need to match the input descriptions with the input vertex info.
-
-  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-    .pNext = nullptr,
-    .flags = 0,
-    .vertexBindingDescriptionCount = 1,
-    .pVertexBindingDescriptions = &_bindingDesc,
-    .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attribDescriptions.size()),
-    .pVertexAttributeDescriptions = _attribDescriptions.data(),
-  };
-
-  return vertexInputInfo;
-}
-std::vector<VkPipelineShaderStageCreateInfo> PipelineShader::getShaderStageCreateInfos() {
-  std::vector<VkPipelineShaderStageCreateInfo> ret;
-  for (auto shader : _modules) {
-    ret.push_back(shader->getPipelineStageCreateInfo());
-  }
-  return ret;
-}
-void PipelineShader::cleanupDescriptors() {
-  vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
-  vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
-}
-DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
-  DescriptorFunction ret = DescriptorFunction::Custom;
-  if (StringUtil::equals(name, "_uboViewProj")) {
-    ret = DescriptorFunction::ViewProjMatrixUBO;
-  }
-  else if (StringUtil::equals(name, "_uboInstanceData")) {
-    ret = DescriptorFunction::InstnaceMatrixUBO;
-  }
-  return ret;
-}
-bool PipelineShader::createDescriptors() {
-  uint32_t _nPool_Samplers = 0;
-  uint32_t _nPool_UBOs = 0;
-
-  //Parse shader metadata
-  for (auto& module : _modules) {
-    for (uint32_t idb = 0; idb < module->reflectionData()->descriptor_binding_count; idb++) {
-      auto& descriptor = module->reflectionData()->descriptor_bindings[idb];
-
-      std::shared_ptr<Descriptor> d = std::make_shared<Descriptor>();
-
-      d->_name = std::string(descriptor.name);
-      if (d->_name.length() == 0) {
-        BRLogWarn("Name of one or more input shader variables was not specified for shader module '" + module->name() + "'");
-      }
-      d->_binding = descriptor.binding;
-      d->_arraySize = 1;
-      d->_function = classifyDescriptor(d->_name);
-
-      if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
-        d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
-      }
-      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
-        d->_stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-      }
-      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
-        d->_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-      }
-      else {
-        BRLogError("Invalid or unsupported shader stage (SpvReflectShaderStage):  " + std::to_string(module->reflectionData()->shader_stage));
-        return false;
-      }
-
-      if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-        d->_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        _nPool_UBOs++;
-
-        if (descriptor.array.dims_count > 0) {
-          //This is an array descriptor. I don't think this is valid in Vulkan-GLSL
-          BRLogError("Illegal Descriptor array was found.");
-          return false;
-        }
-        if (descriptor.block.member_count > 0) {
-          //This is a block , array size = 0. The actual size of the block is viewed as a single data-chunk.s
-          d->_arraySize = 1;
-          //64 x 2 = 128 _uboViewProj
-
-          //Blocksize = the size of the ENTIRE uniform buffer.
-          d->_blockSize = descriptor.block.size;
-
-          //The size of the data-members of the uniform.
-          //d->structSize  = descriptor.type_description.
-        }
-      }
-      else if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-        d->_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        _nPool_Samplers++;
-
-        if (descriptor.array.dims_count > 0) {
-          if (descriptor.array.dims_count > 1) {
-            //This is not illegal, just not supported. Update VkDescriptorSetLayoutBinding count to _arraySize for multi-dim arrays
-            BRLogError("Illegal Descriptor multi-array.");
-            return false;
-          }
-          else {
-            d->_arraySize = descriptor.array.dims[0];
-          }
-        }
-      }
-      else {
-        BRLogError("Shader descriptor not supported - Spirv-Reflect Descriptor: " + descriptor.descriptor_type);
-        Gu::debugBreak();
-        return false;
-      }
-      _descriptors.insert(std::make_pair(d->_name, d));
-    }
-  }
-
-  //Allocate Descriptor Pools.
-  VkDescriptorPoolSize uboPoolSize = {
-    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_UBOs,
-  };
-  VkDescriptorPoolSize samplerPoolSize = {
-    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_Samplers,
-  };
-  std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
-  VkDescriptorPoolCreateInfo poolInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-    .pNext = nullptr,
-    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,
-    .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
-    .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
-    .pPoolSizes = poolSizes.data(),
-  };
-  CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
-
-  // Create Descriptor Layouts
-  std::vector<VkDescriptorSetLayoutBinding> bindings;
-  for (auto& it : _descriptors) {
-    auto& desc = it.second;
-    bindings.push_back({
-      .binding = desc->_binding,
-      .descriptorType = desc->_type,
-      .descriptorCount = desc->_arraySize,
-      .stageFlags = desc->_stage,
-      .pImmutableSamplers = nullptr,
-    });
-  }
-
-  VkDescriptorSetLayoutCreateInfo layoutInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-    .pNext = nullptr,
-    .flags = 0,
-    .bindingCount = static_cast<uint32_t>(bindings.size()),
-    .pBindings = bindings.data(),
-  };
-  CheckVKR(vkCreateDescriptorSetLayout, vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
-
-  std::vector<VkDescriptorSetLayout> _layouts;
-  _layouts.resize(vulkan()->swapchainImageCount(), _descriptorSetLayout);
-
-  //Allocate Descriptor Sets
-  VkDescriptorSetAllocateInfo allocInfo = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-    .pNext = nullptr,
-    .descriptorPool = _descriptorPool,
-    .descriptorSetCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
-    .pSetLayouts = _layouts.data(),
-  };
-
-  //Descriptor sets are automatically freed when the descriptor pool is destroyed.
-  _descriptorSets.resize(vulkan()->swapchainImageCount());
-  CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
-
-  return true;
-}
-std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) {
-  //Returns the descriptor of the given name, or nullptr if not found.
-  std::shared_ptr<Descriptor> ret = nullptr;
-
-  auto it = _descriptors.find(name);
-  if (it != _descriptors.end()) {
-    ret = it->second;
-  }
-  return ret;
-}
-bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize) {
-  //UBOs are persistent data.
-  if (_shaderData.size() == 0) {
-    return shaderError("Shader data was uninitialized when creating UBO.");
-  }
-
-  for (auto pair : _shaderData) {
-    std::shared_ptr<ShaderData> data = pair.second;
-    auto desc = getDescriptor(var_name);
-    if (desc == nullptr) {
-      return shaderError("Failed to locate UBO descriptor for shader variable '" + var_name + "'");
-    }
-    else if (data->_uniformBuffers.find(name) != data->_uniformBuffers.end()) {
-      return shaderError("UBO for shader variable '" + var_name + "' with client variable '" + name + "' was already found in ShaderData.");
-    }
-    else {
-      //Get the descriptor size.
-      uint32_t size = (uint32_t)bufsize;
-      if (bufsize == VK_WHOLE_SIZE) {
-        size = desc->_blockSize;
-      }
-      std::shared_ptr<ShaderDataUBO> datUBO = std::make_shared<ShaderDataUBO>();
-      datUBO->_buffer = std::make_shared<VulkanBuffer>(
-        vulkan(),
-        VulkanBufferType::UniformBuffer,
-        false,  //not on GPU
-        size, nullptr, 0);
-      datUBO->_descriptor = desc;
-      data->_uniformBuffers.insert(std::make_pair(name, datUBO));
-    }
-  }
-
-  return true;
-}
-bool PipelineShader::bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
-  //Binds a shader Uniform to this shader for the given swapchain image.
-  if (_pBoundFrame == nullptr) {
-    return renderError("No frame was bound (call to beginRender) ");
-  }
-  std::shared_ptr<Descriptor> desc = getDescriptor(name);
-  if (desc == nullptr) {
-    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
-    Gu::debugBreak();
-    return false;
-  }
-
-  VkDescriptorBufferInfo bufferInfo = {
-    .buffer = buffer->hostBuffer()->buffer(),
-    .offset = offset,
-    .range = range,
-  };
-  VkWriteDescriptorSet descWrite = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .pNext = nullptr,
-    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
-    .dstBinding = desc->_binding,
-    .dstArrayElement = 0,
-    .descriptorCount = 1,
-    .descriptorType = desc->_type,
-    .pImageInfo = nullptr,
-    .pBufferInfo = &bufferInfo,
-    .pTexelBufferView = nullptr,
-  };
-  vkUpdateDescriptorSets(vulkan()->device(), 1, &descWrite, 0, nullptr);
-
-  desc->_isBound = true;
-
-  return true;
-}
-bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
-  std::shared_ptr<Descriptor> desc = getDescriptor(name);
-  if (desc == nullptr) {
-    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
-    Gu::debugBreak();
-    return false;
-  }
-
-  VkDescriptorImageInfo imageInfo = {
-    .sampler = texture->sampler(),
-    .imageView = texture->imageView(),
-    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  };
-  VkWriteDescriptorSet descriptorWrite = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .pNext = nullptr,
-    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
-    .dstBinding = desc->_binding,
-    .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
-    .descriptorCount = 1,
-    .descriptorType = desc->_type,
-    .pImageInfo = &imageInfo,
-    .pBufferInfo = nullptr,
-    .pTexelBufferView = nullptr,
-  };
-
-  desc->_isBound = true;
-
-  vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
-  return true;
-}
-bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc, BR2::urect2* extent) {
-  if (valid() == false) {
-    return false;
-  }
-  auto sd = getShaderData(frame);
-  auto fbo = findFramebuffer(sd, desc);
-  if (fbo == nullptr) {
-    if (!createFBO(sd, frame, desc)) {
-      BRLogError("Failed to create FBO for shader '" + name() + "'.");
-      return false;
-    }
-    fbo = findFramebuffer(sd, desc);
-    if (fbo == nullptr) {
-      BRLogError("Failed to find FBO after create FBO for shader '" + name() + "'.");
-      return false;
-    }
-  }
-  if(!fbo->valid()){
-    return false;
-  }
-
-  _pBoundFBO = fbo;
-  _pBoundData = sd;
-  _pBoundFrame = frame;
-
-  if (_pBoundFBO->attachments().size() == 0) {
-    BRLogError("No output FBOs have been created.");
-    return false;
-  }
-
-  std::vector<VkClearValue> clearValues;
-  for (auto att : _pBoundFBO->attachments()) {
-    if (att->clear()) {
-      VkClearValue cv;
-      if (att->type() == FBOType::Depth) {
-        cv.depthStencil = { att->clearDepth(),
-                            att->clearStencil() };
-      }
-      else if (att->type() == FBOType::Color) {
-        cv.color = {
-          att->clearColor().x,
-          att->clearColor().y,
-          att->clearColor().z,
-          att->clearColor().w
-        };
-      }
-      else {
-        BRThrowException(std::string() + "Invalid FBO type: " + std::to_string((int)att->type()));
-      }
-      clearValues.push_back(cv);
-    }
-  }
-
-  uint32_t w = 0, h = 0, x = 0, y = 0;
-  if (extent) {
-    x = extent->pos.x;
-    y = extent->pos.y;
-    w = extent->size.width;
-    h = extent->size.height;
-  }
-  else {
-    x = 0;
-    y = 0;
-    w = _pBoundFBO->size().width;
-    h = _pBoundFBO->size().height;
-  }
-
-  //This function must succeed if beginPass succeeds.
-  if (!buf->beginPass()) {
-    return false;
-  }
-  else {
-    VkExtent2D outputExtent = {
-      .width = static_cast<uint32_t>(w),
-      .height = static_cast<uint32_t>(h)
-    };
-    VkRenderPassBeginInfo passBeginInfo = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-      .pNext = nullptr,
-      .renderPass = _pBoundFBO->getVkRenderPass(),  // **TODO: fbo->renderPass()
-      .framebuffer = _pBoundFBO->getVkFramebuffer(),
-      .renderArea = { .offset = VkOffset2D{ .x = 0, .y = 0 }, .extent = outputExtent },
-      .clearValueCount = static_cast<uint32_t>(clearValues.size()),
-      .pClearValues = clearValues.data(),
-    };
-    vkCmdBeginRenderPass(buf->getVkCommandBuffer(), &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-  }
-
-  return true;
-}
-std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode) {
-  if (_pBoundData == nullptr) {
-    BRLogError("Pipeline: ShaderData was not set.");
-    return nullptr;
-  }
-  std::shared_ptr<Pipeline> pipe = nullptr;
-  for (auto the_pipe : _pBoundData->_pipelines) {
-    if (the_pipe->primitiveTopology() == topo &&
-        the_pipe->polygonMode() == mode &&
-        the_pipe->vertexFormat() == vertexFormat &&
-        _pBoundFBO == the_pipe->fbo()) {
-      pipe = the_pipe;
-      break;
-    }
-  }
-  if (pipe == nullptr) {
-    std::shared_ptr<BR2::VertexFormat> format = nullptr;  // ** TODO create multiple pipelines for Vertex Format, Polygonmode & Topo.
-    pipe = std::make_shared<Pipeline>(vulkan(), topo, mode);
-    pipe->init(getThis<PipelineShader>(), format, _pBoundFBO);
-    _pBoundData->_pipelines.push_back(pipe);
-  }
-  return pipe;
-}
-bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd) {
-  if (_pBoundFrame == nullptr) {
-    return renderError("RenderFrame was not bound calling bindDescriptors");
-  }
-  if (_pBoundPipeline == nullptr) {
-    return renderError("Pipeline was not bound calling bindDescriptors");
-  }
-  for (auto desc : _descriptors) {
-    if (desc.second->_isBound == false) {
-      BRLogWarnOnce("Descriptor '" + desc.second->_name + "' was not bound before invoking shader '" + this->name() + "'");
-    }
-  }
-
-  vkCmdBindDescriptorSets(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pBoundPipeline->getVkPipelineLayout(),
-                          0,  //Layout ID
-                          1,
-                          &_descriptorSets[_pBoundFrame->frameIndex()], 0, nullptr);
-  return true;
-}
-bool PipelineShader::shaderError(const string_t& msg) {
-  BRLogError(msg);
-  _bValid = false;
-  Gu::debugBreak();
-  return false;
-}
-bool PipelineShader::renderError(const string_t& msg) {
-  BRLogError(msg);
-  //Gu::debugBreak();
-  return false;
-}
-
-std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame) {
-  auto sd = getShaderData(frame);
-  if (sd != nullptr) {
-    auto ub = sd->getUBOData(name);
-    if (ub != nullptr) {
-      return ub->_buffer;
-    }
-  }
-
-  return nullptr;
-}
-std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<RenderFrame> frame) {
-  AssertOrThrow2(frame != nullptr);
-  if (_shaderData.size() <= frame->frameIndex()) {
-    BRThrowException("Tried to access out of bounds shader data.");
-  }
-  return _shaderData[frame->frameIndex()];
-}
-std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
-  //Returns an exact match on the given input PassDescription and the FBO PassDescription.
-  std::shared_ptr<Framebuffer> fbo = nullptr;
-  for (auto fb : data->_framebuffers) {
-    if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
-      bool match = true;
-      for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
-        if (fb->passDescription()->outputs()[io]->_output != outputs->outputs()[io]->_output) {
-          match = false;
-          break;
-        }
-      }
-      if (match == true) {
-        fbo = fb;
-        break;
-      }
-    }
-  }
-  return fbo;
-}
-bool PipelineShader::createFBO(std::shared_ptr<ShaderData> data, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc) {
-  auto swap_siz = frame->imageSize();  //Change for Dynamic MRT's
-  std::shared_ptr<Framebuffer> fb = std::make_shared<Framebuffer>(vulkan(), swap_siz, desc);
-
-  data->_framebuffers.push_back(fb);
-
-  //FBO
-  for (auto out_att : desc->outputs()) {
-    VkImage img_img;
-    VkFormat img_fmt;
-
-    if (!getOutputImageDataForMRTType(frame, out_att, img_img, img_fmt)) {
-      return false;
-    }
-
-    uint32_t location = 0;
-    if (out_att->_outputBinding == nullptr) {
-      return fb->pipelineError("Failed to find output binding for ShaderOutput '" + out_att->_name + "'");
-    }
-    else {
-      location = out_att->_outputBinding->_location;
-    }
-
-    auto att = std::make_shared<FramebufferAttachment>(
-      vulkan(),
-      out_att->_type,
-      out_att->_name,
-      img_fmt,
-      location,
-      swap_siz,
-      img_img,
-      img_fmt,
-      out_att->_clearColor,  //TODO
-      out_att->_blending,
-      out_att->_clearDepth,
-      out_att->_clearStencil,
-      out_att->_clear);  //TODO
-
-    if (!att->init(fb)) {
-      return fb->pipelineError("Failed to initialize fbo attachment.");
-    }
-
-    fb->addAttachment(att);
-  }
-  if(desc->outputs().size()==0){
-    return fb->pipelineError("No FBO outputs were specified.");
-  }
-  else if (!fb->create()) {
-    return fb->pipelineError("Failed to create FBO.");
-  }
-
-  return true;
-}
-bool PipelineShader::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame,
-                                                  std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format) {
+bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame,
+                                               std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format) {
   //Convert an MRT bind point into an image descriptor.
 
   OutputMRT type = out_att->_output;
@@ -1792,123 +1133,11 @@ bool PipelineShader::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> f
     out_format = out_att->_texture->format();
   }
 
-  //Find Location.
-  for (auto& binding : _outputBindings) {
-    if (binding->_output == OutputMRT::RT_Undefined) {
-      //**If you get here then you didn't name the variable correctly in the shader.
-      return shaderError("Output MRT was not set for binding '" + binding->_name + "' location '" + binding->_location + "'");
-    }
-    else if (binding->_output == out_att->_output) {
-      out_att->_outputBinding = binding;
-    }
-  }
-
   return true;
 }
-bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode, VkPrimitiveTopology topo) {
-  auto pipe = getPipeline(v_fmt, topo, mode);
-  if (pipe == nullptr) {
-    return renderError("Output array is not valid for pipeline.");
-  }
-  return bindPipeline(cmd, pipe);
-}
-bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe) {
-  if (pipe->fbo() != _pBoundFBO) {
-    return renderError("Output FBO is not bound to correct pipeline.");
-  }
-
-  vkCmdBindPipeline(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe->getVkPipeline());
-  _pBoundPipeline = pipe;
-  return true;
-}
-void PipelineShader::drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances) {
-  m->bindBuffers(cmd);
-  m->drawIndexed(cmd, numInstances);
-}
-void PipelineShader::bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size) {
-  cmd->cmdSetViewport(size);
-}
-void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
-  _pBoundFBO = nullptr;
-  _pBoundPipeline = nullptr;
-  _pBoundData = nullptr;
-  _pBoundFrame = nullptr;
-  buf->endPass();
-}
-void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
-  //Per-swapchain-frame shader data - recreated when window resizes.
-  std::shared_ptr<ShaderData> data = nullptr;
-  auto it = _shaderData.find(frame->frameIndex());
-  if (it == _shaderData.end()) {
-    std::shared_ptr<ShaderData> dat = std::make_shared<ShaderData>();
-    _shaderData.insert(std::make_pair(frame->frameIndex(), dat));
-    it = _shaderData.find(frame->frameIndex());
-  }
-  data = it->second;
-  data->_framebuffers.clear();
-  data->_pipelines.clear();
-}
-std::shared_ptr<PassDescription> PipelineShader::getPass(std::shared_ptr<RenderFrame> frame) {
-  std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>();
-
-  //TODO: fill default outputs here with default framebuffers.
-  // ** TODO: **
-  //for example RT_DF_Color is stored in each RenderFrame so use it as default.
-
-  return d;
-}
-
-#pragma endregion
-
-#pragma region OutputDescription
-
-FBOType OutputDescription::outputTypeToFBOType(OutputMRT out) {
-  if (out == OutputMRT::RT_Undefined) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DefaultColor) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DefaultDepth) {
-    return FBOType::Depth;
-  }
-  if (out == OutputMRT::RT_DF_Position) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DF_Color) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DF_Depth_Plane) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DF_Normal) {
-    return FBOType::Color;
-  }
-  if (out == OutputMRT::RT_DF_Pick) {
-    return FBOType::Color;
-  }
-  return FBOType::Undefined;
-}
-
-#pragma endregion
-
-#pragma region PassDescription
-
-void PassDescription::setOutput(std::shared_ptr<OutputDescription> output) {
-  _outputs.push_back(output);
-}
-void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear) {
-  auto output = std::make_shared<OutputDescription>();
-  output->_name = "custom_output";
-  output->_texture = tex;
-  output->_blending = blend;
-  output->_type = OutputDescription::outputTypeToFBOType(output_e);
-  output->_clearColor = { 0, 0, 1, 1 };
-  output->_clearDepth = 1;
-  output->_clearStencil = 0;
-  output->_output = output_e;
-  output->_clear = clear;
-  _outputs.push_back(output);
+const BR2::usize2& Framebuffer::imageSize() {
+  AssertOrThrow2(_frame != nullptr);
+  return _frame->imageSize();
 }
 
 #pragma endregion
@@ -2129,88 +1358,858 @@ Pipeline::~Pipeline() {
 
 #pragma endregion
 
-#pragma region CommandBuffer
+#pragma region PipelineShader
 
-CommandBuffer::CommandBuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFrame> pframe) : VulkanObject(v) {
-  _sharedPool = vulkan()->commandPool();
-  _pRenderFrame = pframe;
-
-  //_commandBuffers.resize(_swapChainFramebuffers.size());
-  VkCommandBufferAllocateInfo allocInfo = {
-    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-    .pNext = nullptr,
-    .commandPool = _sharedPool,
-    .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-    .commandBufferCount = 1,
-
-  };
-  CheckVKR(vkAllocateCommandBuffers, vulkan()->device(), &allocInfo, &_commandBuffer);
+std::shared_ptr<PipelineShader> PipelineShader::create(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) {
+  std::shared_ptr<PipelineShader> s = std::make_shared<PipelineShader>(v, name, files);
+  s->init();
+  s->vulkan()->swapchain()->registerShader(s);
+  return s;
 }
-CommandBuffer::~CommandBuffer() {
-  vkFreeCommandBuffers(vulkan()->device(), _sharedPool, 1, &_commandBuffer);
+PipelineShader::PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
+  _name = name;
+  _files = files;
 }
-void CommandBuffer::validateState(bool b) {
-  if (!b) {
-    Gu::debugBreak();
-    BRThrowException("Invalid Command Buffer State.");
+PipelineShader::~PipelineShader() {
+  cleanupDescriptors();
+  _modules.clear();
+}
+bool PipelineShader::init() {
+  for (auto& str : _files) {
+    std::shared_ptr<ShaderModule> mod = std::make_shared<ShaderModule>(vulkan(), _name, str);
+    _modules.push_back(mod);
   }
-}
-void CommandBuffer::begin() {
-  validateState(_state == CommandBufferState::End || _state == CommandBufferState::Unset);
-
-  //VkCommandBufferResetFlags
-  CheckVKR(vkResetCommandBuffer, _commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-
-  VkCommandBufferBeginInfo beginInfo = {
-    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-    .pNext = nullptr,
-    .flags = 0,  //VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    .pInheritanceInfo = nullptr,
-  };
-  CheckVKR(vkBeginCommandBuffer, _commandBuffer, &beginInfo);
-  _state = CommandBufferState::Begin;
-}
-void CommandBuffer::end() {
-  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::EndPass);
-
-  CheckVKR(vkEndCommandBuffer, _commandBuffer);
-  _state = CommandBufferState::End;
-}
-bool CommandBuffer::beginPass() {
-  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::EndPass);
-
-  _state = CommandBufferState::BeginPass;
+  if (!checkGood()) {
+    return false;
+  }
+  if (!createInputs()) {
+    return false;
+  }
+  if (!createOutputs()) {
+    return false;
+  }
+  if (!createDescriptors()) {
+    return false;
+  }
   return true;
 }
-void CommandBuffer::cmdSetViewport(const BR2::urect2& extent) {
-  validateState(_state == CommandBufferState::BeginPass);
-  if (_state != CommandBufferState::BeginPass) {
-    BRLogError("setViewport called on invalid command buffer state, state='" + std::to_string((int)_state) + "'");
-    return;
+VkShaderStageFlagBits spvReflectShaderStageFlagBitsToVk(SpvReflectShaderStageFlagBits b) {
+  if (b == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
+    return VK_SHADER_STAGE_FRAGMENT_BIT;
   }
-  VkViewport viewport = {
-    .x = static_cast<float>(extent.pos.x),
-    .y = static_cast<float>(extent.pos.y),
-    .width = static_cast<float>(extent.size.width),
-    .height = static_cast<float>(extent.size.height),
-    .minDepth = 0,
-    .maxDepth = 1,
+  else if (b == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
+    return VK_SHADER_STAGE_VERTEX_BIT;
+  }
+  else if (b == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
+    return VK_SHADER_STAGE_GEOMETRY_BIT;
+  }
+  else if (b == SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT) {
+    return VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  else {
+    BRThrowException("Unsupported Spv->Vk shader stage conversion.");
+  }
+}
+std::shared_ptr<ShaderModule> PipelineShader::getModule(VkShaderStageFlagBits stage, bool throwIfNotFound) {
+  std::shared_ptr<ShaderModule> mod = nullptr;
+  for (auto module : _modules) {
+    auto vks = spvReflectShaderStageFlagBitsToVk(module->reflectionData()->shader_stage);
+    if (vks == stage) {
+      mod = module;
+      break;
+    }
+  }
+  if (mod == nullptr && throwIfNotFound) {
+    BRThrowException("Could not find vertex shader module for shader '" + name() + "'");
+  }
+
+  return mod;
+}
+bool PipelineShader::checkGood() {
+  std::shared_ptr<ShaderModule> vert = getModule(VK_SHADER_STAGE_VERTEX_BIT);
+  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
+  if (vert->reflectionData()->input_variable_count >= maxinputs) {
+    return shaderError("Error creating shader '" + name() + "' - too many input variables");
+  }
+
+  std::shared_ptr<ShaderModule> frag = getModule(VK_SHADER_STAGE_FRAGMENT_BIT);
+  auto maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
+  if (frag->reflectionData()->output_variable_count >= maxAttachments) {
+    return shaderError("Error creating shader '" + name() + "' - too many output attachments in fragment shader.");
+  }
+
+  //TODO: geom
+  std::shared_ptr<ShaderModule> geom = getModule(VK_SHADER_STAGE_GEOMETRY_BIT);
+  return true;
+}
+bool PipelineShader::createInputs() {
+  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_VERTEX_BIT, true);
+
+  auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
+  auto maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
+
+  if (mod->reflectionData()->input_variable_count >= maxinputs) {
+    return shaderError("Error creating shader '" + name() + "' - too many input variables");
+  }
+
+  int iBindingIndex = 0;
+  size_t iOffset = 0;
+  for (uint32_t ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
+    auto& iv = mod->reflectionData()->input_variables[ii];
+    std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
+    attrib->_name = std::string(iv.name);
+
+    //Attrib Size
+    attrib->_componentCount = iv.numeric.vector.component_count;
+    attrib->_componentSizeBytes = iv.numeric.scalar.width / 8;
+    attrib->_matrixSize = iv.numeric.matrix.column_count * iv.numeric.matrix.row_count;
+    attrib->_totalSizeBytes = (attrib->_componentCount + attrib->_matrixSize) * attrib->_componentSizeBytes;
+
+    if ((iv.numeric.matrix.column_count != iv.numeric.matrix.row_count)) {
+      return shaderError("Failure - non-square matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+    else if ((iv.numeric.matrix.column_count > 0) &&
+             (iv.numeric.matrix.column_count != 2) &&
+             (iv.numeric.matrix.column_count != 3) &&
+             (iv.numeric.matrix.column_count != 4)) {
+      return shaderError("Failure - invalid matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+    else if (iv.numeric.matrix.stride > 0) {
+      return shaderError("Failure - nonzero stride for matrix vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+
+    if (attrib->_matrixSize > 0 && attrib->_componentCount > 0) {
+      return shaderError("Failure - matrix and vector dimensions present in attribute '" + attrib->_name + "' in shader '" + name() + "'");
+    }
+
+    //Attrib type.
+    //Note type_description.typeFlags is the int,scal,mat type.
+    attrib->_typeFlags = iv.type_description->type_flags;
+    attrib->_userType = parseUserType(attrib->_name);
+    attrib->_desc.binding = 0;
+    attrib->_desc.location = iBindingIndex;
+    attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
+    attrib->_desc.offset = static_cast<uint32_t>(iOffset);  // Default offset, for an exact-match vertex.
+
+    if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
+      _bInstanced = true;
+    }
+    else {
+      iOffset += attrib->_totalSizeBytes;
+      iBindingIndex++;
+      _attributes.push_back(attrib);
+    }
+  }
+
+  //I don't believe inputs are std430 aligned, however ..
+  // We need to create a new pipeline per new vertex input via the specification.
+  uint32_t size = 0;
+  _attribDescriptions.clear();
+  for (auto& attr : _attributes) {
+    _attribDescriptions.push_back(attr->_desc);
+    size += static_cast<uint32_t>(attr->_totalSizeBytes);
+  }
+
+  VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  if (_bInstanced) {
+    //**This doesn't seem to make a difference on my Nvidia 1660 driver
+    //inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    //Test frame rate with this option..?
+    BRLogWarn("VK_VERTEX_INPUT_RATE_INSTANCE Not supported");
+  }
+  _bindingDesc = {
+    .binding = 0,
+    .stride = size,
+    .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+  };
+  return true;
+}
+VkFormat PipelineShader::spvReflectFormatToVulkanFormat(SpvReflectFormat in_fmt) {
+  VkFormat fmt = VK_FORMAT_UNDEFINED;
+#define CpySpvReflectFmtToVulkanFmt(x)    \
+  if (in_fmt == SPV_REFLECT_FORMAT_##x) { \
+    fmt = VK_FORMAT_##x;                  \
+  }
+  CpySpvReflectFmtToVulkanFmt(R32_SFLOAT);
+  CpySpvReflectFmtToVulkanFmt(R32G32_SFLOAT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32_SFLOAT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SFLOAT);
+  CpySpvReflectFmtToVulkanFmt(R32_UINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32_UINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32_UINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_UINT);
+  CpySpvReflectFmtToVulkanFmt(R32_SINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32_SINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32_SINT);
+  CpySpvReflectFmtToVulkanFmt(R32G32B32A32_SINT);
+
+  return fmt;
+}
+OutputMRT PipelineShader::parseShaderOutputTag(const string_t& tag) {
+#define PARSOUTTAG(x)                                              \
+  if (StringUtil::equals(tag, ShaderOutputBinding::_outFBO_##x)) { \
+    return OutputMRT::RT_##x;                                      \
+  }
+  PARSOUTTAG(DefaultColor);
+  PARSOUTTAG(DefaultDepth);
+  PARSOUTTAG(DF_Position);
+  PARSOUTTAG(DF_Color);
+  PARSOUTTAG(DF_Depth_Plane);
+  PARSOUTTAG(DF_Normal);
+  PARSOUTTAG(DF_Pick);
+  PARSOUTTAG(Custom0);
+  PARSOUTTAG(Custom1);
+  PARSOUTTAG(Custom2);
+  PARSOUTTAG(Custom3);
+  PARSOUTTAG(Custom4);
+  PARSOUTTAG(Custom5);
+  PARSOUTTAG(Custom6);
+  PARSOUTTAG(Custom7);
+  PARSOUTTAG(Custom8);
+  PARSOUTTAG(Custom9);
+  return OutputMRT::RT_Undefined;
+}
+bool PipelineShader::createOutputs() {
+  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_FRAGMENT_BIT, true);
+  if (mod == nullptr) {
+    return shaderError("Fragment module not found for shader '" + this->name() + "'");
+  }
+  uint32_t iMaxLocation = 0;
+  std::vector<uint32_t> locations;
+  for (uint32_t inp = 0; inp < mod->reflectionData()->output_variable_count; ++inp) {
+    auto pvar = mod->reflectionData()->output_variables[inp];
+
+    string_t name = string_t(pvar.name);
+    if (StringUtil::startsWith(name, "_outFBO")) {
+      auto fb = std::make_shared<ShaderOutputBinding>();
+      fb->_name = name;
+      fb->_location = mod->reflectionData()->output_variables[inp].location;
+      fb->_output = parseShaderOutputTag(fb->_name);
+
+      //This should really be how we handle the format.
+      int type_w = pvar.type_description->traits.numeric.scalar.width;
+      int c_count = pvar.type_description->traits.numeric.vector.component_count;
+
+      fb->_format = spvReflectFormatToVulkanFormat(pvar.format);
+      if (fb->_format == VK_FORMAT_R32G32B32A32_SFLOAT) {
+        fb->_type = FBOType::Color;
+      }
+      else if (fb->_format == VK_FORMAT_R32_SFLOAT) {
+        return shaderError("Depth format output from shader, this is not implemented.");
+      }
+      else {
+        return shaderError("Unhandled shader output variable format '" + VulkanDebug::VkFormat_toString(fb->_format) + "'");
+      }
+      locations.push_back(fb->_location);
+
+      _outputBindings.push_back(fb);
+    }
+    else {
+      return shaderError("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
+    }
+  }
+  //Validate sequential attachment Locations.
+  uint32_t lastLoc = 0;
+  for (size_t iloc = 0; iloc < locations.size(); ++iloc) {
+    auto it = std::find(locations.begin(), locations.end(), (uint32_t)iloc);
+    if (it == locations.end()) {
+      return shaderError("Error one or more FBO locations missing '" + std::to_string(iloc) + "' - all locations to the maximum location must be filled.");
+    }
+  }
+
+  uint32_t depthLoc = 0;
+  auto it = std::max_element(locations.begin(), locations.end());
+  if (it == locations.end()) {
+    BRLogWarn("Failed to get renderbuffer location from output - setting to zero");
+    depthLoc = 0;
+  }
+  else {
+    depthLoc = *it + 1;
+  }
+
+  //Add Renderbuffer by default, ignore if not used.
+  auto fb = std::make_shared<ShaderOutputBinding>();
+  fb->_name = "_auto_depthBuffer";
+  fb->_location = depthLoc;
+  fb->_type = FBOType::Depth;
+  fb->_output = OutputMRT::RT_DefaultDepth;
+  fb->_format = vulkan()->findDepthFormat();
+  _outputBindings.push_back(fb);
+
+  return true;
+}
+BR2::VertexUserType PipelineShader::parseUserType(const string_t& zname) {
+  BR2::VertexUserType ret;
+  //TODO: integrate with the code in VG
+
+  string_t name = StringUtil::trim(zname);
+
+  //**In the old system we had a more generic approach to this, but here we just hard code it.
+  if (StringUtil::equals(name, "gl_InstanceIndex")) {
+    ret = BR2::VertexUserType::gl_InstanceIndex;
+  }
+  else if (StringUtil::equals(name, "gl_InstanceID")) {
+    ret = BR2::VertexUserType::gl_InstanceID;
+  }
+  else if (StringUtil::equals(name, "_v201")) {
+    ret = BR2::VertexUserType::v2_01;
+  }
+  else if (StringUtil::equals(name, "_v301")) {
+    ret = BR2::VertexUserType::v3_01;
+  }
+  else if (StringUtil::equals(name, "_v401")) {
+    ret = BR2::VertexUserType::v4_01;
+  }
+  else if (StringUtil::equals(name, "_v402")) {
+    ret = BR2::VertexUserType::v4_02;
+  }
+  else if (StringUtil::equals(name, "_v403")) {
+    ret = BR2::VertexUserType::v4_03;
+  }
+  else if (StringUtil::equals(name, "_n301")) {
+    ret = BR2::VertexUserType::n3_01;
+  }
+  else if (StringUtil::equals(name, "_c301")) {
+    ret = BR2::VertexUserType::c3_01;
+  }
+  else if (StringUtil::equals(name, "_c401")) {
+    ret = BR2::VertexUserType::c4_01;
+  }
+  else if (StringUtil::equals(name, "_x201")) {
+    ret = BR2::VertexUserType::x2_01;
+  }
+  else if (StringUtil::equals(name, "_i201")) {
+    ret = BR2::VertexUserType::i2_01;
+  }
+  else if (StringUtil::equals(name, "_u201")) {
+    ret = BR2::VertexUserType::u2_01;
+  }
+  else {
+    //Wer're going to hit this in the beginning because we can have a lot of different attrib types.
+    BRLogInfo("  Unrecognized vertex attribute '" + name + "'.");
+    Gu::debugBreak();
+  }
+  return ret;
+}
+VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt) {
+  //This is basically a glsl attribute specifying a layout identifier
+  //So we need to match the input descriptions with the input vertex info.
+
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .vertexBindingDescriptionCount = 1,
+    .pVertexBindingDescriptions = &_bindingDesc,
+    .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attribDescriptions.size()),
+    .pVertexAttributeDescriptions = _attribDescriptions.data(),
   };
 
-  VkRect2D scissor{};
-  scissor.offset = { 0, 0 };
-  scissor.extent = {
-    .width = _pRenderFrame->getSwapchain()->imageSize().width,
-    .height = _pRenderFrame->getSwapchain()->imageSize().height
-  };
-  vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
-  vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
+  return vertexInputInfo;
 }
-void CommandBuffer::endPass() {
-  validateState(_state == CommandBufferState::BeginPass);
-  //This is called once when all pipeline rendering is complete
-  vkCmdEndRenderPass(_commandBuffer);
-  _state = CommandBufferState::EndPass;
+std::vector<VkPipelineShaderStageCreateInfo> PipelineShader::getShaderStageCreateInfos() {
+  std::vector<VkPipelineShaderStageCreateInfo> ret;
+  for (auto shader : _modules) {
+    ret.push_back(shader->getPipelineStageCreateInfo());
+  }
+  return ret;
+}
+void PipelineShader::cleanupDescriptors() {
+  vkDestroyDescriptorPool(vulkan()->device(), _descriptorPool, nullptr);
+  vkDestroyDescriptorSetLayout(vulkan()->device(), _descriptorSetLayout, nullptr);
+}
+DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
+  DescriptorFunction ret = DescriptorFunction::Custom;
+  if (StringUtil::equals(name, "_uboViewProj")) {
+    ret = DescriptorFunction::ViewProjMatrixUBO;
+  }
+  else if (StringUtil::equals(name, "_uboInstanceData")) {
+    ret = DescriptorFunction::InstnaceMatrixUBO;
+  }
+  return ret;
+}
+bool PipelineShader::createDescriptors() {
+  uint32_t _nPool_Samplers = 0;
+  uint32_t _nPool_UBOs = 0;
+
+  //Parse shader metadata
+  for (auto& module : _modules) {
+    for (uint32_t idb = 0; idb < module->reflectionData()->descriptor_binding_count; idb++) {
+      auto& descriptor = module->reflectionData()->descriptor_bindings[idb];
+
+      std::shared_ptr<Descriptor> d = std::make_shared<Descriptor>();
+
+      d->_name = std::string(descriptor.name);
+      if (d->_name.length() == 0) {
+        BRLogWarn("Name of one or more input shader variables was not specified for shader module '" + module->name() + "'");
+      }
+      d->_binding = descriptor.binding;
+      d->_arraySize = 1;
+      d->_function = classifyDescriptor(d->_name);
+
+      if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
+        d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
+        d->_stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
+        d->_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+      }
+      else {
+        return shaderError("Invalid or unsupported shader stage (SpvReflectShaderStage):  " + std::to_string(module->reflectionData()->shader_stage));
+      }
+
+      if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+        d->_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        _nPool_UBOs++;
+
+        if (descriptor.array.dims_count > 0) {
+          //This is an array descriptor. I don't think this is valid in Vulkan-GLSL
+          return shaderError("Illegal Descriptor array was found.");
+        }
+        if (descriptor.block.member_count > 0) {
+          //This is a block , array size = 0. The actual size of the block is viewed as a single data-chunk.s
+          d->_arraySize = 1;
+          //64 x 2 = 128 _uboViewProj
+
+          //Blocksize = the size of the ENTIRE uniform buffer.
+          d->_blockSize = descriptor.block.size;
+
+          //The size of the data-members of the uniform.
+          //d->structSize  = descriptor.type_description.
+        }
+      }
+      else if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+        d->_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        _nPool_Samplers++;
+
+        if (descriptor.array.dims_count > 0) {
+          if (descriptor.array.dims_count > 1) {
+            //This is not illegal, just not supported. Update VkDescriptorSetLayoutBinding count to _arraySize for multi-dim arrays
+            return shaderError("Illegal Descriptor multi-array.");
+          }
+          else {
+            d->_arraySize = descriptor.array.dims[0];
+          }
+        }
+      }
+      else {
+        return shaderError("Shader descriptor not supported - Spirv-Reflect Descriptor: " + descriptor.descriptor_type);
+      }
+      _descriptors.insert(std::make_pair(d->_name, d));
+    }
+  }
+
+  //Allocate Descriptor Pools.
+  VkDescriptorPoolSize uboPoolSize = {
+    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_UBOs,
+  };
+  VkDescriptorPoolSize samplerPoolSize = {
+    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()) * _nPool_Samplers,
+  };
+  std::array<VkDescriptorPoolSize, 2> poolSizes{ uboPoolSize, samplerPoolSize };
+  VkDescriptorPoolCreateInfo poolInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,
+    .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
+    .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+    .pPoolSizes = poolSizes.data(),
+  };
+  CheckVKR(vkCreateDescriptorPool, vulkan()->device(), &poolInfo, nullptr, &_descriptorPool);
+
+  // Create Descriptor Layouts
+  std::vector<VkDescriptorSetLayoutBinding> bindings;
+  for (auto& it : _descriptors) {
+    auto& desc = it.second;
+    bindings.push_back({
+      .binding = desc->_binding,
+      .descriptorType = desc->_type,
+      .descriptorCount = desc->_arraySize,
+      .stageFlags = desc->_stage,
+      .pImmutableSamplers = nullptr,
+    });
+  }
+
+  VkDescriptorSetLayoutCreateInfo layoutInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .pNext = nullptr,
+    .flags = 0,
+    .bindingCount = static_cast<uint32_t>(bindings.size()),
+    .pBindings = bindings.data(),
+  };
+  CheckVKR(vkCreateDescriptorSetLayout, vulkan()->device(), &layoutInfo, nullptr, &_descriptorSetLayout);
+
+  std::vector<VkDescriptorSetLayout> _layouts;
+  _layouts.resize(vulkan()->swapchainImageCount(), _descriptorSetLayout);
+
+  //Allocate Descriptor Sets
+  VkDescriptorSetAllocateInfo allocInfo = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    .pNext = nullptr,
+    .descriptorPool = _descriptorPool,
+    .descriptorSetCount = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
+    .pSetLayouts = _layouts.data(),
+  };
+
+  //Descriptor sets are automatically freed when the descriptor pool is destroyed.
+  _descriptorSets.resize(vulkan()->swapchainImageCount());
+  CheckVKR(vkAllocateDescriptorSets, vulkan()->device(), &allocInfo, _descriptorSets.data());
+
+  return true;
+}
+std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) {
+  //Returns the descriptor of the given name, or nullptr if not found.
+  std::shared_ptr<Descriptor> ret = nullptr;
+
+  auto it = _descriptors.find(name);
+  if (it != _descriptors.end()) {
+    ret = it->second;
+  }
+  return ret;
+}
+bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize) {
+  //UBOs are persistent data.
+  if (_shaderData.size() == 0) {
+    return shaderError("Shader data was uninitialized when creating UBO.");
+  }
+
+  for (auto pair : _shaderData) {
+    std::shared_ptr<ShaderData> data = pair.second;
+    auto desc = getDescriptor(var_name);
+    if (desc == nullptr) {
+      return shaderError("Failed to locate UBO descriptor for shader variable '" + var_name + "'");
+    }
+    else if (data->_uniformBuffers.find(name) != data->_uniformBuffers.end()) {
+      return shaderError("UBO for shader variable '" + var_name + "' with client variable '" + name + "' was already found in ShaderData.");
+    }
+    else {
+      //Get the descriptor size.
+      uint32_t size = (uint32_t)bufsize;
+      if (bufsize == VK_WHOLE_SIZE) {
+        size = desc->_blockSize;
+      }
+      std::shared_ptr<ShaderDataUBO> datUBO = std::make_shared<ShaderDataUBO>();
+      datUBO->_buffer = std::make_shared<VulkanBuffer>(
+        vulkan(),
+        VulkanBufferType::UniformBuffer,
+        false,  //not on GPU
+        size, nullptr, 0);
+      datUBO->_descriptor = desc;
+      data->_uniformBuffers.insert(std::make_pair(name, datUBO));
+    }
+  }
+
+  return true;
+}
+bool PipelineShader::bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buffer, VkDeviceSize offset, VkDeviceSize range) {
+  //Binds a shader Uniform to this shader for the given swapchain image.
+  if (_pBoundFrame == nullptr) {
+    return renderError("No frame was bound (call to beginRender) ");
+  }
+  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  if (desc == nullptr) {
+    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
+    Gu::debugBreak();
+    return false;
+  }
+
+  VkDescriptorBufferInfo bufferInfo = {
+    .buffer = buffer->hostBuffer()->buffer(),
+    .offset = offset,
+    .range = range,
+  };
+  VkWriteDescriptorSet descWrite = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .pNext = nullptr,
+    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
+    .dstBinding = desc->_binding,
+    .dstArrayElement = 0,
+    .descriptorCount = 1,
+    .descriptorType = desc->_type,
+    .pImageInfo = nullptr,
+    .pBufferInfo = &bufferInfo,
+    .pTexelBufferView = nullptr,
+  };
+  vkUpdateDescriptorSets(vulkan()->device(), 1, &descWrite, 0, nullptr);
+
+  desc->_isBound = true;
+
+  return true;
+}
+bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex) {
+  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  if (desc == nullptr) {
+    BRLogError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
+    Gu::debugBreak();
+    return false;
+  }
+
+  VkDescriptorImageInfo imageInfo = {
+    .sampler = texture->sampler(),
+    .imageView = texture->imageView(),
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  };
+  VkWriteDescriptorSet descriptorWrite = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .pNext = nullptr,
+    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
+    .dstBinding = desc->_binding,
+    .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
+    .descriptorCount = 1,
+    .descriptorType = desc->_type,
+    .pImageInfo = &imageInfo,
+    .pBufferInfo = nullptr,
+    .pTexelBufferView = nullptr,
+  };
+
+  desc->_isBound = true;
+
+  vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+  return true;
+}
+std::shared_ptr<Framebuffer> PipelineShader::getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc) {
+  auto fbo = findFramebuffer(data, desc);
+  if (fbo == nullptr) {
+    //Add the FBO, if there's an error we won't keep trying to recreate it every frame.
+    fbo = std::make_shared<Framebuffer>(vulkan());
+    data->_framebuffers.push_back(fbo);
+
+    if (desc->outputs().size() == 0) {
+      fbo->pipelineError("No FBO outputs were specified.");
+    }
+    else if (!fbo->create(frame, desc)) {
+      fbo->pipelineError("Failed to create FBO.");
+    }
+  }
+
+  return fbo;
+}
+bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc, BR2::urect2* extent) {
+  if (valid() == false) {
+    return false;
+  }
+  auto sd = getShaderData(frame);
+  auto fbo = getOrCreateFramebuffer(frame, sd, desc);
+  if (!fbo->valid()) {
+    return false;
+  }
+
+  _pBoundFBO = fbo;
+  _pBoundData = sd;
+  _pBoundFrame = frame;
+
+  if (_pBoundFBO->attachments().size() == 0) {
+    BRLogError("No output FBOs have been created.");
+    return false;
+  }
+
+  std::vector<VkClearValue> clearValues;
+  for (auto att : _pBoundFBO->attachments()) {
+    if (att->clear()) {
+      VkClearValue cv;
+      if (att->type() == FBOType::Depth) {
+        cv.depthStencil = { att->clearDepth(),
+                            att->clearStencil() };
+      }
+      else if (att->type() == FBOType::Color) {
+        cv.color = {
+          att->clearColor().x,
+          att->clearColor().y,
+          att->clearColor().z,
+          att->clearColor().w
+        };
+      }
+      else {
+        BRThrowException(std::string() + "Invalid FBO type: " + std::to_string((int)att->type()));
+      }
+      clearValues.push_back(cv);
+    }
+  }
+
+  uint32_t w = 0, h = 0, x = 0, y = 0;
+  if (extent) {
+    x = extent->pos.x;
+    y = extent->pos.y;
+    w = extent->size.width;
+    h = extent->size.height;
+  }
+  else {
+    x = 0;
+    y = 0;
+    w = _pBoundFBO->imageSize().width;
+    h = _pBoundFBO->imageSize().height;
+  }
+
+  //This function must succeed if beginPass succeeds.
+  if (!buf->beginPass()) {
+    return false;
+  }
+  else {
+    VkExtent2D outputExtent = {
+      .width = static_cast<uint32_t>(w),
+      .height = static_cast<uint32_t>(h)
+    };
+    VkRenderPassBeginInfo passBeginInfo = {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+      .pNext = nullptr,
+      .renderPass = _pBoundFBO->getVkRenderPass(),  // **TODO: fbo->renderPass()
+      .framebuffer = _pBoundFBO->getVkFramebuffer(),
+      .renderArea = { .offset = VkOffset2D{ .x = 0, .y = 0 }, .extent = outputExtent },
+      .clearValueCount = static_cast<uint32_t>(clearValues.size()),
+      .pClearValues = clearValues.data(),
+    };
+    vkCmdBeginRenderPass(buf->getVkCommandBuffer(), &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+  }
+
+  return true;
+}
+std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode) {
+  if (_pBoundData == nullptr) {
+    BRLogError("Pipeline: ShaderData was not set.");
+    return nullptr;
+  }
+  std::shared_ptr<Pipeline> pipe = nullptr;
+  for (auto the_pipe : _pBoundData->_pipelines) {
+    if (the_pipe->primitiveTopology() == topo &&
+        the_pipe->polygonMode() == mode &&
+        the_pipe->vertexFormat() == vertexFormat &&
+        _pBoundFBO == the_pipe->fbo()) {
+      pipe = the_pipe;
+      break;
+    }
+  }
+  if (pipe == nullptr) {
+    std::shared_ptr<BR2::VertexFormat> format = nullptr;  // ** TODO create multiple pipelines for Vertex Format, Polygonmode & Topo.
+    pipe = std::make_shared<Pipeline>(vulkan(), topo, mode);
+    pipe->init(getThis<PipelineShader>(), format, _pBoundFBO);
+    _pBoundData->_pipelines.push_back(pipe);
+  }
+  return pipe;
+}
+bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd) {
+  if (_pBoundFrame == nullptr) {
+    return renderError("RenderFrame was not bound calling bindDescriptors");
+  }
+  if (_pBoundPipeline == nullptr) {
+    return renderError("Pipeline was not bound calling bindDescriptors");
+  }
+  for (auto desc : _descriptors) {
+    if (desc.second->_isBound == false) {
+      BRLogWarnOnce("Descriptor '" + desc.second->_name + "' was not bound before invoking shader '" + this->name() + "'");
+    }
+  }
+
+  vkCmdBindDescriptorSets(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pBoundPipeline->getVkPipelineLayout(),
+                          0,  //Layout ID
+                          1,
+                          &_descriptorSets[_pBoundFrame->frameIndex()], 0, nullptr);
+  return true;
+}
+bool PipelineShader::shaderError(const string_t& msg) {
+  BRLogError(msg);
+  _bValid = false;
+  Gu::debugBreak();
+  return false;
+}
+bool PipelineShader::renderError(const string_t& msg) {
+  BRLogError(msg);
+  //Gu::debugBreak();
+  return false;
+}
+
+std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame) {
+  auto sd = getShaderData(frame);
+  if (sd != nullptr) {
+    auto ub = sd->getUBOData(name);
+    if (ub != nullptr) {
+      return ub->_buffer;
+    }
+  }
+
+  return nullptr;
+}
+std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<RenderFrame> frame) {
+  AssertOrThrow2(frame != nullptr);
+  if (_shaderData.size() <= frame->frameIndex()) {
+    BRThrowException("Tried to access out of bounds shader data.");
+  }
+  return _shaderData[frame->frameIndex()];
+}
+std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
+  //Returns an exact match on the given input PassDescription and the FBO PassDescription.
+  std::shared_ptr<Framebuffer> fbo = nullptr;
+  for (auto fb : data->_framebuffers) {
+    if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
+      bool match = true;
+      for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
+        if (fb->passDescription()->outputs()[io]->_output != outputs->outputs()[io]->_output) {
+          match = false;
+          break;
+        }
+      }
+      if (match == true) {
+        fbo = fb;
+        break;
+      }
+    }
+  }
+  return fbo;
+}
+bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode, VkPrimitiveTopology topo) {
+  auto pipe = getPipeline(v_fmt, topo, mode);
+  if (pipe == nullptr) {
+    return renderError("Output array is not valid for pipeline.");
+  }
+  return bindPipeline(cmd, pipe);
+}
+bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe) {
+  if (pipe->fbo() != _pBoundFBO) {
+    return renderError("Output FBO is not bound to correct pipeline.");
+  }
+
+  vkCmdBindPipeline(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe->getVkPipeline());
+  _pBoundPipeline = pipe;
+  return true;
+}
+void PipelineShader::drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances) {
+  m->bindBuffers(cmd);
+  m->drawIndexed(cmd, numInstances);
+}
+void PipelineShader::bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size) {
+  cmd->cmdSetViewport(size);
+}
+void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
+  _pBoundFBO = nullptr;
+  _pBoundPipeline = nullptr;
+  _pBoundData = nullptr;
+  _pBoundFrame = nullptr;
+  buf->endPass();
+}
+void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
+  //Per-swapchain-frame shader data - recreated when window resizes.
+  std::shared_ptr<ShaderData> data = nullptr;
+  auto it = _shaderData.find(frame->frameIndex());
+  if (it == _shaderData.end()) {
+    std::shared_ptr<ShaderData> dat = std::make_shared<ShaderData>();
+    _shaderData.insert(std::make_pair(frame->frameIndex(), dat));
+    it = _shaderData.find(frame->frameIndex());
+  }
+  data = it->second;
+  data->_framebuffers.clear();
+  data->_pipelines.clear();
+}
+std::shared_ptr<PassDescription> PipelineShader::getPass(std::shared_ptr<RenderFrame> frame) {
+  std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>(getThis<PipelineShader>());
+
+  //TODO: fill default outputs here with default framebuffers.
+  // ** TODO: **
+  //for example RT_DF_Color is stored in each RenderFrame so use it as default.
+
+  return d;
 }
 
 #pragma endregion

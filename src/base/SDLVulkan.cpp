@@ -327,8 +327,8 @@ public:
       {
         auto pass1 = _pShader->getPass(frame);
        // pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled);
-        pass1->setOutput(OutputDescription::getColorDF(nullptr,true));
-        pass1->setOutput(OutputDescription::getDepthDF(true));
+        pass1->setOutput(OutputDescription::getColorDF(nullptr,false));
+        pass1->setOutput(OutputDescription::getDepthDF(false));
         if (_pShader->beginRenderPass(cmd, frame, pass1)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
             _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });

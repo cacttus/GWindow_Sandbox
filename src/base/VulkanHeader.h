@@ -163,7 +163,10 @@ struct ViewProjUBOData {
 struct InstanceUBOData {
 alignas(16) BR2::mat4 model;
 };
-
+struct InstanceUBOClassData {
+  uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
+  uint32_t _curInstances = 1;  //Current number of instnaces in the scene.
+};
 }  // namespace VG
 
 /*

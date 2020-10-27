@@ -34,7 +34,6 @@ public:
  * @class VulkanDeviceBuffer
  * @brief Represents a buffer that can reside on the host or on the gpu.
  * */
-class VulkanDeviceBuffer_Internal;
 class VulkanDeviceBuffer : public VulkanObject {
 public:
   VkBuffer& buffer();
@@ -53,6 +52,7 @@ public:
                 size_t copy_count = std::numeric_limits<size_t>::max());
 
 private:
+  class VulkanDeviceBuffer_Internal;
   void cleanup();
   std::unique_ptr<VulkanDeviceBuffer_Internal> _pInt;
 };
@@ -62,7 +62,6 @@ private:
  *        You're supposed to use buffer pools as there is a maximum buffer allocation limit on the GPU, however this is just a demo.
  *        4096 = Nvidia GPU allocation limit.
  */
-class VulkanBuffer_Internal;
 class VulkanBuffer : public VulkanObject {
 public:
   VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged);
@@ -73,6 +72,7 @@ public:
   std::shared_ptr<VulkanDeviceBuffer> gpuBuffer();
 
 private:
+  class VulkanBuffer_Internal;
   std::unique_ptr<VulkanBuffer_Internal> _pInt;
 };
 /**
@@ -131,6 +131,47 @@ private:
   VkCommandBuffer _buf = VK_NULL_HANDLE;
 };
 /**
+ * @class CommandBuffer
+ * */
+class CommandBuffer : public VulkanObject {
+public:
+  CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
+  virtual ~CommandBuffer() override;
+
+  VkCommandBuffer getVkCommandBuffer() { return _commandBuffer; }
+  void cmdSetViewport(const BR2::urect2& size);
+  void begin();
+  void end();
+  bool beginPass();
+  void endPass();
+
+private:
+  void validateState(bool b);
+
+  CommandBufferState _state = CommandBufferState::Unset;
+  std::shared_ptr<RenderFrame> _pRenderFrame = nullptr;
+  VkCommandPool _sharedPool = VK_NULL_HANDLE;       //Do not free
+  VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;  //_commandBuffers;
+};
+/**
+ * @class UBOClassData
+ * @brief Instance data for an instance UBO
+ * */
+class UBOClassData {
+  // ViewProjUBOData _viewProjUBOData;
+  InstanceUBOClassData _instanceUBOSpec;
+};
+/**
+ * @class ShaderDataUBO
+ * @brief This is a UBO stored on the rendering frames
+ * */
+class ShaderDataUBO {
+public:
+  std::shared_ptr<Descriptor> _descriptor = nullptr;  //shared ptr to the descriptor in the shader.
+  std::shared_ptr<VulkanBuffer> _buffer = nullptr;
+  UBOClassData _data;
+};
+/**
 *  @class VulkanTextureImage
 *  @brief Image residing on the GPU.
 */
@@ -161,7 +202,6 @@ private:
  * @class VulkanShaderModule
  * @brief Shader module with reflection tanks to Spirv-Reflect.
  * */
-class ShaderModule_Internal;
 class ShaderModule : VulkanObject {
 public:
   ShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& file);
@@ -172,6 +212,7 @@ public:
   const string_t& name();
 
 private:
+  class ShaderModule_Internal;
   std::unique_ptr<ShaderModule_Internal> _pInt;
 };
 /**
@@ -189,7 +230,10 @@ public:
   bool _isBound = false;
   DescriptorFunction _function = DescriptorFunction::Unset;
 };
-//TODO: this may not be necessary - BR2::VertexFormat
+/**
+ * Vertex attribute
+ * TODO: use BR2 attribs.
+ * */
 class VertexAttribute {
 public:
   string_t _name = "";
@@ -233,7 +277,6 @@ public:
   FBOType _type = FBOType::Undefined;
   OutputMRT _output = OutputMRT::RT_Undefined;
 };
-
 /**
 * @class ShaderOutputDescription
 * @brief User passed output image data description.
@@ -285,8 +328,11 @@ public:
  * */
 class PassDescription {
   std::vector<std::shared_ptr<OutputDescription>> _outputs;
+  std::shared_ptr<PipelineShader> _shader = nullptr;
+  void addValidOutput(std::shared_ptr<OutputDescription> desc);
 
 public:
+  PassDescription(std::shared_ptr<PipelineShader> shader);
   void setOutput(std::shared_ptr<OutputDescription> output);
   void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear);
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
@@ -336,28 +382,59 @@ private:
  * */
 class Framebuffer : public VulkanObject {
 public:
-  Framebuffer(std::shared_ptr<Vulkan> v, const BR2::usize2& size, std::shared_ptr<PassDescription> desc);
+  Framebuffer(std::shared_ptr<Vulkan> v);
   virtual ~Framebuffer() override;
 
   VkFramebuffer getVkFramebuffer() { return _framebuffer; }
   VkRenderPass getVkRenderPass() { return _renderPass; }
 
-  bool create();
-  void addAttachment(std::shared_ptr<FramebufferAttachment> at);
+  bool create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
   std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
-  const BR2::usize2& size() { return _size; }
   std::shared_ptr<PassDescription> passDescription() { return _passDescription; }
   bool pipelineError(const string_t& msg);
   bool valid() { return _bValid; }
+  const BR2::usize2& imageSize();
 
 private:
+  bool createAttachments();
   bool createRenderPass(std::shared_ptr<Framebuffer> fbo);
+  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format);
+
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
   std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
-  BR2::usize2 _size{ 0, 0 };
+  std::shared_ptr<RenderFrame> _frame;  //storing this is safe since we destroy the FBO when a new RenderFrame is made.
   std::shared_ptr<PassDescription> _passDescription;
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   bool _bValid = true;
+};
+/**
+ * @class Pipeline
+ * @brief Essentially, a GL ShaderProgram with VAO state.
+ * */
+class Pipeline : public VulkanObject {
+public:
+  Pipeline(std::shared_ptr<Vulkan> v,
+           VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+           VkPolygonMode mode = VK_POLYGON_MODE_FILL);
+  virtual ~Pipeline() override;
+  bool init(std::shared_ptr<PipelineShader> shader,
+            std::shared_ptr<BR2::VertexFormat> vtxFormat,
+            std::shared_ptr<Framebuffer> fbo);
+
+  VkPipeline getVkPipeline() { return _pipeline; }
+  VkPipelineLayout getVkPipelineLayout() { return _pipelineLayout; }
+  VkPrimitiveTopology primitiveTopology() { return _primitiveTopology; }
+  VkPolygonMode polygonMode() { return _polygonMode; }
+  std::shared_ptr<BR2::VertexFormat> vertexFormat() { return _vertexFormat; }
+  std::shared_ptr<Framebuffer> fbo() { return _fbo; }
+
+private:
+  std::shared_ptr<BR2::VertexFormat> _vertexFormat = nullptr;
+  VkPrimitiveTopology _primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  VkPolygonMode _polygonMode = VK_POLYGON_MODE_FILL;
+  VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
+  VkPipeline _pipeline = VK_NULL_HANDLE;
+  std::shared_ptr<Framebuffer> _fbo = nullptr;
 };
 /**
  * @class PipelineShader
@@ -404,8 +481,7 @@ private:
   bool createDescriptors();
   //bool createRenderPass();
   void cleanupDescriptors();
-  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format);
-  bool createFBO(std::shared_ptr<ShaderData> data, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
+  std::shared_ptr<Framebuffer> getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
   std::shared_ptr<Framebuffer> findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
   std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<RenderFrame> frame);
   OutputMRT parseShaderOutputTag(const string_t& tag);
@@ -435,76 +511,6 @@ private:
   bool _bValid = true;
   //std::vector<std::shared_ptr<ShaderData>> _shaderData;
   std::map<uint32_t, std::shared_ptr<ShaderData>> _shaderData;
-};
-/**
- * @class Pipeline
- * @brief Essentially, a GL ShaderProgram with VAO state.
- * */
-class Pipeline : public VulkanObject {
-public:
-  Pipeline(std::shared_ptr<Vulkan> v,
-           VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-           VkPolygonMode mode = VK_POLYGON_MODE_FILL);
-  virtual ~Pipeline() override;
-  bool init(std::shared_ptr<PipelineShader> shader,
-            std::shared_ptr<BR2::VertexFormat> vtxFormat,
-            std::shared_ptr<Framebuffer> fbo);
-
-  VkPipeline getVkPipeline() { return _pipeline; }
-  VkPipelineLayout getVkPipelineLayout() { return _pipelineLayout; }
-  VkPrimitiveTopology primitiveTopology() { return _primitiveTopology; }
-  VkPolygonMode polygonMode() { return _polygonMode; }
-  std::shared_ptr<BR2::VertexFormat> vertexFormat() { return _vertexFormat; }
-  std::shared_ptr<Framebuffer> fbo() { return _fbo; }
-
-private:
-  std::shared_ptr<BR2::VertexFormat> _vertexFormat = nullptr;
-  VkPrimitiveTopology _primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  VkPolygonMode _polygonMode = VK_POLYGON_MODE_FILL;
-  VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
-  VkPipeline _pipeline = VK_NULL_HANDLE;
-  std::shared_ptr<Framebuffer> _fbo = nullptr;
-};
-/**
- * @class CommandBuffer
- * */
-class CommandBuffer : public VulkanObject {
-public:
-  CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
-  virtual ~CommandBuffer() override;
-
-  VkCommandBuffer getVkCommandBuffer() { return _commandBuffer; }
-  void cmdSetViewport(const BR2::urect2& size);
-  void begin();
-  void end();
-  bool beginPass();
-  void endPass();
-
-private:
-  void validateState(bool b);
-
-  CommandBufferState _state = CommandBufferState::Unset;
-  std::shared_ptr<RenderFrame> _pRenderFrame = nullptr;
-  VkCommandPool _sharedPool = VK_NULL_HANDLE;       //Do not free
-  VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;  //_commandBuffers;
-};
-struct InstanceUBOClassData {
-  uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
-  uint32_t _curInstances = 1;  //Current number of instnaces in the scene.
-};
-class UBOClassData {
-  // ViewProjUBOData _viewProjUBOData;
-  InstanceUBOClassData _instanceUBOSpec;
-};
-/**
- * @class ShaderDataUBO
- * @brief This is a UBO stored on the rendering frames
- * */
-class ShaderDataUBO {
-public:
-  std::shared_ptr<Descriptor> _descriptor = nullptr;  //shared ptr to the descriptor in the shader.
-  std::shared_ptr<VulkanBuffer> _buffer = nullptr;
-  UBOClassData _data;
 };
 /**
  * @class ShaderData
