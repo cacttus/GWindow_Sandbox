@@ -9,6 +9,8 @@ namespace VG {
 
 static MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
 static bool g_samplerate_shading = true;
+static bool g_poly_line = false;
+static bool g_use_rtt = false;
 
 #pragma region SDLVulkan_Internal
 
@@ -314,49 +316,47 @@ public:
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
-//       {
-//         auto pass = _pShader->getPass(frame);
-//         //pass->setOutput(OutputFBO::RT_DF_Color, _myTexture);
-//         //pass->setOutput(OutputDescription::getColorDF());
-//         pass->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled);
-//         pass->setOutput(OutputDescription::getDepthDF());
-//         if (_pShader->beginRenderPass(cmd, frame, pass)) {
-//           _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
-//           if (_pShader->bindPipeline(cmd, nullptr, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL)) {
-//             _pShader->bindSampler("_ufTexture0", _testTexture1);
-//             _pShader->bindUBO("_uboViewProj", viewProj);
-//             _pShader->bindUBO("_uboInstanceData", inst1);
-//             _pShader->bindDescriptors(cmd);
-//             _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
-// 
-//             _pShader->bindSampler("_ufTexture0", _testTexture2);
-//             _pShader->bindUBO("_uboInstanceData", inst2);
-//             _pShader->bindDescriptors(cmd);
-//             _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
-//           }
-//           _pShader->endRenderPass(cmd);
-//         }
-//       }
+
+      //Trying to get multiple renderpasses to work.
+      auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
       {
-        auto pass2 = _pShader->getPass(frame);
-        //pass->setOutput(OutputFBO::RT_DF_Color, _myTexture);
-        //pass2->setOutput(OutputDescription::getColorDF());
-        pass2->setOutput(OutputDescription::getColorDF());
-        pass2->setOutput(OutputDescription::getDepthDF());
-        if (_pShader->beginRenderPass(cmd, frame, pass2)) {
-          _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
-          if (_pShader->bindPipeline(cmd, nullptr, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL)) {
+        auto pass1 = _pShader->getPass(frame);
+       // pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled);
+        pass1->setOutput(OutputDescription::getColorDF(nullptr,true));
+        pass1->setOutput(OutputDescription::getDepthDF(true));
+        if (_pShader->beginRenderPass(cmd, frame, pass1)) {
+          if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+            _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
+            _pShader->bindUBO("_uboViewProj", viewProj);
 
             _pShader->bindSampler("_ufTexture0", _testTexture1);
-            _pShader->bindUBO("_uboViewProj", viewProj);
-            _pShader->bindUBO("_uboInstanceData", inst1);
+            _pShader->bindUBO("_uboInstanceData", inst2);
             _pShader->bindDescriptors(cmd);
-            _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
-
+            _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
           }
           _pShader->endRenderPass(cmd);
         }
       }
+      {
+      auto tex = g_use_rtt ? test_render_texture : _testTexture2;
+        auto pass2 = _pShader->getPass(frame);
+        pass2->setOutput(OutputDescription::getColorDF(nullptr,false));
+        pass2->setOutput(OutputDescription::getDepthDF(false));
+        if (_pShader->beginRenderPass(cmd, frame, pass2)) {
+          if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+            _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
+            _pShader->bindUBO("_uboViewProj", viewProj);
+
+            _pShader->bindSampler("_ufTexture0", tex);
+            _pShader->bindUBO("_uboInstanceData", inst1);
+            _pShader->bindDescriptors(cmd);
+            _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+          }
+          _pShader->endRenderPass(cmd);
+        }
+      }
+
+      
     }
     cmd->end();
   }
@@ -476,6 +476,14 @@ bool SDLVulkan::doInput() {
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
         g_samplerate_shading = !g_samplerate_shading;
         _pInt->_pSwapchain->outOfDate();
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F3) {
+        g_poly_line = !g_poly_line;
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F4) {
+        g_use_rtt = !g_use_rtt;
         break;
       }
     }
