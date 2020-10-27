@@ -295,30 +295,35 @@ public:
   OutputMRT _output = OutputMRT::RT_DefaultColor;
   CompareOp _compareOp = CompareOp::Less;
   std::shared_ptr<ShaderOutputBinding> _outputBinding = nullptr;  // This is set internally when we make the FBO
+  bool _isSwapchainColorImage = false;                            // True if this is the presentable swapchain image.
+
   static std::shared_ptr<OutputDescription> getDepthDF(bool clear = true) {
     auto outd = std::make_shared<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultDepth;
     outd->_texture = nullptr;
     outd->_blending = BlendFunc::Disabled;
     outd->_type = FBOType::Depth;
-    outd->_clearColor = { 0, 0, 0, 1 };
+    outd->_clearColor = { 0, 0, 0, 0 };
     outd->_clearDepth = 1;
     outd->_clearStencil = 0;
     outd->_output = OutputMRT::RT_DefaultDepth;
     outd->_clear = clear;
+    outd->_isSwapchainColorImage = false;
     return outd;
   }
-  static std::shared_ptr<OutputDescription> getColorDF(std::shared_ptr<VulkanTextureImage> tex = nullptr, bool clear = true) {
+  static std::shared_ptr<OutputDescription> getColorDF(std::shared_ptr<VulkanTextureImage> tex = nullptr,
+                                                       bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0) {
     auto outd = std::make_shared<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultColor;
     outd->_texture = tex;  // If null, then we use the default framebuffer
     outd->_blending = BlendFunc::AlphaBlend;
     outd->_type = FBOType::Color;
-    outd->_clearColor = { 1, 0, 0, 1 };
+    outd->_clearColor = { clear_r, clear_g, clear_b, 1 };
     outd->_clearDepth = 1;
     outd->_clearStencil = 0;
     outd->_output = OutputMRT::RT_DefaultColor;
     outd->_clear = clear;
+    outd->_isSwapchainColorImage = true;
     return outd;
   }
 };
@@ -327,54 +332,35 @@ public:
  * @brief Describes a rendering pass FBO
  * */
 class PassDescription {
-  std::vector<std::shared_ptr<OutputDescription>> _outputs;
-  std::shared_ptr<PipelineShader> _shader = nullptr;
-  void addValidOutput(std::shared_ptr<OutputDescription> desc);
-
 public:
   PassDescription(std::shared_ptr<PipelineShader> shader);
   void setOutput(std::shared_ptr<OutputDescription> output);
-  void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend, bool clear);
+  void setOutput(OutputMRT output, std::shared_ptr<VulkanTextureImage> tex, BlendFunc blend,bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
+  std::vector<VkClearValue> getClearValues();
+
+private:
+  std::vector<std::shared_ptr<OutputDescription>> _outputs;
+  std::shared_ptr<PipelineShader> _shader = nullptr;
+  void addValidOutput(std::shared_ptr<OutputDescription> desc);
 };
 /**
  * @class FramebufferAttachment
  * */
 class FramebufferAttachment : public VulkanObject {
 public:
-  FramebufferAttachment(std::shared_ptr<Vulkan> v, FBOType type, const string_t& name, VkFormat fbo_fmt, uint32_t glsl_location,
-                        const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_format, const BR2::vec4& clearColor, BlendFunc blending, float clearDepth, uint32_t clearStencil, bool clear);
+  FramebufferAttachment(std::shared_ptr<Vulkan> v);
   virtual ~FramebufferAttachment() override;
 
-  bool init(std::shared_ptr<Framebuffer> fbo);
+  bool init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<OutputDescription> desc, const BR2::usize2& imageSize, VkImage swap_img, VkFormat swap_img_fmt);
   VkImageView getVkImageView() { return _outputImageView; }
-  const string_t& name() { return _name; }
-  uint32_t location() { return _location; }
-  //VkFormat fboFormat() { return _fboFormat; }
-  BlendFunc blendFunc() { return _blending; }
-  FBOType type() { return _fboType; }
-  const BR2::vec4& clearColor() { return _clearColor; }  // If this is a depth FBO x = clear color depth
   const BR2::usize2& imageSize() { return _imageSize; }
-  float clearDepth() { return _clearDepth; }  // If this is a depth FBO x = clear color depth
-  uint32_t clearStencil() { return _clearStencil; }
-  bool clear() { return _clear; }
+  std::shared_ptr<OutputDescription> desc() { return _desc; }
 
 private:
-  OutputDescription _output;
-  string_t _name = "";
-  uint32_t _location = 0;
-  BR2::vec4 _clearColor = BR2::vec4(0, 0, 0, 1);
-  float _clearDepth = 1;
-  uint32_t _clearStencil = 0;
-  BlendFunc _blending = BlendFunc::Disabled;
-  VkFormat _fboFormat = VK_FORMAT_UNDEFINED;
-  VkImage _outputImage = VK_NULL_HANDLE;
-  VkFormat _outputImageFormat = VK_FORMAT_UNDEFINED;
   VkImageView _outputImageView = VK_NULL_HANDLE;
-  VkImage _image = VK_NULL_HANDLE;
-  FBOType _fboType = FBOType::Undefined;
   BR2::usize2 _imageSize{ 0, 0 };
-  bool _clear = true;
+  std::shared_ptr<OutputDescription> _desc = nullptr;
 };
 /**
  * @class Framebuffer
@@ -490,6 +476,7 @@ private:
   std::shared_ptr<ShaderModule> getModule(VkShaderStageFlagBits stage, bool throwIfNotFound = false);
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
   VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
+  bool beginPassGood();
 
   string_t _name = "*undefined*";
   std::vector<string_t> _files;

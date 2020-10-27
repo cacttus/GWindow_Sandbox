@@ -88,7 +88,29 @@ string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
 #pragma region Stringify Methods
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*
 // V_ENM_STR($1);
-
+string_t VulkanDebug::OutputMRT_toString(OutputMRT r) {
+  string_t ret = "";
+  V_ENM_STR(OutputMRT::RT_Undefined);
+  V_ENM_STR(OutputMRT::RT_DefaultColor);
+  V_ENM_STR(OutputMRT::RT_DefaultDepth);
+  V_ENM_STR(OutputMRT::RT_DF_Position);
+  V_ENM_STR(OutputMRT::RT_DF_Color);
+  V_ENM_STR(OutputMRT::RT_DF_Depth_Plane);
+  V_ENM_STR(OutputMRT::RT_DF_Normal);
+  V_ENM_STR(OutputMRT::RT_DF_Pick);
+  V_ENM_STR(OutputMRT::RT_Custom0);
+  V_ENM_STR(OutputMRT::RT_Custom1);
+  V_ENM_STR(OutputMRT::RT_Custom2);
+  V_ENM_STR(OutputMRT::RT_Custom3);
+  V_ENM_STR(OutputMRT::RT_Custom4);
+  V_ENM_STR(OutputMRT::RT_Custom5);
+  V_ENM_STR(OutputMRT::RT_Custom6);
+  V_ENM_STR(OutputMRT::RT_Custom7);
+  V_ENM_STR(OutputMRT::RT_Custom8);
+  V_ENM_STR(OutputMRT::RT_Custom9);
+  V_ENM_STR(OutputMRT::MaxOutputs);
+  return ret;
+}
 string_t VulkanDebug::VkDescriptorType_toString(VkDescriptorType r) {
   string_t ret = "";
   V_ENM_STR(VK_DESCRIPTOR_TYPE_SAMPLER);

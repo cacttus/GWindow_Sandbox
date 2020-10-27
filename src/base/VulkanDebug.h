@@ -8,7 +8,7 @@
 #define __VULKANDEBUG_16018075671561130827_H__
 
 #include "./SandboxHeader.h"
-
+#include "./VulkanHeader.h"
 namespace VG {
 
 /**
@@ -26,6 +26,8 @@ public:
   static string_t VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r);
   static string_t VkRenderPassBeginInfo_toString();
   static string_t VkDescriptorType_toString(VkDescriptorType t);
+  static string_t OutputMRT_toString(OutputMRT t);
+  
 };
 
 }  // namespace VG

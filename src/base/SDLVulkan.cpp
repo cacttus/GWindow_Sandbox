@@ -11,6 +11,7 @@ static MipmapMode g_mipmap_mode = MipmapMode::Linear;  //**TESTING**
 static bool g_samplerate_shading = true;
 static bool g_poly_line = false;
 static bool g_use_rtt = false;
+static int g_pass_test_idx = 1;
 
 #pragma region SDLVulkan_Internal
 
@@ -316,37 +317,69 @@ public:
     auto cmd = frame->commandBuffer();
     cmd->begin();
     {
+      //Testing clear color
+      float speed = 0.001;
+      static float c_r = speed;
+      static float c_g = 0;
+      static float c_b = 0;
+      if (c_r > 0 && c_r < 1 && c_g == 0 && c_b == 0) {
+        c_r += speed;
+        if (c_r >= 1) {
+          c_r = 0;
+          c_g = speed;
+        }
+      }
+      else if (c_r == 0 && c_g > 0 && c_g < 1 && c_b == 0) {
+        c_g += speed;
+        if (c_g >= 1) {
+          c_g = 0;
+          c_b = speed;
+        }
+      }
+      else if (c_r == 0 && c_g == 0 && c_b > 0 && c_b < 1) {
+        c_b += speed;
+        if (c_b >= 1) {
+          c_r = c_g = c_b = 0;
+          c_r += speed;
+        }
+      }
 
-      //Trying to get multiple renderpasses to work.
-
-      //Somethjing's wrong with the renderpass data 
-      //setting clear values to false for the same inputs on the second pass doens't thrwo an exception like in the first
-      //pass TODO: investigate this.
-      
+      //Testing Polygon Mode
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-      {
+      //Testing multiple Render Passes.
+
+      if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
         auto pass1 = _pShader->getPass(frame);
-       // pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled);
-        pass1->setOutput(OutputDescription::getColorDF(nullptr,false));
-        pass1->setOutput(OutputDescription::getDepthDF(false));
+        if (g_use_rtt) {
+          pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled, true, c_r, c_g, c_b);
+        }
+        else {
+          //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
+          pass1->setOutput(OutputDescription::getColorDF(nullptr, true, c_r, c_g, c_b));
+        }
+        pass1->setOutput(OutputDescription::getDepthDF(true));
         if (_pShader->beginRenderPass(cmd, frame, pass1)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
-            _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
-            _pShader->bindUBO("_uboViewProj", viewProj);
+            if (g_pass_test_idx != 0) {
+              _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
+              _pShader->bindUBO("_uboViewProj", viewProj);
 
-            _pShader->bindSampler("_ufTexture0", _testTexture1);
-            _pShader->bindUBO("_uboInstanceData", inst2);
-            _pShader->bindDescriptors(cmd);
-            _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
+              //white face Smiley
+              _pShader->bindSampler("_ufTexture0", _testTexture1);
+              _pShader->bindUBO("_uboInstanceData", inst2);
+              _pShader->bindDescriptors(cmd);
+              _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+            }
           }
           _pShader->endRenderPass(cmd);
         }
       }
-      {
-      auto tex = g_use_rtt ? test_render_texture : _testTexture2;
+      if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
+        //black face Smiley
+        auto tex = g_use_rtt ? test_render_texture : _testTexture2;
         auto pass2 = _pShader->getPass(frame);
-        pass2->setOutput(OutputDescription::getColorDF(nullptr,false));
-        pass2->setOutput(OutputDescription::getDepthDF(false));
+        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2));
+        pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2));
         if (_pShader->beginRenderPass(cmd, frame, pass2)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
             _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
@@ -355,13 +388,11 @@ public:
             _pShader->bindSampler("_ufTexture0", tex);
             _pShader->bindUBO("_uboInstanceData", inst1);
             _pShader->bindDescriptors(cmd);
-            _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+            _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
           }
           _pShader->endRenderPass(cmd);
         }
       }
-
-      
     }
     cmd->end();
   }
@@ -389,7 +420,7 @@ public:
   }
   void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
-    auto img = loadImage(App::rootFile("white-smiley.png"));//TexturesCom_MetalBare0253_2_M.png
+    auto img = loadImage(App::rootFile("white-smiley.png"));  //TexturesCom_MetalBare0253_2_M.png
     if (img) {
       _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_mipmap_mode);
     }
@@ -491,6 +522,13 @@ bool SDLVulkan::doInput() {
         g_use_rtt = !g_use_rtt;
         break;
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F8) {
+        g_pass_test_idx++;
+        if (g_pass_test_idx > 3) {
+          g_pass_test_idx = 0;
+        }
+        break;
+      }
     }
   }
   return false;
@@ -507,7 +545,8 @@ void SDLVulkan::renderLoop() {
     _pInt->_fpsMeter.update();
     if (_pInt->_fpsMeter.getFrameNumber() % 2 == 0) {
       float f = _pInt->_fpsMeter.getFps();
-      string_t fp = std::to_string(f);
+      string_t fp = std::to_string((int)f);
+      fp += std::string("fps") + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT";
       SDL_SetWindowTitle(_pInt->_pSDLWindow, fp.c_str());
     }
 
