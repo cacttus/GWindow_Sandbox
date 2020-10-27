@@ -14,6 +14,9 @@ static bool g_use_rtt = false;
 static int g_pass_test_idx = 1;
 static float g_anisotropy = 1;
 
+const bool g_wait_fences = false;
+const bool g_vsync_enable = false;
+
 #pragma region SDLVulkan_Internal
 
 //Data from Vulkan-Tutorial
@@ -29,7 +32,6 @@ public:
 
   std::shared_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
-  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
 
   string_t c_viewProjUBO = "c_viewProjUBO";
   string_t c_instanceUBO_1 = "c_instanceUBO_1";
@@ -123,11 +125,8 @@ public:
 
     sdl_PrintVideoDiagnostics();
 
-    _vulkan = std::make_shared<Vulkan>(title, _pSDLWindow);
-    _pSwapchain = std::make_shared<Swapchain>(_vulkan);
-    vulkan()->setSwapchain(_pSwapchain);
-    _pSwapchain->initSwapchain(getWindowDims().size);
-
+    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable);
+ 
     _game = std::make_shared<GameDummy>();
     _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
     _game->_mesh1->makeBox();
@@ -247,7 +246,7 @@ public:
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_pSwapchain->imageSize().width, -(float)_pSwapchain->imageSize().height, 0.1f, 100.0f)
+      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->imageSize().width, -(float)_vulkan->swapchain()->imageSize().height, 0.1f, 100.0f)
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
   }
@@ -284,16 +283,15 @@ public:
 
   uint64_t g_iFrameNumber = 0;
   void drawFrame(double dt) {
-    if (_pSwapchain->beginFrame(getWindowDims().size)) {
-      std::shared_ptr<RenderFrame> frame = _pSwapchain->acquireFrame();
+    if (_vulkan->swapchain()->beginFrame(getWindowDims().size)) {
+      std::shared_ptr<RenderFrame> frame = _vulkan->swapchain()->acquireFrame();
       if (frame != nullptr) {
         recordCommandBuffer(frame, dt);
       }
-      _pSwapchain->endFrame();
+      _vulkan->swapchain()->endFrame();
     }
     else {
-      int n = 0;
-      n++;
+      Gu::debugBreak();
     }
 
     g_iFrameNumber++;
@@ -362,7 +360,7 @@ public:
         if (_pShader->beginRenderPass(cmd, frame, pass1)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
             if (g_pass_test_idx != 0) {
-              _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
+              _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->imageSize() });
               _pShader->bindUBO("_uboViewProj", viewProj);
 
               //white face Smiley
@@ -383,7 +381,7 @@ public:
         pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2));
         if (_pShader->beginRenderPass(cmd, frame, pass2)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
-            _pShader->bindViewport(cmd, { { 0, 0 }, _pSwapchain->imageSize() });
+            _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->imageSize() });
             _pShader->bindUBO("_uboViewProj", viewProj);
 
             _pShader->bindSampler("_ufTexture0", tex);
@@ -452,7 +450,6 @@ public:
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
     cleanupShaderMemory();
     _pShader = nullptr;
-    _pSwapchain = nullptr;
     _vulkan = nullptr;
 
     SDL_DestroyWindow(_pSDLWindow);
@@ -490,7 +487,7 @@ bool SDLVulkan::doInput() {
     }
     else if (event.type == SDL_WINDOWEVENT) {
       if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-        _pInt->_pSwapchain->outOfDate();
+        _pInt->_vulkan->swapchain()->outOfDate();
         break;
       }
     }
@@ -504,12 +501,11 @@ bool SDLVulkan::doInput() {
 
         _pInt->createTextureImages();
 
-        //_pInt->_pSwapchain->outOfDate();
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
         g_samplerate_shading = !g_samplerate_shading;
-        _pInt->_pSwapchain->outOfDate();
+        _pInt->_vulkan->swapchain()->outOfDate();
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F3) {

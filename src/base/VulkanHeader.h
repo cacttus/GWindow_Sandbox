@@ -163,10 +163,22 @@ struct ViewProjUBOData {
 struct InstanceUBOData {
 alignas(16) BR2::mat4 model;
 };
-struct InstanceUBOClassData {
+class InstanceUBOClassData {
   uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
   uint32_t _curInstances = 1;  //Current number of instnaces in the scene.
 };
+template <typename Tx>
+class SharedObject : public std::enable_shared_from_this<Tx> {
+protected:
+  template <typename Ty>
+  std::shared_ptr<Ty> getThis() {
+    return std::dynamic_pointer_cast<Ty>(this->shared_from_this());
+  }
+};
+
+
+
+
 }  // namespace VG
 
 /*

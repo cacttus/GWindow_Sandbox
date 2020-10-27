@@ -9,7 +9,7 @@ namespace VG {
     ret = string_t(#xx_); \
   }
 #define V_STC_STR(x, y)                                                                  \
-  str += Stz " [" + App::toHex(off, true) + "][" + off + "]" + std::string(#y) + "\r\n"; \
+  str += Stz " [" + App::toHex((int)off, true) + "][" + off + "]" + std::string(#y) + "\r\n"; \
   off += sizeof(x::y);
 //
 // string_t VulkanDebug::queueFamilyInfo_toString() {

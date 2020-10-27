@@ -50,6 +50,9 @@ public:
   uint32_t _swapchainImageCount = 2;
   bool _bPhysicalDeviceAcquired = false;
 
+  bool _vsync_enabled = false;
+  bool _wait_fences = false;
+
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
   // PFN_vkCreateDebugUtilsMessengerEXT
@@ -64,7 +67,17 @@ public:
 
 #pragma endregion
 
-  Vulkan_Internal(const string_t& title, SDL_Window* win) {
+  Vulkan_Internal() {
+  }
+  virtual ~Vulkan_Internal() {
+    vkDestroyCommandPool(_device, _commandPool, nullptr);
+    vkDestroyDevice(_device, nullptr);
+    if (debugMessenger != VK_NULL_HANDLE) {
+      vkDestroyDebugUtilsMessengerEXT(_instance, debugMessenger, nullptr);
+    }
+    vkDestroyInstance(_instance, nullptr);
+  }
+  void init(const string_t& title, SDL_Window* win) {
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = title.c_str();
@@ -108,14 +121,6 @@ public:
     getDeviceProperties();
     createCommandPool();
     // You can log every vulkan call to stdout.
-  }
-  virtual ~Vulkan_Internal() {
-    vkDestroyCommandPool(_device, _commandPool, nullptr);
-    vkDestroyDevice(_device, nullptr);
-    if (debugMessenger != VK_NULL_HANDLE) {
-      vkDestroyDebugUtilsMessengerEXT(_instance, debugMessenger, nullptr);
-    }
-    vkDestroyInstance(_instance, nullptr);
   }
 
 #pragma region Debug Messanger
@@ -546,13 +551,33 @@ public:
 #pragma endregion
 
 #pragma region Vulkan
-Vulkan::Vulkan(const string_t& title, SDL_Window* win) {
-  _pInt = std::make_unique<Vulkan_Internal>(title, win);
+std::shared_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences) {
+  std::shared_ptr<Vulkan> v = std::make_shared<Vulkan>();
+  v->init(title, win, vsync_enabled, wait_fences);
+  return v;
+}
+Vulkan::Vulkan() {
+  _pInt = std::make_unique<Vulkan_Internal>();
 }
 Vulkan::~Vulkan() {
   _pInt = nullptr;
 }
+void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences) {
+  AssertOrThrow2(win != nullptr);
 
+  //Setup vulkan devices
+  _pInt->_vsync_enabled = vsync_enabled;
+  _pInt->_wait_fences = wait_fences;
+
+   _pInt->init(title, win);
+
+  int win_w = 0, win_h = 0;
+  SDL_GetWindowSize(win, &win_w, &win_h);
+
+  //Create swapchain
+  _pInt->_pSwapchain = std::make_shared<Swapchain>(getThis<Vulkan>());
+  _pInt->_pSwapchain->initSwapchain(BR2::usize2( win_w,  win_h ));
+}
 VkSurfaceKHR& Vulkan::windowSurface() { return _pInt->_windowSurface; }
 VkPhysicalDevice& Vulkan::physicalDevice() { return _pInt->_physicalDevice; }
 VkDevice& Vulkan::device() { return _pInt->_device; }
@@ -560,6 +585,8 @@ VkInstance& Vulkan::instance() { return _pInt->_instance; }
 VkCommandPool& Vulkan::commandPool() { return _pInt->_commandPool; }
 VkQueue& Vulkan::graphicsQueue() { return _pInt->_graphicsQueue; }
 VkQueue& Vulkan::presentQueue() { return _pInt->_presentQueue; }
+bool Vulkan::vsyncEnabled() { return _pInt->_vsync_enabled; }
+bool Vulkan::waitFences() { return _pInt->_wait_fences; }
 
 const VkPhysicalDeviceProperties& Vulkan::deviceProperties() {
   AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
@@ -701,9 +728,6 @@ uint32_t Vulkan::swapchainImageCount() {
 }
 std::shared_ptr<Swapchain> Vulkan::swapchain() {
   return _pInt->_pSwapchain;
-}
-void Vulkan::setSwapchain(std::shared_ptr<Swapchain> s) {
-  _pInt->_pSwapchain = s;
 }
 
 #pragma endregion

@@ -15,16 +15,11 @@ namespace VG {
  * @class VulkanObject
  * @brief Base class for objects that use the Vulkan API.
  */
-class VulkanObject : public std::enable_shared_from_this<VulkanObject> {
+class VulkanObject : public SharedObject<VulkanObject> {
   std::shared_ptr<Vulkan> _vulkan = nullptr;
 
 protected:
   std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
-
-  template <typename Ty>
-  std::shared_ptr<Ty> getThis() {
-    return std::dynamic_pointer_cast<Ty>(this->shared_from_this());
-  }
 
 public:
   VulkanObject(std::shared_ptr<Vulkan> dev) { _vulkan = dev; }

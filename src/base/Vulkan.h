@@ -15,10 +15,12 @@ namespace VG {
  * @brief Root class for the vulkan device api.
  */
 class Vulkan_Internal;
-class Vulkan : std::enable_shared_from_this<Vulkan> {
+class Vulkan : public SharedObject<Vulkan> {
 public:
-  Vulkan(const string_t& title, SDL_Window* win);
+  Vulkan();
   virtual ~Vulkan();
+    
+  static std::shared_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences);
 
   //Props
   VkSurfaceKHR& windowSurface();
@@ -33,8 +35,8 @@ public:
   const VkPhysicalDeviceLimits& deviceLimits();
   const VkPhysicalDeviceFeatures& deviceFeatures();
   uint32_t swapchainImageCount();
-  bool vsyncEnabled() { return false; }
-
+  bool vsyncEnabled();
+  bool waitFences();
   //Errors
   void checkErrors();
   void validateVkResult(VkResult res, const string_t& fname);
@@ -48,11 +50,11 @@ public:
   uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
   VkCommandBuffer beginOneTimeGraphicsCommands();
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer);
-
-  void setSwapchain(std::shared_ptr<Swapchain> s);
   std::shared_ptr<Swapchain> swapchain();
 
 private:
+  void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences);
+
   std::unique_ptr<Vulkan_Internal> _pInt;
 };
 

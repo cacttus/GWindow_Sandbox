@@ -2321,7 +2321,9 @@ bool RenderFrame::beginFrame() {
   //I feel like the async aspect of RenderFrame might need to be a separate DispatchedFrame structure or..
   VkResult res;
   uint64_t wait_fences = UINT64_MAX;
-  //wait_fences = 0;  //Don't wait if no image available.
+  if (!vulkan()->waitFences()) {
+    wait_fences = 0;  //Don't wait if no image available.
+  }
 
   res = vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, wait_fences);
   if (res != VK_SUCCESS) {
