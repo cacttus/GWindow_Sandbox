@@ -193,17 +193,19 @@ void VulkanBuffer::writeData(void* data, size_t off, size_t datasize) {
 
 #pragma region VulkanImage
 
-VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format) : VulkanObject(pvulkan) {
+VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format, SampleCount samples) : VulkanObject(pvulkan) {
   _size.width = w;
   _size.height = h;
   _format = format;
+  _samples = samples;
 }
-VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat) : VulkanObject(pvulkan) {
+VulkanImage::VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat, SampleCount samples) : VulkanObject(pvulkan) {
   //This is for passing the swapchain image in for render-to-texture system.
   _image = img;
   _format = imgFormat;
   _size.width = w;
   _size.height = h;
+  _samples = samples;
 }
 VulkanImage::~VulkanImage() {
   if (_image != VK_NULL_HANDLE) {
@@ -216,8 +218,7 @@ VulkanImage::~VulkanImage() {
     vkDestroyImageView(vulkan()->device(), _imageView, nullptr);
   }
 }
-void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
-                                 VkSampleCountFlagBits samples, VkImageLayout initialLayout) {
+void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels, VkImageLayout initialLayout) {
   AssertOrThrow2(_format != VK_FORMAT_UNDEFINED && _size.width > 0 && _size.height > 0);
   if (_image != VK_NULL_HANDLE) {
     BRThrowException("Tried to reallocate an image that was already allocated.");
@@ -227,6 +228,8 @@ void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, 
     BRLogError("Miplevels was < 1 for image. Setting to 1");
     mipLevels = 1;
   }
+
+  VkSampleCountFlagBits vk_samples = MultisampleToVkSampleCountFlagBits(_samples);
 
   VkImageCreateInfo imageInfo = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,  // VkStructureType
@@ -240,7 +243,7 @@ void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, 
       .depth = 1 },                            // VkExtent3D
     .mipLevels = mipLevels,                    // uint32_t
     .arrayLayers = 1,                          // uint32_t
-    .samples = samples,                        // VkSampleCountFlagBits
+    .samples = vk_samples,                     // VkSampleCountFlagBits
     .tiling = tiling,                          // VkImageTiling
     .usage = usage,                            // VkImageUsageFlags
     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // VkSharingMode
@@ -264,7 +267,35 @@ void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, 
 void VulkanImage::createView(VkFormat fmt, VkImageAspectFlagBits aspect, uint32_t mipLevel) {
   _imageView = vulkan()->createImageView(_image, fmt, aspect, mipLevel);
 }
-
+VkSampleCountFlagBits VulkanImage::MultisampleToVkSampleCountFlagBits(SampleCount s) {
+  VkSampleCountFlagBits ret = VK_SAMPLE_COUNT_1_BIT;
+  if (s == SampleCount::Disabled) {
+    ret = VK_SAMPLE_COUNT_1_BIT;
+  }
+  else if (s == SampleCount::MS_2_Samples) {
+    ret = VK_SAMPLE_COUNT_2_BIT;
+  }
+  else if (s == SampleCount::MS_4_Samples) {
+    ret = VK_SAMPLE_COUNT_4_BIT;
+  }
+  else if (s == SampleCount::MS_8_Samples) {
+    ret = VK_SAMPLE_COUNT_8_BIT;
+  }
+  else if (s == SampleCount::MS_16_Samples) {
+    ret = VK_SAMPLE_COUNT_16_BIT;
+  }
+  else if (s == SampleCount::MS_32_Samples) {
+    ret = VK_SAMPLE_COUNT_32_BIT;
+  }
+  else if (s == SampleCount::MS_64_Samples) {
+    ret = VK_SAMPLE_COUNT_64_BIT;
+  }
+  else {
+    BRLogError("Unhandled multisample state (beyond maximum) s='" + std::to_string((int)s) + "'");
+    Gu::debugBreak();
+  }
+  return ret;
+}
 #pragma endregion
 
 #pragma region VulkanCommands
@@ -486,7 +517,7 @@ void CommandBuffer::imageTransferBarrier(VkImage image, VkAccessFlagBits srcAcce
 #pragma region VulkanTextureImage
 
 VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, TexFilter min_filter, TexFilter mag_filter, MipmapMode mipmaps,
-                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, pimg->_width, pimg->_height, VK_FORMAT_R8G8B8A8_SRGB) {
+                                       SampleCount samples, float anisotropy) : VulkanImage(pvulkan, pimg->_width, pimg->_height, pimg->getFormat(), samples) {
   BRLogInfo("Creating Vulkan image");
   _min_filter = min_filter;
   _mag_filter = mag_filter;
@@ -511,7 +542,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
 
   //Not called if we are passing in a VulaknImage alrady created.
   allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | transfer_src,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels);
   createView(_format, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
   copyImageToGPU(pimg, _format);
   createSampler();
@@ -520,7 +551,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::sha
   }
 }
 VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, TexFilter min_filter, TexFilter mag_filter, MipmapMode mipmaps,
-                                       VkSampleCountFlagBits samples, float anisotropy) : VulkanImage(pvulkan, w, h, VK_FORMAT_B8G8R8A8_SRGB) {
+                                       SampleCount samples, float anisotropy) : VulkanImage(pvulkan, w, h, VK_FORMAT_B8G8R8A8_SRGB, samples) {
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
   //**This is a test constructor for MRT images.
@@ -548,7 +579,7 @@ VulkanTextureImage::VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t
   //mage must be in the GENERAL layout if an image is used both as src and dst transfer
   //Not called if we are passing in a VulaknImage alrady created.
   allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | transfer_src,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, samples, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _mipLevels, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   createView(_format, VK_IMAGE_ASPECT_COLOR_BIT, _mipLevels);
 
   createSampler();
@@ -648,16 +679,18 @@ void VulkanTextureImage::createSampler() {
   };
   CheckVKR(vkCreateSampler, vulkan()->device(), &samplerInfo, nullptr, &_textureSampler);
 }
-VkSampler VulkanTextureImage::sampler() { return _textureSampler; }
 bool VulkanTextureImage::isFeatureSupported(VkFormatFeatureFlagBits flag) {
   VkFormatProperties formatProperties;
   vkGetPhysicalDeviceFormatProperties(vulkan()->physicalDevice(), format(), &formatProperties);
   bool supported = formatProperties.optimalTilingFeatures & flag;
   return supported;
 }
-void VulkanTextureImage::recreateMipmaps(MipmapMode mipmaps) {
-}
 void VulkanTextureImage::generateMipmaps(VkImageLayout finalLayout, std::shared_ptr<CommandBuffer> buf) {
+  //@fn generateMipmaps
+  //@brief Generates mipmaps for the given image.
+  //This can be called successively to generate, and Re-Generate mipmaps.
+  //@param buf - Optional command buffer to add commands.
+  //@param VkImageLayout - The final image layout of the sub-resources.
   VkSamplerMipmapMode mipMode = convertMipmapMode(_mipmap, _mag_filter);
   if (mipMode == VK_SAMPLER_MIPMAP_MODE_NEAREST) {
     return;
@@ -720,7 +753,6 @@ void VulkanTextureImage::generateMipmaps(VkImageLayout finalLayout, std::shared_
     buf->end();
   }
 }
-
 void VulkanTextureImage::copyImageToGPU(std::shared_ptr<Img32> pimg, VkFormat img_fmt) {
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
@@ -1000,6 +1032,7 @@ void VulkanTextureImage::testCycleFilters(TexFilter& g_min_filter, TexFilter& g_
     }
   }
 }
+
 #pragma endregion
 
 #pragma region ShaderModule
@@ -1233,13 +1266,15 @@ Framebuffer::~Framebuffer() {
   vkDestroyFramebuffer(vulkan()->device(), _framebuffer, nullptr);
 }
 bool Framebuffer::pipelineError(const string_t& msg) {
-  BRLogError(msg);
+  string_t out_msg = std::string("[") + name() + "]:" + msg;
+  BRLogError(out_msg);
   _bValid = false;
   return false;
 }
-bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc) {
+bool Framebuffer::create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc) {
   _frame = frame;
   _passDescription = desc;
+  _name = name;
 
   createAttachments();
 
@@ -1247,7 +1282,7 @@ bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Pas
     return pipelineError("No framebuffer attachments supplied to Framebuffer::create");
   }
 
-  createRenderPass(getThis<Framebuffer>());
+  createRenderPass(frame, getThis<Framebuffer>());
 
   uint32_t w = _frame->imageSize().width;
   uint32_t h = _frame->imageSize().height;
@@ -1272,7 +1307,9 @@ bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Pas
   CheckVKR(vkCreateFramebuffer, vulkan()->device(), &framebufferInfo, nullptr, &_framebuffer);
 
   //Validate image sizes
-  /*int32_t def_w = -1;
+  //Note: This is actually invalid if we set the viewport to render to a partial image area (hence renders to part of framebuffer but to a whole smaller RenderTexture)
+  //That's more of an advanced/edge case scenario, so keep this here for now to prevent segfaulting.
+  int32_t def_w = -1;
   int32_t def_h = -1;
   for (size_t i = 0; i < attachments().size(); ++i) {
     if (def_w == -1) {
@@ -1295,23 +1332,27 @@ bool Framebuffer::create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Pas
 
   if (def_w == -1 || def_h == -1) {
     return pipelineError("Invalid FBO image size.");
-  }*/
+  }
 
   return true;
 }
 bool Framebuffer::createAttachments() {
-  //Create attachments
-
+  //The FBO attachments and RenderTExture attachments merge to create the FBO in this function.
+  //Place any information that applies to all FBO attachments in here.
+  std::vector<SampleCount> att_samples;
   for (size_t i = 0; i < _passDescription->outputs().size(); ++i) {
     auto out_att = _passDescription->outputs()[i];
     VkImage img_img;
     VkFormat img_fmt;
     BR2::usize2 img_siz;
     uint32_t img_miplevels;
+    SampleCount img_samples;
 
-    if (!getOutputImageDataForMRTType(_frame, out_att, img_img, img_fmt, img_siz, img_miplevels)) {
+    if (!getOutputImageDataForMRTType(_frame, out_att, &img_img, &img_fmt, &img_siz, &img_miplevels, &img_samples)) {
       return false;
     }
+
+    att_samples.push_back(img_samples);
 
     uint32_t location = 0;
     if (out_att->_outputBinding == nullptr) {
@@ -1321,20 +1362,26 @@ bool Framebuffer::createAttachments() {
       location = out_att->_outputBinding->_location;
     }
 
-    // auto swap_siz = _frame->imageSize();  //Change for Dynamic MRT's
-
-    auto fb_a = std::make_shared<FramebufferAttachment>(vulkan());
-
-    if (!fb_a->init(getThis<Framebuffer>(), out_att, img_siz, img_img, img_fmt, img_miplevels)) {
+    auto attachment = std::make_shared<FramebufferAttachment>(vulkan());
+    if (!attachment->init(getThis<Framebuffer>(), out_att, img_siz, img_img, img_fmt, img_miplevels)) {
       return pipelineError("Failed to initialize fbo attachment '" + std::to_string(i) + "'.");
     }
+    _attachments.push_back(attachment);
+  }
 
-    _attachments.push_back(fb_a);
+  //Set the sampleCount for the whole FBO .. ?
+  bool samp_set = false;
+  SampleCount sample;
+  for (size_t i = 0; i < att_samples.size(); ++i) {
+    if (i > 0 && att_samples[i] != att_samples[i - 1]) {
+      BRLogWarn("Image samples are not uniform for framebuffer '" + name() + "'");
+      Gu::debugBreak();
+    }
   }
 
   return true;
 }
-bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
+bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo) {
   //using subpassLoad you can read previous subpass values. This is more efficient than the old approach.
   //https://www.saschawillems.de/blog/2018/07/19/vulkan-input-attachments-and-sub-passes/
   //https://github.com/KhronosGroup/GLSL/blob/master/extensions/khr/GL_KHR_vulkan_glsl.txt
@@ -1355,16 +1402,21 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
       loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     }
 
+    SampleCount scount;
+    getOutputImageDataForMRTType(frame, odesc, nullptr, nullptr, nullptr, nullptr, &scount);
+    VkSampleCountFlagBits samples = VulkanImage::MultisampleToVkSampleCountFlagBits(scount);
+
     //Clear Values
     if (odesc->_type == FBOType::Color) {
       VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL;  //VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;//VK_IMAGE_LAYOUT_PREINITIALIZED
+
       if (odesc->_isSwapchainColorImage) {
         finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
       }
       attachments.push_back({
         .flags = 0,
         .format = odesc->_outputBinding->_format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .samples = samples,
         .loadOp = loadOp,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -1385,7 +1437,7 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
       VkAttachmentDescription depthStencilAttachment = {
         .flags = 0,
         .format = odesc->_outputBinding->_format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .samples = samples,
         .loadOp = loadOp,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,  // We're heavily reusing the depth buffer, right? VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -1434,8 +1486,9 @@ bool Framebuffer::createRenderPass(std::shared_ptr<Framebuffer> fbo) {
 
   return true;
 }
-bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame,
-                                               std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format, BR2::usize2& out_size, uint32_t& out_miplevels) {
+bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
+                                               VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size,
+                                               uint32_t* out_miplevels, SampleCount* out_samples) {
   //Convert an MRT bind point into an image descriptor.
 
   OutputMRT type = out_att->_output;
@@ -1445,17 +1498,19 @@ bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> fram
   if (out_att->_texture == nullptr) {
     if (type == OutputMRT::RT_DefaultColor) {
       //Default framebuffer
-      out_image = frame->swapImage();
-      out_format = frame->imageFormat();
-      out_size = frame->imageSize();
-      out_miplevels = 1;
+      if (out_image) { *out_image = frame->swapImage(); }
+      if (out_format) { *out_format = frame->imageFormat(); }
+      if (out_size) { *out_size = frame->imageSize(); }
+      if (out_miplevels) { *out_miplevels = 1; }
+      if (out_samples) { *out_samples = frame->sampleCount(); }
     }
     else if (type == OutputMRT::RT_DefaultDepth) {
       //Default renderbuffer
-      out_image = frame->depthImage();
-      out_format = frame->depthFormat();
-      out_size = frame->imageSize();
-      out_miplevels = 1;
+      if (out_image) { *out_image = frame->depthImage(); }
+      if (out_format) { *out_format = frame->depthFormat(); }
+      if (out_size) { *out_size = frame->imageSize(); }
+      if (out_miplevels) { *out_miplevels = 1; }
+      if (out_samples) { *out_samples = frame->sampleCount(); }
     }
     //TODO: put other types here for the other output formats. ex. MRT_Color, MRT_Depth_Plane, etc.
     else {
@@ -1463,10 +1518,14 @@ bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> fram
     }
   }
   else {
-    out_image = out_att->_texture->texture()->image();
-    out_format = out_att->_texture->texture()->format();
-    out_size = out_att->_texture->texture()->imageSize();
-    out_miplevels = out_att->_texture->texture()->mipLevels();
+    if (out_att->_texture->texture() == nullptr) {
+      return pipelineError("Texture was not set for outputdescriptor '" + out_att->_name + "' ");
+    }
+    if (out_image) { *out_image = out_att->_texture->texture()->image(); }
+    if (out_format) { *out_format = out_att->_texture->texture()->format(); }
+    if (out_size) { *out_size = out_att->_texture->texture()->imageSize(); }
+    if (out_miplevels) { *out_miplevels = out_att->_texture->texture()->mipLevels(); }
+    if (out_samples) { *out_samples = out_att->_texture->texture()->sampleCount(); }
   }
 
   return true;
@@ -1490,6 +1549,13 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
                     std::shared_ptr<BR2::VertexFormat> vtxFormat,
                     std::shared_ptr<Framebuffer> pfbo) {
   _fbo = pfbo;
+
+  if (pfbo->passDescription() == nullptr) {
+    return pfbo->pipelineError("Pass description was null in Pipeline::init");
+  }
+  if (pfbo->passDescription()->outputs().size() == 0) {
+    return pfbo->pipelineError("No pass description outputs specified in Pipeline::init");
+  }
 
   //Pipeline Layout
   auto descriptorLayout = shader->getVkDescriptorSetLayout();
@@ -1646,17 +1712,36 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
     .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
     .pDynamicStates = dynamicStates.data(),
   };
+
+  VkBool32 sampleShadingEnabled = VK_FALSE;
+  float minSampleShading = 1;
+  if (vulkan()->deviceFeatures().sampleRateShading) {
+    if (shader->sampleShadingVariables()) {
+      //https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#primsrast-sampleshading
+      sampleShadingEnabled = true;
+      minSampleShading = 1;  // This is not used if there are sample shading variables
+    }
+    else {
+      //It would be silly to create a new pipeline every time we change sampleshading float.
+      //Also - it would be equally silly to do so if one already exists. Probably better to recreate pipeline when the data changes.
+      sampleShadingEnabled = false;
+      minSampleShading = 1;
+    }
+  }
+  //**TODO: check SampleCount is >= std::max(minSampleShading x rasterizationSamples, 1) samples for all images.
+
   VkPipelineMultisampleStateCreateInfo multisampling = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
     .pNext = nullptr,
     .flags = 0,
-    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    .rasterizationSamples = VulkanImage::MultisampleToVkSampleCountFlagBits(pfbo->sampleCount()),
 
     //**Note:
     //I think this is only available if multisampling is enabled.
     //OpenGL: glEnable(GL_SAMPLE_SHADING); glMinSampleShading(0.2f); glGet..(GL_MIN_SAMPLE_SHADING)
-    .sampleShadingEnable = VK_FALSE,  //(VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),
-    .minSampleShading = 1.0f,
+    //Per spec - this is FORCED ENABLED if there is a SampleId or SamplePosition in the frag shader
+    .sampleShadingEnable = sampleShadingEnabled,  //(VkBool32)(g_samplerate_shading ? VK_TRUE : VK_FALSE),
+    .minSampleShading = minSampleShading,
     .pSampleMask = nullptr,
     .alphaToCoverageEnable = false,
     .alphaToOneEnable = false,
@@ -1693,6 +1778,18 @@ Pipeline::~Pipeline() {
 }
 
 #pragma endregion
+
+bool PipelineShader::sampleShadingVariables(){
+  //There are not any reasons why an input variable would be decorated this way that I can see right now so we will skip this
+  //**TODO: test SampleId or SamplePosition in shader. change this to PipelineShader::getOutputBindingsByType( {SampleId , SamplePosition})
+  // for(auto mod : this->_modules){
+  // auto reflect = mod->reflectionData();
+  // int n=0;
+  // n++;
+  // }
+  return false;
+}
+
 
 #pragma region PipelineShader
 
@@ -2308,6 +2405,19 @@ bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<VulkanTex
   vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
   return true;
 }
+string_t PipelineShader::createUniqueFBOName(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> passdesc) {
+  string_t ret = std::string("(") + name() + ").(fbo" + std::to_string((int)data->_framebuffers.size()) + ")";
+
+  for (auto io = 0; io < passdesc->outputs().size(); ++io) {
+    auto desc = passdesc->outputs()[io];
+    ret += ".(";
+    ret += VulkanDebug::OutputMRT_toString(desc->_output);
+    ret += desc->_clear ? ".clear" : ".retain";
+    ret += desc->_isSwapchainColorImage ? ".swapimage" : ".rendertexture";
+    ret += ")";
+  }
+  return ret;
+}
 std::shared_ptr<Framebuffer> PipelineShader::getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc) {
   auto fbo = findFramebuffer(data, desc);
   if (fbo == nullptr) {
@@ -2318,11 +2428,39 @@ std::shared_ptr<Framebuffer> PipelineShader::getOrCreateFramebuffer(std::shared_
     if (desc->outputs().size() == 0) {
       fbo->pipelineError("No FBO outputs were specified.");
     }
-    else if (!fbo->create(frame, desc)) {
-      fbo->pipelineError("Failed to create FBO.");
+    else {
+      string_t fboName = createUniqueFBOName(frame, data, desc);
+      if (!fbo->create(fboName, frame, desc)) {
+        fbo->pipelineError("Failed to create FBO.");
+      }
     }
   }
 
+  return fbo;
+}
+std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
+  //Returns an exact match on the given input PassDescription and the FBO PassDescription.
+  std::shared_ptr<Framebuffer> fbo = nullptr;
+  for (auto fb : data->_framebuffers) {
+    if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
+      bool match = true;
+      for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
+        auto fboDescOut = fb->passDescription()->outputs()[io];
+        auto inDescOut = outputs->outputs()[io];
+
+        //TODO: Find a less error-prone way to match FBOs with pipeline state.
+        if (
+          fboDescOut->_output != inDescOut->_output || fboDescOut->_clear != inDescOut->_clear  //This sucks, but this is because the LOAD_OP is hard set in the render pass.
+          || fboDescOut->_isSwapchainColorImage != inDescOut->_isSwapchainColorImage) {
+          match = false;
+        }
+      }
+      if (match == true) {
+        fbo = fb;
+        break;
+      }
+    }
+  }
   return fbo;
 }
 bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> input_desc, BR2::urect2* extent) {
@@ -2438,13 +2576,15 @@ bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd) {
   return true;
 }
 bool PipelineShader::shaderError(const string_t& msg) {
-  BRLogError(msg);
+  string_t out_msg = "[" + name() + "]:" + msg;
+  BRLogError(out_msg);
   _bValid = false;
   Gu::debugBreak();
   return false;
 }
 bool PipelineShader::renderError(const string_t& msg) {
-  BRLogError(msg);
+  string_t out_msg = "[" + name() + "]:" + msg;
+  BRLogError(out_msg);
   //Gu::debugBreak();
   return false;
 }
@@ -2465,31 +2605,6 @@ std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<Render
     BRThrowException("Tried to access out of bounds shader data.");
   }
   return _shaderData[frame->frameIndex()];
-}
-std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
-  //Returns an exact match on the given input PassDescription and the FBO PassDescription.
-  std::shared_ptr<Framebuffer> fbo = nullptr;
-  for (auto fb : data->_framebuffers) {
-    if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
-      bool match = true;
-      for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
-        auto fboDescOut = fb->passDescription()->outputs()[io];
-        auto inDescOut = outputs->outputs()[io];
-
-        //TODO: Find a less error-prone way to match FBOs with pipeline state.
-        if (
-          fboDescOut->_output != inDescOut->_output || fboDescOut->_clear != inDescOut->_clear  //This sucks, but this is because the LOAD_OP is hard set in the render pass.
-          || fboDescOut->_isSwapchainColorImage != inDescOut->_isSwapchainColorImage) {
-          match = false;
-        }
-      }
-      if (match == true) {
-        fbo = fb;
-        break;
-      }
-    }
-  }
-  return fbo;
 }
 bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode, VkPrimitiveTopology topo) {
   auto pipe = getPipeline(v_fmt, topo, mode);
@@ -2574,11 +2689,12 @@ std::shared_ptr<ShaderDataUBO> ShaderData::getUBOData(const string_t& name) {
 
 #pragma region RenderFrame
 
-RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt) : VulkanObject(v) {
+RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt, SampleCount samples) : VulkanObject(v) {
   _pSwapchain = ps;
   _swapImage = img;
   _frameIndex = frameIndex;
   _imageFormat = fmt;
+  _samples = samples;
 }
 RenderFrame::~RenderFrame() {
   vkDestroySemaphore(vulkan()->device(), _imageAvailableSemaphore, nullptr);
@@ -2595,11 +2711,12 @@ void RenderFrame::init() {
   uint32_t w = _pSwapchain->imageSize().width;
   uint32_t h = _pSwapchain->imageSize().height;
 
+  VkSampleCountFlagBits vk_samples = VulkanTextureImage::MultisampleToVkSampleCountFlagBits(_samples);
+
   //**This si still an issue - binding the swapchain format to the FBO format - there could be discrpencies.
   VkFormat depthFmt = vulkan()->findDepthFormat();
-  _depthImage = std::make_shared<VulkanImage>(vulkan(), w, h, depthFmt);
-  _depthImage->allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1,
-                              VK_SAMPLE_COUNT_1_BIT);
+  _depthImage = std::make_shared<VulkanImage>(vulkan(), w, h, depthFmt, SampleCount::Disabled);
+  _depthImage->allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1);
   //**DFB images.
 }
 void RenderFrame::createSyncObjects() {
@@ -2759,16 +2876,9 @@ Swapchain::~Swapchain() {
   cleanupSwapChain();
   _shaders.clear();
 }
-void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
-  //We still need to keep shaders registered to prevent the smart pointer from deallcoating.
-  if (_shaders.find(shader) == _shaders.end()) {
-    _shaders.insert(shader);
-  }
-  for (auto frame : frames()) {
-    shader->clearShaderDataCache(frame);
-  }
-}
-void Swapchain::initSwapchain(const BR2::usize2& window_size) {
+void Swapchain::initSwapchain(const BR2::usize2& window_size, SampleCount samples) {
+  _sampleCount = samples;
+  //This is the main method to create AND re-create swapchain.
   vkDeviceWaitIdle(vulkan()->device());
 
   cleanupSwapChain();
@@ -2904,7 +3014,7 @@ void Swapchain::createSwapChain(const BR2::usize2& window_size) {
   for (size_t idx = 0; idx < swapChainImages.size(); ++idx) {
     auto& image = swapChainImages[idx];
     //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
-    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat);
+    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat, _sampleCount);
     f->init();
     _frames.push_back(f);
   }
@@ -2922,10 +3032,19 @@ void Swapchain::cleanupSwapChain() {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
   }
 }
+void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
+  //We still need to keep shaders registered to prevent the smart pointer from deallcoating.
+  if (_shaders.find(shader) == _shaders.end()) {
+    _shaders.insert(shader);
+  }
+  for (auto frame : frames()) {
+    shader->clearShaderDataCache(frame);
+  }
+}
 bool Swapchain::beginFrame(const BR2::usize2& windowsize) {
   //Returns true if we acquired an image to draw to, false if none are ready.
   if (isOutOfDate()) {
-    initSwapchain(windowsize);
+    initSwapchain(windowsize, _sampleCount);
   }
 
   bool ret = _frames[_currentFrame]->beginFrame();
@@ -2965,14 +3084,12 @@ std::shared_ptr<RenderFrame> Swapchain::currentFrame() {
   frame = _frames[_currentFrame];
   return frame;
 }
-
-std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filter, TexFilter mag_filter) {
+std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filter, TexFilter mag_filter, SampleCount samples) {
   std::shared_ptr<RenderTexture> renderTex = std::make_shared<RenderTexture>();
   renderTex->_min_filter = min_filter;
   renderTex->_mag_filter = mag_filter;
   renderTex->_mipmap_mode = MipmapMode::Linear;
-  //Set other parameters
-  //TODO: sample count.
+  renderTex->_sampleCount = samples;
 
   recreateRenderTexture(renderTex);
 
@@ -2981,13 +3098,22 @@ std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filt
   return renderTex;
 }
 void Swapchain::recreateRenderTexture(std::shared_ptr<RenderTexture> r) {
-  //TODO: sample count.
   r->_texture = nullptr;
+
+  SampleCount sc = r->_sampleCount;
+  if(r->_sampleCount==SampleCount::MS_Swapchain){
+    sc = _sampleCount;
+  }
 
   r->_texture = std::make_shared<VulkanTextureImage>(
     vulkan(), imageSize().width, imageSize().height,
     r->_min_filter, r->_mag_filter,
-    r->_mipmap_mode, VK_SAMPLE_COUNT_1_BIT);
+    r->_mipmap_mode, sc);
+}
+void Swapchain::setMultisample(SampleCount s) {
+  _sampleCount = s;
+
+  outOfDate();
 }
 
 #pragma endregion

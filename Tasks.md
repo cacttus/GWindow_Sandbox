@@ -1,25 +1,19 @@
 
+TODO: sample rate shading.
+  VkPhysicalDeviceFeatures sampleRateShading - tells us if it's enabled.
+
+
+
 ## Shader Pipeline Metadata
 * TODO: increase geometry of cube to test out the skip rendering.
     4,000,000 cubes rendered and still getting 1,000fps 
 
-* Depth FBO
-* We need The Swapchain Group - A group of swapchain images in a pipeline
-* We need to understand the async rendering going on to fix it
-    * This is also a good opportunity to change the engine cycle.
-    * Deferred Group
-    * Forward Group
-    * Default / Blit group (Default FBO)
-        * Default FBO has a Renderbuffer, e.g. depth buffer attached.
-        * Any group can have a depth buffer + multiple renderbuffers
 
 ## Roadmap
 1. continue implementing supported BR2 pipeline features
-  * Depth FBOs (testing)
-  * Multisampling
   * MRT's 
     * Picking
-    * Shadowmapping
+  * Shadowmapping
   * Deferred Lighting.
   * Vertex Formats, and Fill/Mode data (in getPipeline)
     * Integrate BR2::VertexFormat

@@ -20,7 +20,7 @@ public:
   Vulkan();
   virtual ~Vulkan();
     
-  static std::shared_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences);
+  static std::shared_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, SampleCount samples);
 
   //Props
   VkSurfaceKHR& windowSurface();
@@ -41,7 +41,7 @@ public:
   void checkErrors();
   void validateVkResult(VkResult res, const string_t& fname);
   void errorExit(const string_t&);
-
+  
   //Helpers
   VkSampleCountFlagBits getMaxUsableSampleCount();
   VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels = 1);
@@ -53,7 +53,7 @@ public:
   std::shared_ptr<Swapchain> swapchain();
 
 private:
-  void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences);
+  void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, SampleCount samples);
 
   std::unique_ptr<Vulkan_Internal> _pInt;
 };

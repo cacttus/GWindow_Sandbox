@@ -76,8 +76,8 @@ private:
 */
 class VulkanImage : public VulkanObject {
 public:
-  VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format);
-  VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat);
+  VulkanImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, VkFormat format, SampleCount samples);
+  VulkanImage(std::shared_ptr<Vulkan> pvulkan, VkImage img, uint32_t w, uint32_t h, VkFormat imgFormat, SampleCount samples);
 
   virtual ~VulkanImage() override;
 
@@ -86,18 +86,17 @@ public:
   VkImage image() { return _image; }
   const BR2::usize2& imageSize() { return _size; }
 
-  void allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels,
-                      VkSampleCountFlagBits samples, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+  void allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
   void createView(VkFormat fmt, VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t mipLevel = 1);
+  static VkSampleCountFlagBits MultisampleToVkSampleCountFlagBits(SampleCount s);
 
 protected:
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
   VkDeviceMemory _imageMemory = VK_NULL_HANDLE;
   VkImageView _imageView = VK_NULL_HANDLE;
   BR2::usize2 _size{ 0, 0 };
-  //uint32_t _width = 0;
-  //uint32_t _height = 0;
   VkFormat _format = VK_FORMAT_UNDEFINED;  //Invalid format
+  SampleCount _samples = SampleCount::Disabled;
 };
 /**
 * @class VulkanCommands
@@ -179,19 +178,19 @@ public:
 class VulkanTextureImage : public VulkanImage {
 public:
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, std::shared_ptr<Img32> pimg, TexFilter min_filter = TexFilter::Linear, TexFilter mag_filter = TexFilter::Linear,
-                     MipmapMode mipmaps = MipmapMode::Auto, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
+                     MipmapMode mipmaps = MipmapMode::Auto, SampleCount samples = SampleCount::Disabled, float anisotropy = 16.0f);
   VulkanTextureImage(std::shared_ptr<Vulkan> pvulkan, uint32_t w, uint32_t h, TexFilter min_filter = TexFilter::Linear, TexFilter mag_filter = TexFilter::Linear,
-                     MipmapMode mipmaps = MipmapMode::Auto, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, float anisotropy = 16.0f);
+                     MipmapMode mipmaps = MipmapMode::Auto, SampleCount samples = SampleCount::Disabled, float anisotropy = 16.0f);
   virtual ~VulkanTextureImage() override;
-  VkSampler sampler();
 
-  void recreateMipmaps(MipmapMode mipmaps);
-  static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
+  VkSampler sampler() { return _textureSampler; }
   uint32_t mipLevels() { return _mipLevels; }
   MipmapMode mipmapMode() { return _mipmap; }
   TexFilter magFilter() { return _mag_filter; }
 
   void generateMipmaps(VkImageLayout finalLayout, std::shared_ptr<CommandBuffer> buf = nullptr);
+  static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
+  SampleCount sampleCount() { return _multisample; }
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -201,6 +200,7 @@ private:
   float _anisotropy = 16.0f;
   TexFilter _min_filter = TexFilter::Linear;
   TexFilter _mag_filter = TexFilter::Linear;
+  SampleCount _multisample = SampleCount::Disabled;
 
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
@@ -384,27 +384,33 @@ public:
   Framebuffer(std::shared_ptr<Vulkan> v);
   virtual ~Framebuffer() override;
 
+  string_t name() { return _name; }
   VkFramebuffer getVkFramebuffer() { return _framebuffer; }
   VkRenderPass getVkRenderPass() { return _renderPass; }
 
-  bool create(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
+  bool create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
   std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
   std::shared_ptr<PassDescription> passDescription() { return _passDescription; }
   bool pipelineError(const string_t& msg);
   bool valid() { return _bValid; }
   const BR2::usize2& imageSize();
+  SampleCount sampleCount() { return _sampleCount; }
 
 private:
   bool createAttachments();
-  bool createRenderPass(std::shared_ptr<Framebuffer> fbo);
-  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att, VkImage& out_image, VkFormat& out_format, BR2::usize2& out_size, uint32_t& out_miplevels);
+  bool createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo);
+  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
+                                    VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size,
+                                    uint32_t* out_miplevels, SampleCount* out_samples);
 
+  string_t _name = "*unset";
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
   std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
   std::shared_ptr<RenderFrame> _frame;  //storing this is safe since we destroy the FBO when a new RenderFrame is made.
   std::shared_ptr<PassDescription> _passDescription;
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   bool _bValid = true;
+  SampleCount _sampleCount = SampleCount::Disabled;
 };
 /**
  * @class Pipeline
@@ -454,7 +460,7 @@ public:
   VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
-
+  bool sampleShadingVariables();
   std::shared_ptr<Pipeline> getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode);
   std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
   bool createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize = VK_WHOLE_SIZE);
@@ -478,7 +484,6 @@ private:
   bool createInputs();
   bool createOutputs();
   bool createDescriptors();
-  //bool createRenderPass();
   void cleanupDescriptors();
   std::shared_ptr<Framebuffer> getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
   std::shared_ptr<Framebuffer> findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
@@ -490,6 +495,7 @@ private:
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
   VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
   bool beginPassGood();
+  string_t createUniqueFBOName(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
 
   string_t _name = "*undefined*";
   std::vector<string_t> _files;
@@ -529,7 +535,8 @@ public:
  */
 class RenderFrame : public VulkanObject {
 public:
-  RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt);
+  RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex,
+              VkImage img, VkSurfaceFormatKHR fmt, SampleCount samples);
   virtual ~RenderFrame() override;
 
   const BR2::usize2& imageSize();
@@ -547,6 +554,7 @@ public:
   VkFormat imageFormat();  //rename swapFormat
   VkImage depthImage() { return _depthImage->image(); }
   VkFormat depthFormat() { return _depthImage->format(); }
+  SampleCount sampleCount() { return _samples; }
 
 private:
   void createSyncObjects();
@@ -562,6 +570,7 @@ private:
   VkImage _swapImage = VK_NULL_HANDLE;
   VkSurfaceFormatKHR _imageFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
   std::shared_ptr<VulkanImage> _depthImage = nullptr;
+  SampleCount _samples;
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
@@ -583,6 +592,7 @@ private:
   TexFilter _min_filter = TexFilter::Nearest;
   TexFilter _mag_filter = TexFilter::Nearest;
   MipmapMode _mipmap_mode = MipmapMode::Disabled;
+  SampleCount _sampleCount = SampleCount::Disabled;
   std::shared_ptr<VulkanTextureImage> _texture = nullptr;
 };
 /**
@@ -601,11 +611,12 @@ public:
   void outOfDate() { _bSwapChainOutOfDate = true; }
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
-  void initSwapchain(const BR2::usize2& window_size);
+  void initSwapchain(const BR2::usize2& window_size, SampleCount samples);
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
   const std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
   void registerShader(std::shared_ptr<PipelineShader> shader);
-  std::shared_ptr<RenderTexture> createRenderTexture(TexFilter min_filter, TexFilter mag_filter);
+  std::shared_ptr<RenderTexture> createRenderTexture(TexFilter min_filter, TexFilter mag_filter, SampleCount samples = SampleCount::MS_Swapchain);
+  void setMultisample(SampleCount s);
 
 private:
   void createSwapChain(const BR2::usize2& window_size);
@@ -614,6 +625,7 @@ private:
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
   void recreateRenderTexture(std::shared_ptr<RenderTexture> r);
 
+  SampleCount _sampleCount = SampleCount::Disabled;
   FrameState _frameState = FrameState::Unset;
   std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;
   std::vector<std::shared_ptr<RenderFrame>> _frames;

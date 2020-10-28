@@ -17,5 +17,12 @@ layout(location = 0) out vec4 _outFBO_DefaultColor;
 layout(binding = 2) uniform sampler2D _ufTexture0;
 
 void main() {  
-    _outFBO_DefaultColor = vec4(fragColor.rgb, fragColor.a) * texture(_ufTexture0, fragTexCoord);
+  //* Testing samplerate shading output variables
+    // int id = gl_SampleId // Vulakn:SampleId  GL:gl_SampleId gl_SamplePosition(defaults 0.5,0.5 - sample position is from [0,1])
+    // vec2 pos = gl_SamplePosition;
+    // vec4 test_srs = vec4(1,1,1,1);
+    // if(gl_SampleId==5){
+    //   test_srs = vec4(pos.x,pos.y,1,1);
+    // }
+    _outFBO_DefaultColor =vec4(fragColor.rgb, fragColor.a) * texture(_ufTexture0, fragTexCoord);
 } 

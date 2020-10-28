@@ -301,12 +301,22 @@ public:
 #endif
   }
 };
+enum ImageFormat { 
+  Undefined,
+  RGBA_32BIT,
+  RGB_24BIT,
+};
 class Img32 {
 public:
   unsigned char* _data = nullptr;
   std::size_t data_len_bytes = 0;
   uint32_t _width = 0;
   uint32_t _height = 0;
+  ImageFormat _format = ImageFormat::RGBA_32BIT;
+  //TODO: use an internal format, and then use a conversion.
+  //TODO: make sure this image is a 32 bit format after loading.
+  //TODO: the input fmt for VulkanImage must match the image destination.
+  VkFormat getFormat(){ return VK_FORMAT_R8G8B8A8_SRGB; }
 };
 class Os {
 public:

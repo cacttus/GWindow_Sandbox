@@ -8,7 +8,11 @@ namespace VG {
   if (r == xx_) {         \
     ret = string_t(#xx_); \
   }
-#define V_STC_STR(x, y)                                                                  \
+#define V_ENM_STR2(xx_, yy_) \
+  if (r == xx_) {            \
+    ret = string_t(#yy_);    \
+  }
+#define V_STC_STR(x, y)                                                                       \
   str += Stz " [" + App::toHex((int)off, true) + "][" + off + "]" + std::string(#y) + "\r\n"; \
   off += sizeof(x::y);
 //
@@ -90,25 +94,25 @@ string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
 // V_ENM_STR($1);
 string_t VulkanDebug::OutputMRT_toString(OutputMRT r) {
   string_t ret = "";
-  V_ENM_STR(OutputMRT::RT_Undefined);
-  V_ENM_STR(OutputMRT::RT_DefaultColor);
-  V_ENM_STR(OutputMRT::RT_DefaultDepth);
-  V_ENM_STR(OutputMRT::RT_DF_Position);
-  V_ENM_STR(OutputMRT::RT_DF_Color);
-  V_ENM_STR(OutputMRT::RT_DF_Depth_Plane);
-  V_ENM_STR(OutputMRT::RT_DF_Normal);
-  V_ENM_STR(OutputMRT::RT_DF_Pick);
-  V_ENM_STR(OutputMRT::RT_Custom0);
-  V_ENM_STR(OutputMRT::RT_Custom1);
-  V_ENM_STR(OutputMRT::RT_Custom2);
-  V_ENM_STR(OutputMRT::RT_Custom3);
-  V_ENM_STR(OutputMRT::RT_Custom4);
-  V_ENM_STR(OutputMRT::RT_Custom5);
-  V_ENM_STR(OutputMRT::RT_Custom6);
-  V_ENM_STR(OutputMRT::RT_Custom7);
-  V_ENM_STR(OutputMRT::RT_Custom8);
-  V_ENM_STR(OutputMRT::RT_Custom9);
-  V_ENM_STR(OutputMRT::MaxOutputs);
+  V_ENM_STR2(OutputMRT::RT_Undefined, RT_Undefined);
+  V_ENM_STR2(OutputMRT::RT_DefaultColor, RT_DefaultColor);
+  V_ENM_STR2(OutputMRT::RT_DefaultDepth, RT_DefaultDepth);
+  V_ENM_STR2(OutputMRT::RT_DF_Position, RT_DF_Position);
+  V_ENM_STR2(OutputMRT::RT_DF_Color, RT_DF_Color);
+  V_ENM_STR2(OutputMRT::RT_DF_Depth_Plane, RT_DF_Depth_Plane);
+  V_ENM_STR2(OutputMRT::RT_DF_Normal, RT_DF_Normal);
+  V_ENM_STR2(OutputMRT::RT_DF_Pick, RT_DF_Pick);
+  V_ENM_STR2(OutputMRT::RT_Custom0, RT_Custom0);
+  V_ENM_STR2(OutputMRT::RT_Custom1, RT_Custom1);
+  V_ENM_STR2(OutputMRT::RT_Custom2, RT_Custom2);
+  V_ENM_STR2(OutputMRT::RT_Custom3, RT_Custom3);
+  V_ENM_STR2(OutputMRT::RT_Custom4, RT_Custom4);
+  V_ENM_STR2(OutputMRT::RT_Custom5, RT_Custom5);
+  V_ENM_STR2(OutputMRT::RT_Custom6, RT_Custom6);
+  V_ENM_STR2(OutputMRT::RT_Custom7, RT_Custom7);
+  V_ENM_STR2(OutputMRT::RT_Custom8, RT_Custom8);
+  V_ENM_STR2(OutputMRT::RT_Custom9, RT_Custom9);
+  V_ENM_STR2(OutputMRT::RT_Enum_Count, RT_Enum_Count);
   return ret;
 }
 string_t VulkanDebug::VkDescriptorType_toString(VkDescriptorType r) {

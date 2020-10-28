@@ -556,9 +556,9 @@ public:
 #pragma endregion
 
 #pragma region Vulkan
-std::shared_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences) {
+std::shared_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, SampleCount samples) {
   std::shared_ptr<Vulkan> v = std::make_shared<Vulkan>();
-  v->init(title, win, vsync_enabled, wait_fences);
+  v->init(title, win, vsync_enabled, wait_fences, samples);
   return v;
 }
 Vulkan::Vulkan() {
@@ -567,7 +567,7 @@ Vulkan::Vulkan() {
 Vulkan::~Vulkan() {
   _pInt = nullptr;
 }
-void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences) {
+void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, SampleCount samples) {
   AssertOrThrow2(win != nullptr);
 
   //Setup vulkan devices
@@ -581,7 +581,7 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
 
   //Create swapchain
   _pInt->_pSwapchain = std::make_shared<Swapchain>(getThis<Vulkan>());
-  _pInt->_pSwapchain->initSwapchain(BR2::usize2( win_w,  win_h ));
+  _pInt->_pSwapchain->initSwapchain(BR2::usize2( win_w,  win_h ), samples);
 }
 VkSurfaceKHR& Vulkan::windowSurface() { return _pInt->_windowSurface; }
 VkPhysicalDevice& Vulkan::physicalDevice() { return _pInt->_physicalDevice; }
@@ -734,6 +734,8 @@ uint32_t Vulkan::swapchainImageCount() {
 std::shared_ptr<Swapchain> Vulkan::swapchain() {
   return _pInt->_pSwapchain;
 }
+
+
 
 #pragma endregion
 

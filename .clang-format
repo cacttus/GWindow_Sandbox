@@ -1,13 +1,17 @@
 ﻿---
 BasedOnStyle: Google
-FixNamespaceComments: 'true'
-ReflowComments: 'true'
-AllowAllParametersOfDeclarationOnNextLine: 'false'
+FixNamespaceComments: true
+ReflowComments: true
+AllowAllParametersOfDeclarationOnNextLine: false
 AccessModifierOffset: '-2'
-AlwaysBreakTemplateDeclarations: 'false'
+AlwaysBreakTemplateDeclarations: false
 AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakAfterReturnType: None
-AlwaysBreakBeforeMultilineStrings: 'false'
+AlwaysBreakBeforeMultilineStrings: false
+AllowShortLoopsOnASingleLine: 'true'
+AllowShortIfStatementsOnASingleLine: 'true'
+AllowShortFunctionsOnASingleLine: 'true'
+AllowShortBlocksOnASingleLine: 'true'
 IncludeBlocks: Preserve
 PointerAlignment: Left
 SortIncludes: 'false'
@@ -28,4 +32,5 @@ BraceWrapping:
   BeforeCatch:     true
   BeforeElse:      true
   IndentBraces:    false
+  SplitEmptyFunction: false
 ...

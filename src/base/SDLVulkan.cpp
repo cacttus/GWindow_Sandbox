@@ -14,6 +14,7 @@ static bool g_poly_line = false;
 static bool g_use_rtt = true;
 static int g_pass_test_idx = 3;
 static float g_anisotropy = 1;
+static SampleCount g_multisample = SampleCount::Disabled;
 
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
@@ -127,7 +128,7 @@ public:
 
     sdl_PrintVideoDiagnostics();
 
-    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable);
+    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, g_multisample);
 
     _game = std::make_shared<GameDummy>();
     _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
@@ -427,14 +428,14 @@ public:
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile("char-1.png"));  //TexturesCom_MetalBare0253_2_M.png
     if (img) {
-      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_min_filter, g_mag_filter, g_mipmap_mode, SampleCount::Disabled, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 1.");
     }
     auto img2 = loadImage(App::rootFile("char-2.png"));
     if (img2) {
-      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_min_filter, g_mag_filter, g_mipmap_mode, SampleCount::Disabled, g_anisotropy);
     }
     else {
       vulkan()->errorExit("Could not load test image 2.");
@@ -538,6 +539,16 @@ bool SDLVulkan::doInput() {
         _pInt->createTextureImages();
         break;
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F10) {
+        g_multisample = (SampleCount)((int)g_multisample+1);
+        if(g_multisample==SampleCount::MS_Enum_Count){
+          g_multisample=SampleCount::Disabled;
+        }
+
+        _pInt->_vulkan->swapchain()->setMultisample(g_multisample);
+
+        break;
+      }
     }
   }
   return false;
@@ -555,13 +566,13 @@ void SDLVulkan::renderLoop() {
       float f_r = _pInt->_fpsMeter_Render.getFps();
       string_t fp_r = std::to_string((int)f_r);
 
-      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ((g_mipmap_mode == MipmapMode::Auto) ? ("Auto") : ("Undefined-Error"))));
-      string_t min_f = (g_min_filter == TexFilter::Linear) ? ("Linear") : ((g_min_filter == TexFilter::Nearest) ? ("Nearest") : ((g_min_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
-      string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("Linear") : ((g_mag_filter == TexFilter::Nearest) ? ("Nearest") : ((g_mag_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
-      string_t mode = " mipmap=F1 (" + mmip_mode + ") ";
-      string_t aniso = std::string(" anisotropy=F9 (") + std::to_string(g_anisotropy) + ")";
-      string_t frame = std::string(" frame:") + std::to_string(_pInt->g_iFrameNumber);
-      string_t out = "u:" + fp_upd + "fps r:" + fp_r + std::string("fps") + frame + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode + "(min=" + min_f + ")(mag=" + mag_f + ")" + aniso;
+      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ((g_mipmap_mode == MipmapMode::Auto) ? ("Auto") : ("Undefined-Error"))));
+      string_t min_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
+      string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
+      string_t mode = " mip=F1:Tex=" + mmip_mode + ",";
+      string_t aniso = std::string(",AF=F9(") + std::to_string(g_anisotropy) + ")";
+      string_t frame = std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber);
+      string_t out = "u:" + fp_upd + "fps,r:" + fp_r + std::string("fps") + frame + ",F8=pass#(" + std::to_string(g_pass_test_idx) + "),F3=Line,F4=RTT:Mip=" + mode + ",Minf=" + min_f + ",Magf/*  */=" + mag_f + "," + aniso;
       SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
     }
 

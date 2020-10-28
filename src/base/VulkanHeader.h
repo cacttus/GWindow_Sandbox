@@ -47,7 +47,9 @@ enum class AttachmentType {
   DepthAttachment
 };
 enum class VulkanBufferPoolType {
-  Gpu, GpuAndHost, Host
+  Gpu,
+  GpuAndHost,
+  Host
 };
 enum class VulkanBufferType {
   VertexBuffer,
@@ -84,10 +86,9 @@ enum class FBOType {
   Color,
   Depth
 };
-//"_outFBO_ ..
 enum class OutputMRT {
   RT_Undefined,
-  RT_DefaultColor,  //Default FBO
+  RT_DefaultColor, 
   RT_DefaultDepth,
   RT_DF_Position,
   RT_DF_Color,
@@ -104,7 +105,7 @@ enum class OutputMRT {
   RT_Custom7,
   RT_Custom8,
   RT_Custom9,
-  MaxOutputs,
+  RT_Enum_Count,
 };
 enum class CompareOp {
   Never,
@@ -116,11 +117,22 @@ enum class CompareOp {
   Greater_or_Equal,
   CompareAlways
 };
-
 enum class FrameState {
   Unset,
   FrameBegin,
   FrameEnd,
+};
+enum class SampleCount {
+  //This enum converts to VkSampleCountFlagBits
+  Disabled,  // 1
+  MS_2_Samples,
+  MS_4_Samples,
+  MS_8_Samples,
+  MS_16_Samples,
+  MS_32_Samples,
+  MS_64_Samples,
+  MS_Swapchain, // Use the number of samples that the Swapchain uses.
+  MS_Enum_Count,
 };
 /////////////////////////////////////////////////////////////////////////////////
 //FWD
@@ -169,7 +181,7 @@ struct ViewProjUBOData {
   alignas(16) BR2::mat4 proj;
 };
 struct InstanceUBOData {
-alignas(16) BR2::mat4 model;
+  alignas(16) BR2::mat4 model;
 };
 class InstanceUBOClassData {
   uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
@@ -178,14 +190,11 @@ class InstanceUBOClassData {
 template <typename Tx>
 class SharedObject : public std::enable_shared_from_this<Tx> {
 protected:
-  template <typename Ty>
+  template <typename Ty = Tx>
   std::shared_ptr<Ty> getThis() {
     return std::dynamic_pointer_cast<Ty>(this->shared_from_this());
   }
 };
-
-
-
 
 }  // namespace VG
 
