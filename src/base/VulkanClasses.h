@@ -18,12 +18,11 @@ namespace VG {
 class VulkanObject : public SharedObject<VulkanObject> {
   std::shared_ptr<Vulkan> _vulkan = nullptr;
 
-protected:
-  std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 
 public:
   VulkanObject(std::shared_ptr<Vulkan> dev) { _vulkan = dev; }
   virtual ~VulkanObject() {}
+  std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 };
 /**
  * @class VulkanDeviceBuffer
@@ -85,6 +84,7 @@ public:
   VkFormat format() { return _format; }
   VkImage image() { return _image; }
   const BR2::usize2& imageSize() { return _size; }
+  SampleCount sampleCount() { return _samples; }
 
   void allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, uint32_t mipLevels, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
   void createView(VkFormat fmt, VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t mipLevel = 1);
@@ -190,7 +190,6 @@ public:
 
   void generateMipmaps(VkImageLayout finalLayout, std::shared_ptr<CommandBuffer> buf = nullptr);
   static void testCycleFilters(TexFilter& min_filter, TexFilter& mag_filter, MipmapMode& mipmap_mode);
-  SampleCount sampleCount() { return _multisample; }
 
 private:
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
@@ -200,7 +199,6 @@ private:
   float _anisotropy = 16.0f;
   TexFilter _min_filter = TexFilter::Linear;
   TexFilter _mag_filter = TexFilter::Linear;
-  SampleCount _multisample = SampleCount::Disabled;
 
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
@@ -346,15 +344,22 @@ public:
  * */
 class PassDescription {
 public:
-  PassDescription(std::shared_ptr<PipelineShader> shader);
+  PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader);
   void setOutput(std::shared_ptr<OutputDescription> output);
-  void setOutput(OutputMRT output, std::shared_ptr<RenderTexture> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
+  void setOutput(const string_t& tag, OutputMRT output, std::shared_ptr<RenderTexture> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
   std::vector<VkClearValue> getClearValues();
+  bool validate();
+  std::shared_ptr<RenderFrame> frame() { return _frame; }
 
 private:
   std::vector<std::shared_ptr<OutputDescription>> _outputs;
   std::shared_ptr<PipelineShader> _shader = nullptr;
+  std::shared_ptr<RenderFrame> _frame=nullptr; 
+  bool _bValid = true;//If an error happened
+
+  bool valid() { return _bValid; }
+  bool passError(const string_t& msg);
   void addValidOutput(std::shared_ptr<OutputDescription> desc);
 };
 /**
@@ -395,13 +400,12 @@ public:
   bool valid() { return _bValid; }
   const BR2::usize2& imageSize();
   SampleCount sampleCount() { return _sampleCount; }
+  static string_t getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
+                                           VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size, uint32_t* out_miplevels, SampleCount* out_samples);
 
 private:
   bool createAttachments();
   bool createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo);
-  bool getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
-                                    VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size,
-                                    uint32_t* out_miplevels, SampleCount* out_samples);
 
   string_t _name = "*unset";
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
@@ -468,7 +472,7 @@ public:
   void clearShaderDataCache(std::shared_ptr<RenderFrame> frame);
 
   std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame);
-  bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
+  bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
   void endRenderPass(std::shared_ptr<CommandBuffer> buf);
   bool bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
   bool bindSampler(const string_t& name, std::shared_ptr<VulkanTextureImage> texture, uint32_t arrayIndex = 0);
@@ -536,7 +540,7 @@ public:
 class RenderFrame : public VulkanObject {
 public:
   RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex,
-              VkImage img, VkSurfaceFormatKHR fmt, SampleCount samples);
+              VkImage img, VkSurfaceFormatKHR fmt);
   virtual ~RenderFrame() override;
 
   const BR2::usize2& imageSize();
@@ -554,7 +558,6 @@ public:
   VkFormat imageFormat();  //rename swapFormat
   VkImage depthImage() { return _depthImage->image(); }
   VkFormat depthFormat() { return _depthImage->format(); }
-  SampleCount sampleCount() { return _samples; }
 
 private:
   void createSyncObjects();
@@ -570,7 +573,6 @@ private:
   VkImage _swapImage = VK_NULL_HANDLE;
   VkSurfaceFormatKHR _imageFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
   std::shared_ptr<VulkanImage> _depthImage = nullptr;
-  SampleCount _samples;
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
@@ -615,8 +617,9 @@ public:
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
   const std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
   void registerShader(std::shared_ptr<PipelineShader> shader);
-  std::shared_ptr<RenderTexture> createRenderTexture(TexFilter min_filter, TexFilter mag_filter, SampleCount samples = SampleCount::MS_Swapchain);
+  std::shared_ptr<RenderTexture> createRenderTexture(TexFilter min_filter, TexFilter mag_filter);
   void setMultisample(SampleCount s);
+  SampleCount sampleCount() { return _sampleCount; }
 
 private:
   void createSwapChain(const BR2::usize2& window_size);

@@ -131,7 +131,6 @@ enum class SampleCount {
   MS_16_Samples,
   MS_32_Samples,
   MS_64_Samples,
-  MS_Swapchain, // Use the number of samples that the Swapchain uses.
   MS_Enum_Count,
 };
 /////////////////////////////////////////////////////////////////////////////////

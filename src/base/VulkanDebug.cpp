@@ -45,6 +45,20 @@ namespace VG {
 //   return qf_info;
 // }
 
+int VulkanDebug::SampleCount_ToInt(SampleCount c) {
+  if (c == SampleCount::Disabled) { return 1; }
+  else if (c == SampleCount::MS_2_Samples) { return 2; }
+  else if (c == SampleCount::MS_4_Samples) { return 4; }
+  else if (c == SampleCount::MS_8_Samples) { return 8; }
+  else if (c == SampleCount::MS_16_Samples) { return 16; }
+  else if (c == SampleCount::MS_32_Samples) { return 32; }
+  else if (c == SampleCount::MS_64_Samples) { return 64; }
+  else {
+    BRThrowException("Invalid or unsupported SampleCount enum '" + std::to_string((int)c) + "'");
+  }
+ }
+
+
 #pragma region Structure Memory Layouts
 //We could use some kind of file processing gimmick to process all vulkan structures.
 //Perhaps sigtrap the access violations.

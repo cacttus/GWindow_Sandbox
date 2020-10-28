@@ -17,6 +17,7 @@ namespace VG {
 class Vulkan_Internal;
 class Vulkan : public SharedObject<Vulkan> {
 public:
+  static constexpr const char* c_strErrDeviceLost = "VK_ERROR_DEVICE_LOST"; //TODO; move this somewhere else.
   Vulkan();
   virtual ~Vulkan();
     
@@ -41,9 +42,10 @@ public:
   void checkErrors();
   void validateVkResult(VkResult res, const string_t& fname);
   void errorExit(const string_t&);
-  
+  bool extensionEnabled(const string_t& in_ext);
+
   //Helpers
-  VkSampleCountFlagBits getMaxUsableSampleCount();
+  SampleCount maxSampleCount();
   VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels = 1);
   VkFormat findDepthFormat() ;
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);

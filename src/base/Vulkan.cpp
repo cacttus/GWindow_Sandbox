@@ -42,8 +42,6 @@ public:
   VkCommandPool _commandPool = VK_NULL_HANDLE;
   VkQueue _graphicsQueue = VK_NULL_HANDLE;  // Device queues are implicitly cleaned up when the device is destroyed, so we don't need to do anything in cleanup.
   VkQueue _presentQueue = VK_NULL_HANDLE;
-  VkSampleCountFlagBits _maxMSAASamples = VK_SAMPLE_COUNT_1_BIT;
-  VkSampleCountFlagBits _msaaSamples = VK_SAMPLE_COUNT_1_BIT;
   VkSurfaceKHR _windowSurface;
   bool _bEnableValidationLayers = true;  // TODO: set this in settings
   std::unordered_map<string_t, VkExtensionProperties> _deviceExtensions;
@@ -53,6 +51,7 @@ public:
   bool _bPhysicalDeviceAcquired = false;
   bool _vsync_enabled = false;
   bool _wait_fences = false;
+  std::unordered_set<std::string> _enabledExtensions;
 
   //Extension functions
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
@@ -344,8 +343,6 @@ public:
           _deviceProperties = deviceProperties;  //Make sure this comes before getMaxUsableSampleCount!
           _deviceFeatures = deviceFeatures;
           _bPhysicalDeviceAcquired = true;
-
-          _maxMSAASamples = getMaxUsableSampleCount();
         }
       }
 
@@ -359,8 +356,6 @@ public:
   }
   std::unordered_map<string_t, VkExtensionProperties>& getDeviceExtensions() {
     if (_deviceExtensions.size() == 0) {
-      // Extensions
-      std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
       uint32_t extensionCount;
       CheckVKRV(vkEnumerateDeviceExtensionProperties, _physicalDevice, nullptr, &extensionCount, nullptr);
       std::vector<VkExtensionProperties> availableExtensions(extensionCount);
@@ -372,11 +367,59 @@ public:
     return _deviceExtensions;
   }
   bool isExtensionSupported(const string_t& extName) {
-    std::string req_ext = std::string(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     if (getDeviceExtensions().find(extName) != getDeviceExtensions().end()) {
       return true;
     }
     return false;
+  }
+  bool extensionEnabled(const string_t& in_ext) {
+    auto it = _enabledExtensions.find(in_ext);
+    return it != _enabledExtensions.end();
+  }
+  std::vector<const char*> getEnabledDeviceExtensions() {
+    //Required Extensions
+    const std::vector<const char*> requiredExtensions = {
+      VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+    //Optional
+    const std::vector<const char*> optinalExtensions = {
+      VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME
+    };
+
+    string_t extMsg = "";
+    bool fatal = false;
+    std::vector<const char*> ret;
+    //Check Required
+    for (auto strext : requiredExtensions) {
+      if (!isExtensionSupported(strext)) {
+        extMsg += Stz "  Required extension " + strext + " wasn't supported\n";
+        fatal = true;
+      }
+      else {
+        ret.push_back(strext);
+        _enabledExtensions.insert(string_t(strext));
+      }
+    }
+    //Check Optional
+    for (auto strext : optinalExtensions) {
+      if (!isExtensionSupported(strext)) {
+        extMsg += Stz "  Optional extension " + strext + " wasn't supported\n";
+      }
+      else {
+        ret.push_back(strext);
+        _enabledExtensions.insert(string_t(strext));
+      }
+    }
+    if (extMsg.length()) {
+      if (fatal) {
+        errorExit(extMsg);
+      }
+      else {
+        BRLogWarn(extMsg);
+      }
+    }
+
+    return ret;
   }
   void createLogicalDevice() {
     //Here we should really do a "best fit" like we do for OpenGL contexts.
@@ -407,14 +450,7 @@ public:
     }
 
     //Check Device Extensions
-    const std::vector<const char*> deviceExtensions = {
-      VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-    for (auto strext : deviceExtensions) {
-      if (!isExtensionSupported(strext)) {
-        errorExit(Stz "Extension " + strext + " wasn't supported");
-      }
-    }
+    std::vector<const char*> extensions = getEnabledDeviceExtensions();
 
     // Logical Device
     VkDeviceCreateInfo createInfo = {};
@@ -422,8 +458,8 @@ public:
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    createInfo.ppEnabledExtensionNames = extensions.data();
 
     // Validation layers are Deprecated
     createInfo.enabledLayerCount = 0;
@@ -476,32 +512,7 @@ public:
 
     return _pQueueFamilies.get();
   }
-  VkSampleCountFlagBits getMaxUsableSampleCount() {
-    //Returns the max samples we can have in a framebuffer.
-    VkSampleCountFlags counts = _deviceProperties.limits.framebufferColorSampleCounts &
-                                _deviceProperties.limits.framebufferDepthSampleCounts;
 
-    if (counts & VK_SAMPLE_COUNT_64_BIT) {
-      return VK_SAMPLE_COUNT_64_BIT;
-    }
-    if (counts & VK_SAMPLE_COUNT_32_BIT) {
-      return VK_SAMPLE_COUNT_32_BIT;
-    }
-    if (counts & VK_SAMPLE_COUNT_16_BIT) {
-      return VK_SAMPLE_COUNT_16_BIT;
-    }
-    if (counts & VK_SAMPLE_COUNT_8_BIT) {
-      return VK_SAMPLE_COUNT_8_BIT;
-    }
-    if (counts & VK_SAMPLE_COUNT_4_BIT) {
-      return VK_SAMPLE_COUNT_4_BIT;
-    }
-    if (counts & VK_SAMPLE_COUNT_2_BIT) {
-      return VK_SAMPLE_COUNT_2_BIT;
-    }
-
-    return VK_SAMPLE_COUNT_1_BIT;
-  }
   void createCommandPool() {
     BRLogInfo("Creating Command Pool.");
 
@@ -542,9 +553,9 @@ public:
     }
   }
   void errorExit(const string_t& str) {
-    SDLUtils::checkSDLErr();
     BRLogError(str);
 
+    SDLUtils::checkSDLErr();
     Gu::debugBreak();
 
     BRThrowException(str);
@@ -574,14 +585,14 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
   _pInt->_vsync_enabled = vsync_enabled;
   _pInt->_wait_fences = wait_fences;
 
-   _pInt->init(title, win);
+  _pInt->init(title, win);
 
   int win_w = 0, win_h = 0;
   SDL_GetWindowSize(win, &win_w, &win_h);
 
   //Create swapchain
   _pInt->_pSwapchain = std::make_shared<Swapchain>(getThis<Vulkan>());
-  _pInt->_pSwapchain->initSwapchain(BR2::usize2( win_w,  win_h ), samples);
+  _pInt->_pSwapchain->initSwapchain(BR2::usize2(win_w, win_h), samples);
 }
 VkSurfaceKHR& Vulkan::windowSurface() { return _pInt->_windowSurface; }
 VkPhysicalDevice& Vulkan::physicalDevice() { return _pInt->_physicalDevice; }
@@ -609,9 +620,29 @@ const VkSurfaceCapabilitiesKHR& Vulkan::surfaceCaps() {
   AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
   return _pInt->_surfaceCaps;
 }
-VkSampleCountFlagBits Vulkan::getMaxUsableSampleCount() {
+SampleCount Vulkan::maxSampleCount() {
   AssertOrThrow2(_pInt->_bPhysicalDeviceAcquired);
-  return _pInt->getMaxUsableSampleCount();
+  VkSampleCountFlags counts = _pInt->_deviceProperties.limits.framebufferColorSampleCounts &
+                              _pInt->_deviceProperties.limits.framebufferDepthSampleCounts;
+  if (counts & VK_SAMPLE_COUNT_64_BIT) {
+    return SampleCount::MS_64_Samples;
+  }
+  else if (counts & VK_SAMPLE_COUNT_32_BIT) {
+    return SampleCount::MS_32_Samples;
+  }
+  else if (counts & VK_SAMPLE_COUNT_16_BIT) {
+    return SampleCount::MS_16_Samples;
+  }
+  else if (counts & VK_SAMPLE_COUNT_8_BIT) {
+    return SampleCount::MS_8_Samples;
+  }
+  else if (counts & VK_SAMPLE_COUNT_4_BIT) {
+    return SampleCount::MS_4_Samples;
+  }
+  else if (counts & VK_SAMPLE_COUNT_2_BIT) {
+    return SampleCount::MS_2_Samples;
+  }
+  return SampleCount::Disabled;
 }
 #pragma region Errors
 void Vulkan::checkErrors() {
@@ -734,8 +765,9 @@ uint32_t Vulkan::swapchainImageCount() {
 std::shared_ptr<Swapchain> Vulkan::swapchain() {
   return _pInt->_pSwapchain;
 }
-
-
+bool Vulkan::extensionEnabled(const string_t& in_ext) {
+  return _pInt->extensionEnabled(in_ext);
+}
 
 #pragma endregion
 

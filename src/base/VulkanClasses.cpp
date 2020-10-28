@@ -255,6 +255,9 @@ void VulkanImage::allocateMemory(VkImageTiling tiling, VkImageUsageFlags usage, 
 
   VkMemoryRequirements mem_req;
   vkGetImageMemoryRequirements(vulkan()->device(), _image, &mem_req);
+  
+  BRLogInfo("Allocating image memory: " + std::to_string((int)mem_req.size) + "B");
+  
   VkMemoryAllocateInfo allocInfo = {
     .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
     .pNext = nullptr,
@@ -1153,8 +1156,9 @@ FBOType OutputDescription::outputTypeToFBOType(OutputMRT out) {
 
 #pragma region PassDescription
 
-PassDescription::PassDescription(std::shared_ptr<PipelineShader> shader) {
+PassDescription::PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader) {
   _shader = shader;
+  _frame = frame;
 }
 std::vector<VkClearValue> PassDescription::getClearValues() {
   std::vector<VkClearValue> clearValues;
@@ -1184,10 +1188,10 @@ std::vector<VkClearValue> PassDescription::getClearValues() {
 void PassDescription::setOutput(std::shared_ptr<OutputDescription> output) {
   addValidOutput(output);
 }
-void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<RenderTexture> tex,
+void PassDescription::setOutput(const string_t& tag, OutputMRT output_e, std::shared_ptr<RenderTexture> tex,
                                 BlendFunc blend, bool clear, float clear_r, float clear_g, float clear_b) {
   auto output = std::make_shared<OutputDescription>();
-  output->_name = "custom_output";
+  output->_name = tag;
   output->_texture = tex;
   output->_blending = blend;
   //**TODO: if we set a depth texture here, we need to set the correct depth/stencil clear value.
@@ -1201,14 +1205,24 @@ void PassDescription::setOutput(OutputMRT output_e, std::shared_ptr<RenderTextur
   output->_compareOp = CompareOp::Less;
   addValidOutput(output);
 }
+bool PassDescription::passError(const string_t& msg) {
+  string_t out_msg = "[PassDescription]:" + msg;
+  BRLogError(out_msg);
+  _bValid = false;
+  return false;
+}
 void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att) {
   AssertOrThrow2(_shader != nullptr);
+  if (valid() == false) {
+    return;
+  }
+
+  //Set the output binding and validate the outputMRT is set
   bool valid = true;
-  //Find Location.
   for (auto& binding : _shader->outputBindings()) {
     if (binding->_output == OutputMRT::RT_Undefined) {
       //**If you get here then you didn't name the variable correctly in the shader.
-      _shader->shaderError("Output MRT was not set for binding '" + binding->_name + "' location '" + binding->_location + "'");
+      passError("Output MRT was not set for binding '" + binding->_name + "' location '" + binding->_location + "'");
       valid = false;
     }
     else if (binding->_output == out_att->_output) {
@@ -1219,7 +1233,96 @@ void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att)
     _outputs.push_back(out_att);
   }
 }
+bool PassDescription::validate() {
+  //Run validations after we have all the outputs set and right before we begin a pass.
+  // * outputs > 0
+  // * at least 1 color buffer
+  // * uniform sample count
+  // * <=1 depth output
+  if (!valid()) {
+    return false;
+  }
 
+  if (_outputs.size() == 0) {
+    return passError("No outputs specified before pass for OutputDescription.");
+  }
+
+  std::vector<std::shared_ptr<OutputDescription>> depthOutputs;
+  bool hasColor = false;
+  for (size_t i = 0; i < _outputs.size(); ++i) {
+    auto output = _outputs[i];
+
+    if (output->_type == FBOType::Depth) {
+      depthOutputs.push_back(output);
+    }
+    else if (output->_type == FBOType::Color) {
+      hasColor = true;
+    }
+    else {
+      BRThrowException("Unsupported FBO output type '" + std::to_string((int)output->_type) + "'");
+    }
+  }
+
+  //Store samples.
+  std::vector<SampleCount> sc_vec;
+  for (auto output : _outputs) {
+    SampleCount sc;
+    string_t ret = Framebuffer::getOutputImageDataForMRTType(_frame, output, nullptr, nullptr, nullptr, nullptr, &sc);
+    if (ret.length()) {
+      return passError(ret);
+    }
+    sc_vec.push_back(sc);
+  }
+
+  //Check color sample counts.
+  SampleCount sc_first_color;
+  bool sc_set = false;
+  for (size_t i = 0; i < _outputs.size(); ++i) {
+    auto output = _outputs[i];
+    SampleCount sc = sc_vec[i];
+
+    if (output->_type == FBOType::Color) {
+      if (sc_set == false) {
+        sc_first_color = sc;
+      }
+      else if (sc_first_color != sc) {
+        int sc1 = VulkanDebug::SampleCount_ToInt(sc_first_color);
+        int sc2 = VulkanDebug::SampleCount_ToInt(sc);
+        return passError(Stz "Sample count '" + std::to_string(sc2) + "' for " + output->_name + " does not match other color sample counts '" + std::to_string(sc1) + "' .");
+      }
+    }
+  }
+
+  //Check depth sample count.
+  bool allowOverSampleDepthBuffer = _shader->vulkan()->extensionEnabled(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
+  for (size_t i = 0; i < _outputs.size(); ++i) {
+    auto output = _outputs[i];
+
+    if (output->_type == FBOType::Depth) {
+      SampleCount sc = sc_vec[i];
+      int sc_color_ct = VulkanDebug::SampleCount_ToInt(sc_first_color);
+      int sc_depth_ct = VulkanDebug::SampleCount_ToInt(sc);
+      if (allowOverSampleDepthBuffer) {
+        if (sc_depth_ct < sc_color_ct) {
+          return passError("Depth buffer sample count less than color buffer sample count with VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME enabled.");
+        }
+      }
+      else if (sc != sc_first_color) {
+        return passError("Depth buffer sample count '" + std::to_string(sc_depth_ct) + "' does not equal color buffer sample count '" + std::to_string(sc_color_ct) + "'.");
+      }
+    }
+  }
+
+  if (depthOutputs.size() > 1) {
+    std::string depth_st = "";
+    for (auto out : depthOutputs) {
+      depth_st += Stz "'" + out->_name + "',";
+    }
+    return passError("More than 1 depth output specified:" + depth_st);
+  }
+
+  return true;
+}
 #pragma endregion
 
 #pragma region FramebufferAttachment
@@ -1339,7 +1442,6 @@ bool Framebuffer::create(const string_t& name, std::shared_ptr<RenderFrame> fram
 bool Framebuffer::createAttachments() {
   //The FBO attachments and RenderTExture attachments merge to create the FBO in this function.
   //Place any information that applies to all FBO attachments in here.
-  std::vector<SampleCount> att_samples;
   for (size_t i = 0; i < _passDescription->outputs().size(); ++i) {
     auto out_att = _passDescription->outputs()[i];
     VkImage img_img;
@@ -1348,11 +1450,10 @@ bool Framebuffer::createAttachments() {
     uint32_t img_miplevels;
     SampleCount img_samples;
 
-    if (!getOutputImageDataForMRTType(_frame, out_att, &img_img, &img_fmt, &img_siz, &img_miplevels, &img_samples)) {
-      return false;
+    string_t ret = Framebuffer::getOutputImageDataForMRTType(_frame, out_att, &img_img, &img_fmt, &img_siz, &img_miplevels, &img_samples);
+    if (ret.length()) {
+      return pipelineError(ret);
     }
-
-    att_samples.push_back(img_samples);
 
     uint32_t location = 0;
     if (out_att->_outputBinding == nullptr) {
@@ -1367,16 +1468,6 @@ bool Framebuffer::createAttachments() {
       return pipelineError("Failed to initialize fbo attachment '" + std::to_string(i) + "'.");
     }
     _attachments.push_back(attachment);
-  }
-
-  //Set the sampleCount for the whole FBO .. ?
-  bool samp_set = false;
-  SampleCount sample;
-  for (size_t i = 0; i < att_samples.size(); ++i) {
-    if (i > 0 && att_samples[i] != att_samples[i - 1]) {
-      BRLogWarn("Image samples are not uniform for framebuffer '" + name() + "'");
-      Gu::debugBreak();
-    }
   }
 
   return true;
@@ -1403,7 +1494,10 @@ bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shar
     }
 
     SampleCount scount;
-    getOutputImageDataForMRTType(frame, odesc, nullptr, nullptr, nullptr, nullptr, &scount);
+    string_t ret = Framebuffer::getOutputImageDataForMRTType(frame, odesc, nullptr, nullptr, nullptr, nullptr, &scount);
+    if (ret.length()) {
+      return pipelineError(ret);
+    }
     VkSampleCountFlagBits samples = VulkanImage::MultisampleToVkSampleCountFlagBits(scount);
 
     //Clear Values
@@ -1486,12 +1580,13 @@ bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shar
 
   return true;
 }
-bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
-                                               VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size,
-                                               uint32_t* out_miplevels, SampleCount* out_samples) {
-  //Convert an MRT bind point into an image descriptor.
+string_t Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
+                                                   VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size, uint32_t* out_miplevels, SampleCount* out_samples) {
+  //@fn getOutputImageDataForMRTType
+  //@brief Converts an MRT bind description into image data used in the VkImageView, VkPipeline and VkRenderPass.
 
   OutputMRT type = out_att->_output;
+  string_t ret = "";
 
   //If texture is NOT nullptr - output specifies JUST the name of the output in the shader.
   //If texture is nullptr - output specifies BOTH the output name AND supplies a system framebuffer to render this output to.
@@ -1502,7 +1597,7 @@ bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> fram
       if (out_format) { *out_format = frame->imageFormat(); }
       if (out_size) { *out_size = frame->imageSize(); }
       if (out_miplevels) { *out_miplevels = 1; }
-      if (out_samples) { *out_samples = frame->sampleCount(); }
+      if (out_samples) { *out_samples = frame->getSwapchain()->sampleCount(); }
     }
     else if (type == OutputMRT::RT_DefaultDepth) {
       //Default renderbuffer
@@ -1510,16 +1605,16 @@ bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> fram
       if (out_format) { *out_format = frame->depthFormat(); }
       if (out_size) { *out_size = frame->imageSize(); }
       if (out_miplevels) { *out_miplevels = 1; }
-      if (out_samples) { *out_samples = frame->sampleCount(); }
+      if (out_samples) { *out_samples = frame->getSwapchain()->sampleCount(); }
     }
     //TODO: put other types here for the other output formats. ex. MRT_Color, MRT_Depth_Plane, etc.
     else {
-      return pipelineError("No texture value give given for default output format");
+      ret += string_t("No texture value give given for default output format");
     }
   }
   else {
     if (out_att->_texture->texture() == nullptr) {
-      return pipelineError("Texture was not set for outputdescriptor '" + out_att->_name + "' ");
+      ret += string_t("Texture was not set for outputdescriptor '" + out_att->_name + "' ");
     }
     if (out_image) { *out_image = out_att->_texture->texture()->image(); }
     if (out_format) { *out_format = out_att->_texture->texture()->format(); }
@@ -1528,7 +1623,7 @@ bool Framebuffer::getOutputImageDataForMRTType(std::shared_ptr<RenderFrame> fram
     if (out_samples) { *out_samples = out_att->_texture->texture()->sampleCount(); }
   }
 
-  return true;
+  return ret;
 }
 const BR2::usize2& Framebuffer::imageSize() {
   AssertOrThrow2(_frame != nullptr);
@@ -1713,6 +1808,7 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
     .pDynamicStates = dynamicStates.data(),
   };
 
+  VkSampleCountFlagBits samples = VulkanImage::MultisampleToVkSampleCountFlagBits(pfbo->sampleCount());
   VkBool32 sampleShadingEnabled = VK_FALSE;
   float minSampleShading = 1;
   if (vulkan()->deviceFeatures().sampleRateShading) {
@@ -1734,7 +1830,7 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
     .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
     .pNext = nullptr,
     .flags = 0,
-    .rasterizationSamples = VulkanImage::MultisampleToVkSampleCountFlagBits(pfbo->sampleCount()),
+    .rasterizationSamples = samples,
 
     //**Note:
     //I think this is only available if multisampling is enabled.
@@ -1779,7 +1875,7 @@ Pipeline::~Pipeline() {
 
 #pragma endregion
 
-bool PipelineShader::sampleShadingVariables(){
+bool PipelineShader::sampleShadingVariables() {
   //There are not any reasons why an input variable would be decorated this way that I can see right now so we will skip this
   //**TODO: test SampleId or SamplePosition in shader. change this to PipelineShader::getOutputBindingsByType( {SampleId , SamplePosition})
   // for(auto mod : this->_modules){
@@ -1789,7 +1885,6 @@ bool PipelineShader::sampleShadingVariables(){
   // }
   return false;
 }
-
 
 #pragma region PipelineShader
 
@@ -2463,10 +2558,15 @@ std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<Sha
   }
   return fbo;
 }
-bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> input_desc, BR2::urect2* extent) {
+bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<PassDescription> input_desc, BR2::urect2* extent) {
   if (valid() == false) {
     return false;
   }
+  if (input_desc->validate() == false) {
+    return false;
+  }
+
+  auto frame = input_desc->frame();
   auto sd = getShaderData(frame);
   auto fbo = getOrCreateFramebuffer(frame, sd, input_desc);
   if (!fbo->valid()) {
@@ -2664,7 +2764,7 @@ void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
   data->_pipelines.clear();
 }
 std::shared_ptr<PassDescription> PipelineShader::getPass(std::shared_ptr<RenderFrame> frame) {
-  std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>(getThis<PipelineShader>());
+  std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>(frame, getThis<PipelineShader>());
 
   //TODO: fill default outputs here with default framebuffers.
   // ** TODO: **
@@ -2689,12 +2789,11 @@ std::shared_ptr<ShaderDataUBO> ShaderData::getUBOData(const string_t& name) {
 
 #pragma region RenderFrame
 
-RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt, SampleCount samples) : VulkanObject(v) {
+RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v, std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage img, VkSurfaceFormatKHR fmt) : VulkanObject(v) {
   _pSwapchain = ps;
   _swapImage = img;
   _frameIndex = frameIndex;
   _imageFormat = fmt;
-  _samples = samples;
 }
 RenderFrame::~RenderFrame() {
   vkDestroySemaphore(vulkan()->device(), _imageAvailableSemaphore, nullptr);
@@ -2711,13 +2810,11 @@ void RenderFrame::init() {
   uint32_t w = _pSwapchain->imageSize().width;
   uint32_t h = _pSwapchain->imageSize().height;
 
-  VkSampleCountFlagBits vk_samples = VulkanTextureImage::MultisampleToVkSampleCountFlagBits(_samples);
-
-  //**This si still an issue - binding the swapchain format to the FBO format - there could be discrpencies.
+  //**This is still an issue - binding the swapchain format to the FBO format - there could be discrpencies.
   VkFormat depthFmt = vulkan()->findDepthFormat();
-  _depthImage = std::make_shared<VulkanImage>(vulkan(), w, h, depthFmt, SampleCount::Disabled);
+  auto depth_sc = getSwapchain()->sampleCount();
+  _depthImage = std::make_shared<VulkanImage>(vulkan(), w, h, depthFmt, depth_sc);
   _depthImage->allocateMemory(VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1);
-  //**DFB images.
 }
 void RenderFrame::createSyncObjects() {
   VkSemaphoreCreateInfo semaphoreInfo = {
@@ -2754,12 +2851,7 @@ bool RenderFrame::beginFrame() {
       return false;
     }
     else if (res == VK_ERROR_DEVICE_LOST) {
-      //This will happen if the gpu has a fatal error
-      // For example binding a texture to the FBO that is a different size than the FBO
-      //**TODO: create new logical device from physical (if it's not lost)
-      // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
-      Gu::debugBreak();
-      vulkan()->errorExit("Lost device! - TODO: implement device recapture");
+      throw std::runtime_error(Vulkan::c_strErrDeviceLost);
     }
     else {
       BRLogWarnOnce("Unhandled return code from vkWaitForFences '" + std::to_string((int)res) + "'");
@@ -2776,10 +2868,7 @@ bool RenderFrame::beginFrame() {
       return false;
     }
     else if (res == VK_ERROR_DEVICE_LOST) {
-      //**TODO: create new logical device from physical (if it's not lost)
-      // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
-      Gu::debugBreak();
-      vulkan()->errorExit("Lost device! - TODO: implement device recapture");
+      throw std::runtime_error(Vulkan::c_strErrDeviceLost);
     }
     else if (res == VK_ERROR_OUT_OF_DATE_KHR) {
       _pSwapchain->outOfDate();
@@ -3011,10 +3100,17 @@ void Swapchain::createSwapChain(const BR2::usize2& window_size) {
   swapChainImages.resize(imageCount);
   CheckVKR(vkGetSwapchainImagesKHR, vulkan()->device(), _swapChain, &imageCount, swapChainImages.data());
 
+  int s_a = VulkanDebug::SampleCount_ToInt(vulkan()->maxSampleCount());
+  int s_b = VulkanDebug::SampleCount_ToInt(_sampleCount);
+  if (s_a < s_b) {
+    BRLogWarn("Supplied multisample count '" + std::to_string(s_b) + "' was greater than the max supported '" + std::to_string(s_a) + "'.");
+    _sampleCount = vulkan()->maxSampleCount();
+  }
+
   for (size_t idx = 0; idx < swapChainImages.size(); ++idx) {
     auto& image = swapChainImages[idx];
     //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
-    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat, _sampleCount);
+    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan(), getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat);
     f->init();
     _frames.push_back(f);
   }
@@ -3084,12 +3180,11 @@ std::shared_ptr<RenderFrame> Swapchain::currentFrame() {
   frame = _frames[_currentFrame];
   return frame;
 }
-std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filter, TexFilter mag_filter, SampleCount samples) {
+std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filter, TexFilter mag_filter) {
   std::shared_ptr<RenderTexture> renderTex = std::make_shared<RenderTexture>();
   renderTex->_min_filter = min_filter;
   renderTex->_mag_filter = mag_filter;
   renderTex->_mipmap_mode = MipmapMode::Linear;
-  renderTex->_sampleCount = samples;
 
   recreateRenderTexture(renderTex);
 
@@ -3100,15 +3195,10 @@ std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(TexFilter min_filt
 void Swapchain::recreateRenderTexture(std::shared_ptr<RenderTexture> r) {
   r->_texture = nullptr;
 
-  SampleCount sc = r->_sampleCount;
-  if(r->_sampleCount==SampleCount::MS_Swapchain){
-    sc = _sampleCount;
-  }
-
   r->_texture = std::make_shared<VulkanTextureImage>(
     vulkan(), imageSize().width, imageSize().height,
     r->_min_filter, r->_mag_filter,
-    r->_mipmap_mode, sc);
+    r->_mipmap_mode, _sampleCount);
 }
 void Swapchain::setMultisample(SampleCount s) {
   _sampleCount = s;
