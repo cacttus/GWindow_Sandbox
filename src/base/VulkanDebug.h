@@ -27,6 +27,7 @@ public:
   static string_t VkRenderPassBeginInfo_toString();
   static string_t VkDescriptorType_toString(VkDescriptorType t);
   static string_t OutputMRT_toString(OutputMRT t);
+  static int SampleCount_ToInt(MSAA c);
   
 };
 

@@ -91,7 +91,7 @@ private:
 
 class MaterialDummy {
 public:
-  std::shared_ptr<VulkanTextureImage> _texture = nullptr;
+  std::shared_ptr<TextureImage> _texture = nullptr;
 };
 
 }//ns Game

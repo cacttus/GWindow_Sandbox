@@ -39,7 +39,6 @@ enum class MipmapMode {
   Disabled,
   Nearest,
   Linear,
-  Auto,  //Will select based on selected nearest TexFilter
   MipmapMode_Count
 };
 enum class AttachmentType {
@@ -47,7 +46,9 @@ enum class AttachmentType {
   DepthAttachment
 };
 enum class VulkanBufferPoolType {
-  Gpu, GpuAndHost, Host
+  Gpu,
+  GpuAndHost,
+  Host
 };
 enum class VulkanBufferType {
   VertexBuffer,
@@ -82,12 +83,12 @@ enum class BlendFunc {
 enum class FBOType {
   Undefined,
   Color,
-  Depth
+  Depth,
+  ColorResolve
 };
-//"_outFBO_ ..
 enum class OutputMRT {
   RT_Undefined,
-  RT_DefaultColor,  //Default FBO
+  RT_DefaultColor,
   RT_DefaultDepth,
   RT_DF_Position,
   RT_DF_Color,
@@ -104,7 +105,8 @@ enum class OutputMRT {
   RT_Custom7,
   RT_Custom8,
   RT_Custom9,
-  MaxOutputs,
+  RT_ColorResolve,//There is only one of these because its used for the visible image.
+  RT_Enum_Count,
 };
 enum class CompareOp {
   Never,
@@ -116,11 +118,32 @@ enum class CompareOp {
   Greater_or_Equal,
   CompareAlways
 };
-
 enum class FrameState {
   Unset,
   FrameBegin,
   FrameEnd,
+};
+enum class MSAA {
+  //This enum converts to VkSampleCountFlagBits
+  Unset,
+  Disabled,  // 1
+  MS_2_Samples,
+  MS_4_Samples,
+  MS_8_Samples,
+  MS_16_Samples,
+  MS_32_Samples,
+  MS_64_Samples,
+  MS_Enum_Count,
+};
+struct MipLevels {
+  static const uint32_t Unset = 0;
+};
+enum class TextureType {
+  Unset,
+  ColorTexture,
+  DepthAttachment,
+  ColorAttachment,
+  SwapchainImage
 };
 /////////////////////////////////////////////////////////////////////////////////
 //FWD
@@ -130,9 +153,9 @@ class Vulkan;
 class VulkanObject;
 class VulkanDeviceBuffer;
 class VulkanBuffer;
-class VulkanImage;
+class Sampler;
+class Texture2D;
 class VulkanCommands;
-class VulkanTextureImage;
 class ShaderModule;
 class Descriptor;
 class ShaderOutputBinding;
@@ -151,6 +174,8 @@ class ShaderData;
 class RenderFrame;
 class Swapchain;
 class RenderTexture;
+class RenderTarget;
+class PassDescription;
 
 //Dummies
 class Mesh;
@@ -169,7 +194,7 @@ struct ViewProjUBOData {
   alignas(16) BR2::mat4 proj;
 };
 struct InstanceUBOData {
-alignas(16) BR2::mat4 model;
+  alignas(16) BR2::mat4 model;
 };
 class InstanceUBOClassData {
   uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
@@ -178,14 +203,11 @@ class InstanceUBOClassData {
 template <typename Tx>
 class SharedObject : public std::enable_shared_from_this<Tx> {
 protected:
-  template <typename Ty>
+  template <typename Ty = Tx>
   std::shared_ptr<Ty> getThis() {
     return std::dynamic_pointer_cast<Ty>(this->shared_from_this());
   }
 };
-
-
-
 
 }  // namespace VG
 

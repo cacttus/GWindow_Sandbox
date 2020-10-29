@@ -6,14 +6,16 @@
 #include "./GameClasses.h"
 
 namespace VG {
-
-static MipmapMode g_mipmap_mode = MipmapMode::Nearest;  //**TESTING**
-static TexFilter g_min_filter = TexFilter::Nearest;     //**TESTING**
-static TexFilter g_mag_filter = TexFilter::Nearest;     //**TESTING**
+//**Testing
+static MipmapMode g_mipmap_mode = MipmapMode::Disabled;
+static TexFilter g_min_filter = TexFilter::Linear;
+static TexFilter g_mag_filter = TexFilter::Linear;
 static bool g_poly_line = false;
 static bool g_use_rtt = true;
 static int g_pass_test_idx = 3;
 static float g_anisotropy = 1;
+static MSAA g_multisample = MSAA::Disabled;
+bool g_test_img1 = true;
 
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
@@ -28,8 +30,8 @@ public:
   std::shared_ptr<Vulkan> _vulkan = nullptr;
   std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
 
-  std::shared_ptr<VulkanTextureImage> _testTexture1 = nullptr;
-  std::shared_ptr<VulkanTextureImage> _testTexture2 = nullptr;
+  std::shared_ptr<TextureImage> _testTexture1 = nullptr;
+  std::shared_ptr<TextureImage> _testTexture2 = nullptr;
 
   std::shared_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
@@ -248,7 +250,7 @@ public:
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->imageSize().width, -(float)_vulkan->swapchain()->imageSize().height, 0.1f, 100.0f)
+      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->windowSize().width, -(float)_vulkan->swapchain()->windowSize().height, 0.1f, 100.0f)
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
   }
@@ -312,7 +314,9 @@ public:
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
     //}
     if (test_render_texture == nullptr) {
-      test_render_texture = vulkan()->swapchain()->createRenderTexture(TexFilter::Linear, TexFilter::Linear);
+      test_render_texture = vulkan()->swapchain()->createRenderTexture(vulkan()->swapchain()->imageFormat(), g_multisample,
+                                                                       FilterData{ SamplerType::Sampled, g_mipmap_mode, vulkan()->maxAF(),
+                                                                                   TexFilter::Linear, TexFilter::Linear, MipLevels::Unset });
     }
 
     auto cmd = frame->commandBuffer();
@@ -349,55 +353,88 @@ public:
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
       //Testing multiple Render Passes.
 
-      if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
-        auto pass1 = _pShader->getPass(frame);
-        if (g_use_rtt) {
-          //The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.
-          //Fix this.
-          pass1->setOutput(OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::AlphaBlend, true, c_r, c_g, c_b);
-        }
-        else {
-          //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
-          pass1->setOutput(OutputDescription::getColorDF(nullptr, true, c_r, c_g, c_b));
-        }
-        pass1->setOutput(OutputDescription::getDepthDF(true));
-        if (_pShader->beginRenderPass(cmd, frame, pass1)) {
+      //if x=0 test a simple pass
+      //otherwise test the complex pass.
+      static int x = 0;
+      if (x == 0) {
+        auto simple_pass = _pShader->getPass(frame, g_multisample);
+        simple_pass->setOutput(OutputDescription::getColorDF());
+        simple_pass->setOutput(OutputDescription::getDepthDF());
+        if (_pShader->beginRenderPass(cmd, simple_pass)) {
           if (_pShader->bindPipeline(cmd, nullptr, mode)) {
-            if (g_pass_test_idx != 0) {
-              _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->imageSize() });
-              _pShader->bindUBO("_uboViewProj", viewProj);
-
-              //white face Smiley
-              _pShader->bindSampler("_ufTexture0", _testTexture1);
-              _pShader->bindUBO("_uboInstanceData", inst2);
-              _pShader->bindDescriptors(cmd);
-              _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
-            }
-          }
-
-          _pShader->endRenderPass(cmd);
-        }
-      }
-
-      if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
-        //black face Smiley
-        auto tex = g_use_rtt ? test_render_texture->texture() : _testTexture2;
-        auto pass2 = _pShader->getPass(frame);
-        pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
-        pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
-        if (_pShader->beginRenderPass(cmd, frame, pass2)) {
-          if (_pShader->bindPipeline(cmd, nullptr, mode)) {
-            _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->imageSize() });
+            _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
             _pShader->bindUBO("_uboViewProj", viewProj);
 
-            _pShader->bindSampler("_ufTexture0", tex);
+            _pShader->bindSampler("_ufTexture0", _testTexture1);
             _pShader->bindUBO("_uboInstanceData", inst1);
             _pShader->bindDescriptors(cmd);
-            _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
+            _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
           }
           _pShader->endRenderPass(cmd);
         }
       }
+      else {
+        bool pass1_success = false;
+        if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
+          auto pass1 = _pShader->getPass(frame, g_multisample);
+          if (g_use_rtt) {
+            //The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.
+            //Fix this.
+            pass1->setOutput("test_render_texture", OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::AlphaBlend, true, c_r, c_g, c_b);
+          }
+          else {
+            //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
+            pass1->setOutput(OutputDescription::getColorDF(nullptr, true, c_r, c_g, c_b));
+          }
+          pass1->setOutput(OutputDescription::getDepthDF(true));
+          if (_pShader->beginRenderPass(cmd, pass1)) {
+            if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+              pass1_success = true;
+              if (g_pass_test_idx != 0) {
+                _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+                _pShader->bindUBO("_uboViewProj", viewProj);
+
+                //white face Smiley
+                _pShader->bindSampler("_ufTexture0", _testTexture1);
+                _pShader->bindUBO("_uboInstanceData", inst2);
+                _pShader->bindDescriptors(cmd);
+                _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+              }
+            }
+
+            _pShader->endRenderPass(cmd);
+          }
+        }
+
+        if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
+          //black face Smiley
+          auto tex = g_use_rtt ? test_render_texture->texture(g_multisample) : _testTexture2;
+          auto pass2 = _pShader->getPass(frame, g_multisample);
+
+          if (pass1_success) {
+            pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
+            pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
+          }
+          else {
+            pass2->setOutput(OutputDescription::getColorDF());
+            pass2->setOutput(OutputDescription::getDepthDF());
+          }
+
+          if (_pShader->beginRenderPass(cmd, pass2)) {
+            if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+              _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+              _pShader->bindUBO("_uboViewProj", viewProj);
+
+              _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
+              _pShader->bindUBO("_uboInstanceData", inst1);
+              _pShader->bindDescriptors(cmd);
+              _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
+            }
+            _pShader->endRenderPass(cmd);
+          }
+        }
+
+      }  //if x != 0
     }
     cmd->end();
   }
@@ -416,8 +453,7 @@ public:
       return nullptr;
     }
     std::shared_ptr<Img32> ret = std::make_shared<Img32>();
-    ret->_width = width;
-    ret->_height = height;
+    ret->_size = { width, height };
     ret->_data = data;
     ret->data_len_bytes = width * height * required_bytes;
 
@@ -425,16 +461,20 @@ public:
   }
   void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
-    auto img = loadImage(App::rootFile("char-1.png"));  //TexturesCom_MetalBare0253_2_M.png
+    auto img = loadImage(App::rootFile(g_test_img1 ? "char-1.png" : "TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
-      _testTexture1 = std::make_shared<VulkanTextureImage>(vulkan(), img, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture1 = std::make_shared<TextureImage>(vulkan(), TextureType::ColorTexture, MSAA::Disabled, img,
+                                                     FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
+                                                                 g_mag_filter, MipLevels::Unset });
     }
     else {
       vulkan()->errorExit("Could not load test image 1.");
     }
     auto img2 = loadImage(App::rootFile("char-2.png"));
     if (img2) {
-      _testTexture2 = std::make_shared<VulkanTextureImage>(vulkan(), img2, g_min_filter, g_mag_filter, g_mipmap_mode, VK_SAMPLE_COUNT_1_BIT, g_anisotropy);
+      _testTexture1 = std::make_shared<TextureImage>(vulkan(), TextureType::ColorTexture, MSAA::Disabled, img2,
+                                                     FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
+                                                                 g_mag_filter, MipLevels::Unset });
     }
     else {
       vulkan()->errorExit("Could not load test image 2.");
@@ -507,7 +547,7 @@ bool SDLVulkan::doInput() {
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
         //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
-        VulkanTextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
+        TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
         _pInt->createTextureImages();
         break;
       }
@@ -538,6 +578,20 @@ bool SDLVulkan::doInput() {
         _pInt->createTextureImages();
         break;
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F10) {
+        g_multisample = (MSAA)((int)g_multisample + 1);
+        if (g_multisample == MSAA::MS_Enum_Count) {
+          g_multisample = MSAA::Disabled;
+        }
+
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_F11) {
+        g_test_img1 = !g_test_img1;
+        _pInt->createTextureImages();
+
+        break;
+      }
     }
   }
   return false;
@@ -547,25 +601,35 @@ void SDLVulkan::renderLoop() {
   while (!exit) {
     exit = doInput();
 
-    //FPS
-    _pInt->_fpsMeter_Update.update();
-    if (_pInt->_fpsMeter_Update.getFrameNumber() % 2 == 0) {
-      float f_upd = _pInt->_fpsMeter_Update.getFps();
-      string_t fp_upd = std::to_string((int)f_upd);
-      float f_r = _pInt->_fpsMeter_Render.getFps();
-      string_t fp_r = std::to_string((int)f_r);
+    try {
+      //FPS
+      _pInt->_fpsMeter_Update.update();
+      if (_pInt->_fpsMeter_Update.getFrameNumber() % 2 == 0) {
+        float f_upd = _pInt->_fpsMeter_Update.getFps();
+        string_t fp_upd = std::to_string((int)f_upd);
+        float f_r = _pInt->_fpsMeter_Render.getFps();
+        string_t fp_r = std::to_string((int)f_r);
 
-      string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("Linear") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("Nearest") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("Disabled") : ((g_mipmap_mode == MipmapMode::Auto) ? ("Auto") : ("Undefined-Error"))));
-      string_t min_f = (g_min_filter == TexFilter::Linear) ? ("Linear") : ((g_min_filter == TexFilter::Nearest) ? ("Nearest") : ((g_min_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
-      string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("Linear") : ((g_mag_filter == TexFilter::Nearest) ? ("Nearest") : ((g_mag_filter == TexFilter::Cubic) ? ("Cubic") : ("Undefined-Error")));
-      string_t mode = " mipmap=F1 (" + mmip_mode + ") ";
-      string_t aniso = std::string(" anisotropy=F9 (") + std::to_string(g_anisotropy) + ")";
-      string_t frame = std::string(" frame:") + std::to_string(_pInt->g_iFrameNumber);
-      string_t out = "u:" + fp_upd + "fps r:" + fp_r + std::string("fps") + frame + " .. F8=pass (" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT " + mode + "(min=" + min_f + ")(mag=" + mag_f + ")" + aniso;
-      SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
+        string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Undefined-Error")));
+        string_t min_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
+        string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
+        string_t mode = "mipmap=F1:Tex=" + mmip_mode + ",";
+        string_t aniso = std::string(" AF=F9(") + std::to_string(g_anisotropy) + ")";
+        string_t framef = std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber);
+        string_t out = "FPS:upd=" + fp_upd + "fps,rend=" + fp_r + std::string("fps") + framef + " F8=pass#(" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT," + mode + ",Minf=" + min_f + ",Magf=" + mag_f + "," + aniso + " img=F11";
+        SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
+      }
+
+      _pInt->drawFrame();
     }
-
-    _pInt->drawFrame();
+    catch (std::runtime_error& err) {
+      bool device_lost = !strcmp(err.what(), Vulkan::c_strErrDeviceLost);
+      // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#devsandqueues-lost-device
+      // You must destroy everything and reinitialize it on the GPU. This would be super complex to implement.
+      if (device_lost) {
+        exit = true;
+      }
+    }
   }
 }
 

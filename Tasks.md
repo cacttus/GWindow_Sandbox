@@ -1,25 +1,22 @@
+**HUGE TODO** we have duplicate ImageView sfor attachments
+//Check whether Framebuffer::init createImageView can be removed
+// we may just be able to use texture image view
 
-## Shader Pipeline Metadata
-* TODO: increase geometry of cube to test out the skip rendering.
-    4,000,000 cubes rendered and still getting 1,000fps 
+** TDOO: test rendertexture needs to be used for the default attachment. .. so fix this.. 
+** implement resolve FBO's 
 
-* Depth FBO
-* We need The Swapchain Group - A group of swapchain images in a pipeline
-* We need to understand the async rendering going on to fix it
-    * This is also a good opportunity to change the engine cycle.
-    * Deferred Group
-    * Forward Group
-    * Default / Blit group (Default FBO)
-        * Default FBO has a Renderbuffer, e.g. depth buffer attached.
-        * Any group can have a depth buffer + multiple renderbuffers
+1 TODO: Test out different multisample for RenderTexture and RenderTarget  Make sure it faails (see (3))
+2 TODO: use a std::map and switch Rendertexture based on multisample - don't supply multisample here.
+3 TODO: make sure that all RenderTextures match the FBO multisample.
+
+TODO: sample rate shading.
+  VkPhysicalDeviceFeatures sampleRateShading - tells us if it's enabled.
 
 ## Roadmap
 1. continue implementing supported BR2 pipeline features
-  * Depth FBOs (testing)
-  * Multisampling
   * MRT's 
     * Picking
-    * Shadowmapping
+  * Shadowmapping
   * Deferred Lighting.
   * Vertex Formats, and Fill/Mode data (in getPipeline)
     * Integrate BR2::VertexFormat
@@ -68,13 +65,13 @@
       }
 * Shader Skinning
 * Component model (replace old Spec/Instance system)
-
 * Mipmap testing is broken right now because the texture isn't recreated when we update the swapchain.
   * Since the imageview and sampler depends on mipmap information, its best to reallocate the texture image (for now).
   * We want something like
     * _texture = std::make_shared<VulkanTextureImage>
     * _pipeline->bindTexture(_texture)
 * Replace parseUserType with the code from VG
+* Stereoscopic rendering (VR) - swapChainCreateInfo->imageArrayLayers
 
 ### Notes
 * *Wanted design

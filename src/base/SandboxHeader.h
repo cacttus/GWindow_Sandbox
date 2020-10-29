@@ -144,6 +144,10 @@ public:
   static bool startsWith(const string_t& s, const string_t& a) {
     return s.rfind(a, 0) == 0;
   }
+  static void appendLine(string_t& a, const string_t& b) {
+    a += b;
+    a += "\n";
+  }
 };
 
 //String
@@ -301,12 +305,24 @@ public:
 #endif
   }
 };
+enum ImageFormat { 
+  Undefined,
+  RGBA_32BIT,
+  RGB_24BIT,
+};
 class Img32 {
 public:
   unsigned char* _data = nullptr;
   std::size_t data_len_bytes = 0;
-  uint32_t _width = 0;
-  uint32_t _height = 0;
+  
+  BR2::usize2 _size{ 0, 0 };
+  ImageFormat _format = ImageFormat::RGBA_32BIT;
+
+  //TODO: use an internal format, and then use a conversion.
+  //TODO: make sure this image is a 32 bit format after loading.
+  //TODO: the input fmt for VulkanImage must match the image destination.
+  VkFormat format() { return VK_FORMAT_R8G8B8A8_SRGB; }
+  const BR2::usize2 size() { return _size; }
 };
 class Os {
 public:
