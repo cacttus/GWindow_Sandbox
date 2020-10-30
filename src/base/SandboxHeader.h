@@ -242,41 +242,91 @@ public:
     return bindingDescription;
   }
 };
-class v_v3c4x2 {
+//class v_v3c4x2 {
+//public:
+//  BR2::vec3 _pos;
+//  BR2::vec4 _color;
+//  BR2::vec2 _tcoord;
+//  v_v3c4x2() {}
+//  v_v3c4x2(const BR2::vec3& pos, const BR2::vec4& color, const BR2::vec2& tcoord) {
+//    _pos = pos;
+//    _color = color;
+//    _tcoord = tcoord;
+//  }
+//  static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
+//    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+//
+//    attributeDescriptions[0].binding = 0;
+//    attributeDescriptions[0].location = 0;  // layout(location=)
+//    attributeDescriptions[0].format = VFMT_VEC3;
+//    attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos);
+//
+//    attributeDescriptions[1].binding = 0;
+//    attributeDescriptions[1].location = 1;
+//    attributeDescriptions[1].format = VFMT_VEC4;
+//    attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color);
+//
+//    attributeDescriptions[2].binding = 0;
+//    attributeDescriptions[2].location = 2;
+//    attributeDescriptions[2].format = VFMT_VEC2;
+//    attributeDescriptions[2].offset = offsetof(v_v3c4x2, _tcoord);
+//
+//    return attributeDescriptions;
+//  }
+//  static VkVertexInputBindingDescription getBindingDescription() {
+//    VkVertexInputBindingDescription bindingDescription = {
+//      .binding = 0,                // uint32_t         -- this is the layout location
+//      .stride = sizeof(v_v3c4x2),  // uint32_t
+//      // **Instanced rendering.
+//      //**use VK_VERTEX_INPUT_RATE_INSTANCE
+//      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
+//    };
+//
+//    return bindingDescription;
+//  }
+//};
+class v_v3c4x2n3 {
 public:
   BR2::vec3 _pos;
   BR2::vec4 _color;
   BR2::vec2 _tcoord;
-  v_v3c4x2() {}
-  v_v3c4x2(const BR2::vec3& pos, const BR2::vec4& color, const BR2::vec2& tcoord) {
+  BR2::vec3 _normal;
+  v_v3c4x2n3() {}
+  v_v3c4x2n3(const BR2::vec3& pos, const BR2::vec4& color, const BR2::vec2& tcoord, const BR2::vec3& normal) {
     _pos = pos;
     _color = color;
     _tcoord = tcoord;
+    _normal = normal;
   }
   static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
 
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // layout(location=)
     attributeDescriptions[0].format = VFMT_VEC3;
-    attributeDescriptions[0].offset = offsetof(v_v3c4x2, _pos);
+    attributeDescriptions[0].offset = offsetof(v_v3c4x2n3, _pos);
 
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VFMT_VEC4;
-    attributeDescriptions[1].offset = offsetof(v_v3c4x2, _color);
+    attributeDescriptions[1].offset = offsetof(v_v3c4x2n3, _color);
 
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
     attributeDescriptions[2].format = VFMT_VEC2;
-    attributeDescriptions[2].offset = offsetof(v_v3c4x2, _tcoord);
+    attributeDescriptions[2].offset = offsetof(v_v3c4x2n3, _tcoord);
+
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VFMT_VEC3;
+    attributeDescriptions[3].offset = offsetof(v_v3c4x2n3, _normal);
 
     return attributeDescriptions;
   }
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription = {
       .binding = 0,                // uint32_t         -- this is the layout location
-      .stride = sizeof(v_v3c4x2),  // uint32_t
+      .stride = sizeof(v_v3c4x2n3),  // uint32_t
       // **Instanced rendering.
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,  // VkVertexIputRate
@@ -285,7 +335,6 @@ public:
     return bindingDescription;
   }
 };
-
 class App {
 public:
   static std::string _appRoot;

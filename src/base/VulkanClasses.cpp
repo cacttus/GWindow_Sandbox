@@ -5,10 +5,6 @@
 
 namespace VG {
 
-//todo; normalize state errors
-#define VKOBJ_CHECK(x, y) \
-  if (!(x)) { return pipelineError(x); }
-
 #pragma region VulkanDeviceBuffer
 
 class VulkanDeviceBuffer::VulkanDeviceBuffer_Internal {
@@ -1036,7 +1032,7 @@ public:
   }
   void createShaderModule(const std::vector<char>& code) {
     if (_vkShaderModule != VK_NULL_HANDLE) {
-      BRLogWarn("Shader was initialized when creating new shader.");
+      BRLogWarn("Shader was initialized when creating new shader."); 
       vkDestroyShaderModule(vulkan()->device(), _vkShaderModule, nullptr);
     }
     VkShaderModuleCreateInfo createInfo{};
@@ -1178,7 +1174,7 @@ std::shared_ptr<TextureImage> RenderTexture::texture(MSAA msaa, uint32_t frame) 
   AssertOrThrow2(frame < it->second.size());
 
   auto tex = it->second[frame];
-  AssertOrThrow2(tex->imageSize() == _swapchain->windowSize());//Sanity check.
+  AssertOrThrow2(tex->imageSize() == _swapchain->windowSize());  //Sanity check.
 
   return tex;
 }
@@ -2217,53 +2213,70 @@ bool PipelineShader::createInputs() {
     return shaderError("Error creating shader '" + name() + "' - too many input variables");
   }
 
-  int iBindingIndex = 0;
-  size_t iOffset = 0;
+  //int iBindingIndex = 0;
+  uint32_t highestLocation = 0;
+  //Note: spvReflect bindings are NOT required to be in order.
   for (uint32_t ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
     auto& iv = mod->reflectionData()->input_variables[ii];
     std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
-    attrib->_name = std::string(iv.name);
-
-    //Attrib Size
-    attrib->_componentCount = iv.numeric.vector.component_count;
-    attrib->_componentSizeBytes = iv.numeric.scalar.width / 8;
-    attrib->_matrixSize = iv.numeric.matrix.column_count * iv.numeric.matrix.row_count;
-    attrib->_totalSizeBytes = (attrib->_componentCount + attrib->_matrixSize) * attrib->_componentSizeBytes;
-
-    if ((iv.numeric.matrix.column_count != iv.numeric.matrix.row_count)) {
-      return shaderError("Failure - non-square matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-    else if ((iv.numeric.matrix.column_count > 0) &&
-             (iv.numeric.matrix.column_count != 2) &&
-             (iv.numeric.matrix.column_count != 3) &&
-             (iv.numeric.matrix.column_count != 4)) {
-      return shaderError("Failure - invalid matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-    else if (iv.numeric.matrix.stride > 0) {
-      return shaderError("Failure - nonzero stride for matrix vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-
-    if (attrib->_matrixSize > 0 && attrib->_componentCount > 0) {
-      return shaderError("Failure - matrix and vector dimensions present in attribute '" + attrib->_name + "' in shader '" + name() + "'");
-    }
-
-    //Attrib type.
-    //Note type_description.typeFlags is the int,scal,mat type.
-    attrib->_typeFlags = iv.type_description->type_flags;
-    attrib->_userType = parseUserType(attrib->_name);
-    attrib->_desc.binding = 0;
-    attrib->_desc.location = iBindingIndex;
-    attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
-    attrib->_desc.offset = static_cast<uint32_t>(iOffset);  // Default offset, for an exact-match vertex.
-
-    if (attrib->_userType == BR2::VertexUserType::gl_InstanceID || attrib->_userType == BR2::VertexUserType::gl_InstanceIndex) {
+    if (iv.location == 0xFFFFFFFF) {
+      //0xFFFFFFFF is reserved for gl_InstanceIndex
       _bInstanced = true;
     }
     else {
-      iOffset += attrib->_totalSizeBytes;
-      iBindingIndex++;
+      attrib->_name = std::string(iv.name);
+
+      //Attrib Size
+      attrib->_componentCount = iv.numeric.vector.component_count;
+      attrib->_componentSizeBytes = iv.numeric.scalar.width / 8;
+      attrib->_matrixSize = iv.numeric.matrix.column_count * iv.numeric.matrix.row_count;
+      attrib->_totalSizeBytes = (attrib->_componentCount + attrib->_matrixSize) * attrib->_componentSizeBytes;
+
+      if ((iv.numeric.matrix.column_count != iv.numeric.matrix.row_count)) {
+        return shaderError("Failure - non-square matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+      }
+      else if ((iv.numeric.matrix.column_count > 0) &&
+               (iv.numeric.matrix.column_count != 2) &&
+               (iv.numeric.matrix.column_count != 3) &&
+               (iv.numeric.matrix.column_count != 4)) {
+        return shaderError("Failure - invalid matrix dimensions for vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+      }
+      else if (iv.numeric.matrix.stride > 0) {
+        return shaderError("Failure - nonzero stride for matrix vertex attribute '" + attrib->_name + "' in shader '" + name() + "'");
+      }
+
+      if (attrib->_matrixSize > 0 && attrib->_componentCount > 0) {
+        return shaderError("Failure - matrix and vector dimensions present in attribute '" + attrib->_name + "' in shader '" + name() + "'");
+      }
+
+      //Attrib type.
+      //Note type_description.typeFlags is the int,scal,mat type.
+      attrib->_typeFlags = iv.type_description->type_flags;
+      attrib->_userType = parseUserType(attrib->_name);
+      attrib->_desc.binding = 0;
+      attrib->_desc.location = iv.location;
+      attrib->_desc.format = spvReflectFormatToVulkanFormat(iv.format);
+      attrib->_desc.offset = 0;  //This is computed later
+
+      if (attrib->_desc.location > highestLocation) {
+        highestLocation = attrib->_desc.location;
+      }
+
+      //iBindingIndex++;
       _attributes.push_back(attrib);
     }
+  }
+
+  //Sort attribs
+  std::sort(_attributes.begin(), _attributes.end(), [](std::shared_ptr<VertexAttribute>& a, std::shared_ptr<VertexAttribute>& b) {
+    return a->_desc.location < b->_desc.location;
+  });
+
+  //Compute Byte offsets.
+  size_t iOffset = 0;
+  for (auto iat : _attributes) {
+    iat->_desc.offset = iOffset;
+    iOffset += iat->_totalSizeBytes;
   }
 
   //I don't believe inputs are std430 aligned, however ..
@@ -2498,6 +2511,9 @@ DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
   else if (StringUtil::equals(name, "_uboInstanceData")) {
     ret = DescriptorFunction::InstnaceMatrixUBO;
   }
+  else if (StringUtil::equals(name, "_uboLights")) {
+    ret = DescriptorFunction::LightsUBO;
+  }
   return ret;
 }
 bool PipelineShader::createDescriptors() {
@@ -2505,6 +2521,7 @@ bool PipelineShader::createDescriptors() {
   uint32_t _nPool_UBOs = 0;
 
   //Parse shader metadata
+  std::vector<uint32_t> bindingLocations;
   for (auto& module : _modules) {
     for (uint32_t idb = 0; idb < module->reflectionData()->descriptor_binding_count; idb++) {
       auto& descriptor = module->reflectionData()->descriptor_bindings[idb];
@@ -2516,6 +2533,14 @@ bool PipelineShader::createDescriptors() {
         BRLogWarn("Name of one or more input shader variables was not specified for shader module '" + module->name() + "'");
       }
       d->_binding = descriptor.binding;
+
+      for (auto bindingindex : bindingLocations) {
+        if (d->_binding == bindingindex) {
+          return shaderError("Duplicate binding specified for descriptor '" + d->_name + "'.");
+        }
+      }
+      bindingLocations.push_back(d->_binding);
+
       d->_arraySize = 1;
       d->_function = classifyDescriptor(d->_name);
 
@@ -2536,21 +2561,20 @@ bool PipelineShader::createDescriptors() {
         d->_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         _nPool_UBOs++;
 
+        d->_blockSizeBytes = descriptor.block.size;
+
         if (descriptor.array.dims_count > 0) {
-          //This is an array descriptor. I don't think this is valid in Vulkan-GLSL
-          return shaderError("Illegal Descriptor array was found.");
+          uint32_t arraySize = descriptor.array.dims[0];
+          for (auto iDim = 1; iDim < descriptor.array.dims_count; ++iDim) {
+            d->_arraySize *= descriptor.array.dims[iDim];
+          }
+          d->_arraySize = arraySize;
         }
-        if (descriptor.block.member_count > 0) {
-          //This is a block , array size = 0. The actual size of the block is viewed as a single data-chunk.s
+        else {
           d->_arraySize = 1;
-          //64 x 2 = 128 _uboViewProj
-
-          //Blocksize = the size of the ENTIRE uniform buffer.
-          d->_blockSize = descriptor.block.size;
-
-          //The size of the data-members of the uniform.
-          //d->structSize  = descriptor.type_description.
         }
+
+        d->_bufferSizeBytes = d->_blockSizeBytes * d->_arraySize;
       }
       else if (descriptor.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
         d->_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2662,8 +2686,9 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, u
       //Get the descriptor size.
       uint32_t size = (uint32_t)bufsize;
       if (bufsize == VK_WHOLE_SIZE) {
-        size = desc->_blockSize;
+        size = desc->_bufferSizeBytes;
       }
+      AssertOrThrow2(size <= desc->_bufferSizeBytes);
       std::shared_ptr<ShaderDataUBO> datUBO = std::make_shared<ShaderDataUBO>();
       datUBO->_buffer = std::make_shared<VulkanBuffer>(
         vulkan(),

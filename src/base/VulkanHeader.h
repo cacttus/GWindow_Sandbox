@@ -85,6 +85,7 @@ enum class DescriptorFunction {
   Custom,
   ViewProjMatrixUBO,
   InstnaceMatrixUBO,
+  LightsUBO
 };
 enum class FramebufferBlendMode {
   Global, Independent
@@ -204,13 +205,19 @@ class GameDummy;
 /////////////////////////////////////////////////////////////////////////////////
 //Classes
 
-struct ViewProjUBOData {
+struct ViewProjUBOData { 
   //alignas(16) BR2::vec2 foo;
   alignas(16) BR2::mat4 view;
   alignas(16) BR2::mat4 proj;
 };
-struct InstanceUBOData {
+struct InstanceUBOData { 
   alignas(16) BR2::mat4 model;
+};
+struct GPULight {
+  BR2::vec3 pos;
+  float radius;
+  BR2::vec3 color;
+  float rotation;
 };
 class InstanceUBOClassData {
   uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO

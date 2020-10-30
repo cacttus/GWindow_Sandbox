@@ -30,7 +30,7 @@ void FpsMeter::update() {
     if (divisor == 0) {
       divisor = accum;
     }
-    _fpsLast = accum/ divisor;
+    _fpsLast = (float)(accum/ divisor);
     _tmr = cur;
     accum = 0;
     divisor = 0;
@@ -66,104 +66,77 @@ void Mesh::bindBuffers(std::shared_ptr<CommandBuffer> cmd) {
   vkCmdBindIndexBuffer(cmd->getVkCommandBuffer(), _indexBuffer->hostBuffer()->buffer(), 0, idxType);  // VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16
 }
 
-void Mesh::makePlane() {
-  //    vec2(0.0, -.5),
-  //vec2(.5, .5),
-  //vec2(-.5, .5)
-  _planeVerts = {
-    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
-    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
-    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
-    { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
-  };
-  _planeInds = {
-    0, 1, 2, 2, 3, 0
-  };
-
-  // _planeVerts = {
-  //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
-  //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
-  //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
-  // };
-
-  size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
-
-  _vertexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::VertexBuffer,
-    true,
-    v_datasize,
-    _planeVerts.data(), v_datasize);
-
-  size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
-  _indexBuffer = std::make_shared<VulkanBuffer>(
-    vulkan(),
-    VulkanBufferType::IndexBuffer,
-    true,
-    i_datasize,
-    _planeInds.data(), i_datasize);
-}
+//void Mesh::makePlane() {
+//  //    vec2(0.0, -.5),
+//  //vec2(.5, .5),
+//  //vec2(-.5, .5)
+//  _planeVerts = {
+//    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
+//    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
+//    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
+//    { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
+//  };
+//  _planeInds = {
+//    0, 1, 2, 2, 3, 0
+//  };
+//
+//  // _planeVerts = {
+//  //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
+//  //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
+//  //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
+//  // };
+//
+//  size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
+// 
+//  _vertexBuffer = std::make_shared<VulkanBuffer>(
+//    vulkan(),
+//    VulkanBufferType::VertexBuffer,
+//    true,
+//    v_datasize,  
+// 
+//  size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
+//  _indexBuffer = std::make_shared<VulkanBuffer>(
+//    vulkan(),
+//    VulkanBufferType::IndexBuffer,
+//    true,
+//    i_datasize,
+//    _planeInds.data(),  i_datasize);
+//}
 void Mesh::makeBox() {
-  //v_v3c4
-  // _boxVerts = {
-  //   { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-  //   { { 1, 0, 0 }, { 0, 0, 1, 1 } },
-  //   { { 0, 1, 0 }, { 1, 0, 1, 1 } },
-  //   { { 1, 1, 0 }, { 1, 1, 0, 1 } },
-  //   { { 0, 0, 1 }, { 0, 0, 1, 1 } },
-  //   { { 1, 0, 1 }, { 1, 0, 0, 1 } },
-  //   { { 0, 1, 1 }, { 0, 1, 0, 1 } },
-  //   { { 1, 1, 1 }, { 1, 0, 1, 1 } },
-  // };
-  // //      6     7
-  // //  2      3
-  // //      4     5
-  // //  0      1
-  // _boxInds = {
-  //   0, 3, 1, /**/ 0, 2, 3,  //
-  //   1, 3, 7, /**/ 1, 7, 5,  //
-  //   5, 7, 6, /**/ 5, 6, 4,  //
-  //   4, 6, 2, /**/ 4, 2, 0,  //
-  //   2, 6, 7, /**/ 2, 7, 3,  //
-  //   4, 0, 1, /**/ 4, 1, 5,  //
-  // };
-
   //      6     7
   //  2      3
-  //      4     5
-  //  0      1
-  std::vector<v_v3c4> bv = {
+  //      4     5    
+  //  0      1   
+  std::vector<v_v3c4> bv = { 
     { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-    { { 1, 0, 0 }, { 1, 1, 1, 1 } },
-    { { 0, 1, 0 }, { 1, 1, 1, 1 } },
-    { { 1, 1, 0 }, { 1, 1, 1, 1 } },
-    { { 0, 0, 1 }, { 1, 1, 1, 1 } },
-    { { 1, 0, 1 }, { 1, 1, 1, 1 } },
-    { { 0, 1, 1 }, { 1, 1, 1, 1 } },
+    { { 1, 0, 0 }, { 1, 1, 1, 1 } },  
+    { { 0, 1, 0 }, { 1, 1, 1, 1 } },  
+    { { 1, 1, 0 }, { 1, 1, 1, 1 } },  
+    { { 0, 0, 1 }, { 1, 1, 1, 1 } },   
+    { { 1, 0, 1 }, { 1, 1, 1, 1 } },  
+    { { 0, 1, 1 }, { 1, 1, 1, 1 } }, 
     { { 1, 1, 1 }, { 1, 1, 1, 1 } },
-  };
+  };    
   //Construct box from the old box coordintes (no texture)
   //Might be wrong - opengl coordinates.
-#define BV_VFACE(bl, br, tl, tr)              \
-  { bv[bl]._pos, bv[bl]._color, { 0, 1 } },   \
-    { bv[br]._pos, bv[br]._color, { 1, 1 } }, \
-    { bv[tl]._pos, bv[tl]._color, { 0, 0 } }, \
-  {                                           \
-    bv[tr]._pos, bv[tr]._color, { 1, 0 }      \
-  }
-
-  _boxVerts = {
-    BV_VFACE(0, 1, 2, 3),  //F
-    BV_VFACE(1, 5, 3, 7),  //R
-    BV_VFACE(5, 4, 7, 6),  //A
-    BV_VFACE(4, 0, 6, 2),  //L
-    BV_VFACE(4, 5, 0, 1),  //B
-    BV_VFACE(2, 3, 6, 7)   //T
-  };
-
+#define BV_VFACE(bl, br, tl, tr, nx)            \
+  { bv[bl]._pos, bv[bl]._color, { 0, 1 }, nx }, \
+  { bv[br]._pos, bv[br]._color, { 1, 1 }, nx }, \
+  { bv[tl]._pos, bv[tl]._color, { 0, 0 }, nx }, \
+  { bv[tr]._pos, bv[tr]._color, { 1, 0 }, nx }
+         
+  _boxVerts = {  
+    BV_VFACE(0, 1, 2, 3, BR2::vec3( 0, 0, -1) ),  //F 
+    BV_VFACE(1, 5, 3, 7, BR2::vec3( 1, 0, 0 ) ),  //R
+    BV_VFACE(5, 4, 7, 6, BR2::vec3( 0, 0, 1 ) ),  //A
+    BV_VFACE(4, 0, 6, 2, BR2::vec3( -1, 0, 0)   ),  //L
+    BV_VFACE(4, 5, 0, 1, BR2::vec3( 0, -1, 0)   ),  //B
+    BV_VFACE(2, 3, 6, 7, BR2::vec3( 0, 1, 0 ) )   //T
+  };  
+   
 //   CW
 //  2------>3
-//  |    /
+//  |    / 
 //  | /
 //  0------>1
 #define BV_IFACE(idx) ((idx * 4) + 0), ((idx * 4) + 3), ((idx * 4) + 1), ((idx * 4) + 0), ((idx * 4) + 2), ((idx * 4) + 3)

@@ -222,13 +222,14 @@ private:
  * @class Descriptor
  * @brief Shader input descriptor.
  * */
-class Descriptor {
-public:
+class Descriptor { 
+public: 
   string_t _name = "";
   VkDescriptorType _type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
   uint32_t _binding = 0;  //The acutal binding index.
   uint32_t _arraySize = 0;
-  uint32_t _blockSize = 0;
+  uint32_t _blockSizeBytes = 0;
+  uint32_t _bufferSizeBytes = 0;
   VkShaderStageFlags _stage;
   bool _isBound = false;
   DescriptorFunction _function = DescriptorFunction::Unset;

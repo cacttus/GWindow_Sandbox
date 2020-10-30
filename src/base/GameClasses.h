@@ -53,14 +53,14 @@ public:
  * */
 class Mesh : public VulkanObject {
 public:
-  typedef v_v3c4x2 VertType;
+  typedef v_v3c4x2n3 VertType;
 
 public:
   Mesh(std::shared_ptr<Vulkan> v);
   virtual ~Mesh() override;
 
   std::shared_ptr<MaterialDummy>& material() { return _material; }
-
+   
   uint32_t maxRenderInstances();
   void makeBox();
   void makePlane();
@@ -68,10 +68,9 @@ public:
   void bindBuffers(std::shared_ptr<CommandBuffer> cmd);
 
 private:
-  std::vector<v_v3c4x2> _boxVerts;
+  std::vector<v_v3c4x2n3> _boxVerts;
   std::vector<uint32_t> _boxInds;
-  std::vector<v_v2c4> _planeVerts;
-  std::vector<uint32_t> _planeInds;
+
 
   std::shared_ptr<VulkanBuffer> _vertexBuffer = nullptr;
   std::shared_ptr<VulkanBuffer> _indexBuffer = nullptr;

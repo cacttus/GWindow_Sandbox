@@ -12,11 +12,12 @@ static TexFilter g_min_filter = TexFilter::Linear;
 static TexFilter g_mag_filter = TexFilter::Linear;
 static bool g_poly_line = false;
 static bool g_use_rtt = true;
-static int g_pass_test_idx = 3;
+static int g_pass_test_idx = 4;
 static float g_anisotropy = 1;
 static MSAA g_multisample = MSAA::Disabled;
 bool g_test_img1 = true;
 VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
+bool g_lighting = true;
 
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
@@ -40,8 +41,11 @@ public:
   string_t c_viewProjUBO = "c_viewProjUBO";
   string_t c_instanceUBO_1 = "c_instanceUBO_1";
   string_t c_instanceUBO_2 = "c_instanceUBO_2";
+  string_t c_lightsUBO = "c_lightsUBO";
 
   uint32_t _numInstances = 25;
+  uint32_t _numLights = 3;
+  uint32_t _maxLightsArray = 10;
   FpsMeter _fpsMeter_Render;
   FpsMeter _fpsMeter_Update;
 
@@ -131,12 +135,12 @@ public:
     sdl_PrintVideoDiagnostics();
 
     bool enableDebug = false;
-    #ifdef _DEBUG
+#ifdef _DEBUG
     enableDebug = true;
     BRLogInfo("GPU debugging enabled.");
 #else
     BRLogInfo("GPU debugging disabled.");
-    #endif
+#endif
 
     _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, enableDebug);
 
@@ -207,6 +211,7 @@ public:
     _pShader->createUBO(c_viewProjUBO, "_uboViewProj");
     _pShader->createUBO(c_instanceUBO_1, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
     _pShader->createUBO(c_instanceUBO_2, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
+    _pShader->createUBO(c_lightsUBO, "_uboLights", sizeof(GPULight) * _numLights);
   }
   float pingpong_t01(int durationMs = 5000) {
     //returns the [0,1] pingpong time.
@@ -248,20 +253,61 @@ public:
       }
     }
   }
+  float campos_d = 10;
   void updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
     //Push constants are faster.
     float t01 = pingpong_t01(10000);
 
-    float d = 20;
+    float d = campos_d;
     BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
-    BR2::vec3 wwf = (lookAt - campos) * 0.1f;
+    BR2::vec3 wwf = (lookAt - campos);
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
       .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
       .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->windowSize().width, -(float)_vulkan->swapchain()->windowSize().height, 0.1f, 100.0f)
     };
     viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
+  }
+  std::vector<GPULight> lights;
+  std::vector<float> lights_speed;
+  std::vector<float> lights_r;
+
+  void updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
+    //Must be lessthan or equal the shader array
+    if (lights.size() == 0) { 
+      for (size_t i = 0; i < _numLights; ++i) {
+        lights.push_back(GPULight());
+        lights[lights.size() - 1].pos = BR2::vec3(0, 0, 0);
+        // lights[lights.size() - 1].color = BR2::vec3(std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.));
+        if (i == 0) { lights[lights.size() - 1].color.construct(1, 0, 0); }
+        if (i == 1) { lights[lights.size() - 1].color.construct(0, 1, 0); }
+        if (i == 2) { lights[lights.size() - 1].color.construct(0, 0, 1); }
+        //= BR2::vec3(std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.));
+        lights[lights.size() - 1].radius = 20+fr01()*10;
+        lights[lights.size() - 1].rotation = fr01() * 6.28;
+        lights_speed.push_back(2 + fr01() * 8);
+        lights_r.push_back(2 + fr01()*10);
+      } 
+      //Disable the rest
+      for (size_t i = _numLights; i < _maxLightsArray; ++i) {
+        lights.push_back(GPULight());
+        lights[lights.size() - 1].radius = 0;  //disable
+        lights_speed.push_back(1);
+        lights_r.push_back(1);
+      }
+    }
+
+    for (size_t ilight = 0; ilight < lights.size(); ++ilight) {
+      auto& light = lights[ilight];
+      if (light.radius > 0) {
+        light.rotation = fmodf(light.rotation + 6.28f * (dt / lights_speed[ilight]), 6.28f);
+        light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20, sinf(light.rotation) * lights_r[ilight]);
+      }
+    }
+    auto s = sizeof(lights[0]);
+    auto sz = sizeof(lights[0]) * lights.size();
+    lightsBuffer->writeData(lights.data(), 0, sz);
   }
   void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt) {
     float t01 = pingpong_t01(10000);
@@ -271,11 +317,11 @@ public:
     //This slowdown (e.g. 2500fps -> 80fps) is my code mat4 multiplies.
     // We could dispatch the "instance update" and also any additional physics into a compute shader to get the result more quickily.
     // Will we really have 1000's of dynamic instances updating per frame? Probably not, but it's fun to think about.
-    float d = 20;
+    float d = campos_d;
     BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
-    BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
+    BR2::vec3 trans(0, 0, 0);                 // campos + wwf + (lookAt - campos - wwf) * t01;
     BR2::vec3 origin = { -0.5, -0.5, -0.5 };  //cube origin
     std::vector<BR2::mat4> mats(_numInstances);
     for (uint32_t i = 0; i < _numInstances; ++i) {
@@ -317,10 +363,12 @@ public:
     auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
     auto inst1 = _pShader->getUBO(c_instanceUBO_1, frame);
     auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
+    auto lightsubo = _pShader->getUBO(c_lightsUBO, frame);
     updateViewProjUniformBuffer(viewProj);
     //  if (_fpsMeter_Update.frameMod(50)) {
     updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt);
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
+    updateLights(lightsubo, dt);
     // }
     if (test_render_texture == nullptr) {
       test_render_texture = vulkan()->swapchain()->createRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
@@ -376,6 +424,7 @@ public:
 
             _pShader->bindSampler("_ufTexture0", _testTexture1);
             _pShader->bindUBO("_uboInstanceData", inst1);
+            _pShader->bindUBO("_uboLights", lightsubo);
             _pShader->bindDescriptors(cmd);
             _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
           }
@@ -406,6 +455,7 @@ public:
                 //white face Smiley
                 _pShader->bindSampler("_ufTexture0", _testTexture1);
                 _pShader->bindUBO("_uboInstanceData", inst2);
+                _pShader->bindUBO("_uboLights", lightsubo);
                 _pShader->bindDescriptors(cmd);
                 _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
               }
@@ -437,6 +487,7 @@ public:
               //black face smiley
               _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
               _pShader->bindUBO("_uboInstanceData", inst1);
+              _pShader->bindUBO("_uboLights", lightsubo);
               _pShader->bindDescriptors(cmd);
               _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
             }
@@ -555,9 +606,48 @@ bool SDLVulkan::doInput() {
         return true;
         break;
       }
-      else if (event.key.keysym.scancode == SDL_SCANCODE_F1) {
+      else if (event.key.keysym.scancode == SDL_SCANCODE_0) {
         //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
-        TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
+        //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
+        if (g_mipmap_mode == MipmapMode::Disabled) {
+          g_mipmap_mode = MipmapMode::Nearest;
+        }
+        else if (g_mipmap_mode == MipmapMode::Nearest) {
+          g_mipmap_mode = MipmapMode::Linear;
+        }
+        else if (g_mipmap_mode == MipmapMode::Linear) {
+          g_mipmap_mode = MipmapMode::Disabled;
+        }
+        _pInt->createTextureImages();
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_1) {
+        //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
+        //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
+        if (g_min_filter == TexFilter::Nearest) {
+          g_min_filter = TexFilter::Linear;
+        }
+        else if (g_min_filter == TexFilter::Linear) {
+          g_min_filter = TexFilter::Cubic;
+        }
+        else if (g_min_filter == TexFilter::Cubic) {
+          g_min_filter = TexFilter::Nearest;
+        }
+        _pInt->createTextureImages();
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_2) {
+        //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
+        //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
+        if (g_mag_filter == TexFilter::Nearest) {
+          g_mag_filter = TexFilter::Linear;
+        }
+        else if (g_mag_filter == TexFilter::Linear) {
+          g_mag_filter = TexFilter::Cubic;
+        }
+        else if (g_mag_filter == TexFilter::Cubic) {
+          g_mag_filter = TexFilter::Nearest;
+        }
         _pInt->createTextureImages();
         break;
       }
@@ -636,21 +726,23 @@ void SDLVulkan::renderLoop() {
         float f_r = _pInt->_fpsMeter_Render.getFps();
         string_t fp_r = std::to_string((int)f_r);
 
-        string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Undefined-Error")));
-        string_t min_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
-        string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
+        string_t zmmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Error")));
+        string_t zmin_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Error")));
+        string_t zmag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Error")));
 
-        string_t fps = "FPS:(upd=" + fp_upd + "fps,rend=" + fp_r + std::string("fps") + std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber) + ")";
-        string_t mode = " F1=mipmap:(Tex=" + mmip_mode + ",Minf=" + min_f + ",Magf=" + mag_f + ")";
-        string_t culm = " F2=cull:(" + std::to_string((int)g_cullmode) + ")";
-        string_t line = " F3=Line:(" + std::to_string((int)g_poly_line) + ")";
-        string_t rtt = " F4=RTT:(" + std::to_string((int)g_use_rtt) + ")";
-        string_t pass = " F8=pass:(" + std::to_string(g_pass_test_idx) + ")";
-        string_t aniso = " F9=AF:(" + std::to_string(g_anisotropy) + ")";
-        string_t msaa = " F10=MSAA:(" + std::to_string((int)g_multisample) + ")";
+        string_t fps = "FPS(update=" + fp_upd + "fps,render=" + fp_r + std::string("fps") + std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber) + ")";
+        string_t mip_f = " 0=TMip(" + zmmip_mode + ")";
+        string_t min_f = " 1=TMinf(" + zmin_f + ")";
+        string_t mag_f = " 2=TMagf(" + zmag_f + ")";
+        string_t culm = " F2=Cull(" + std::to_string((int)g_cullmode) + ")";
+        string_t line = " F3=Line(" + std::to_string((int)g_poly_line) + ")";
+        string_t rtt = " F4=RTT(" + std::to_string((int)g_use_rtt) + ")";
+        string_t pass = " F8=pass(" + std::to_string(g_pass_test_idx) + ")";
+        string_t aniso = " F9=AF(" + std::to_string(g_anisotropy) + ")";
+        string_t msaa = " F10=MSAA(" + std::to_string((int)g_multisample) + ")";
         string_t img = " F11=img";
 
-        string_t out = fps + mode + culm + line + rtt + pass + aniso + msaa + img;
+        string_t out = fps + mip_f + min_f + mag_f + culm + line + rtt + pass + aniso + msaa + img;
 
         SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
       }
