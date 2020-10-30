@@ -68,10 +68,6 @@ private:
   class VulkanBuffer_Internal;
   std::unique_ptr<VulkanBuffer_Internal> _pInt;
 };
-enum SamplerType {
-  None,
-  Sampled
-};
 /**
 * @class FilterData
 */
@@ -101,17 +97,14 @@ public:
 */
 class TextureImage : public VulkanObject {
 public:
-  TextureImage(std::shared_ptr<Vulkan> v, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, VkImage img, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, TextureType type, MSAA samples, std::shared_ptr<Img32>, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, TextureType type, MSAA samples, const FilterData& filter);
+  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, VkImage img, const FilterData& filter);
+  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, const FilterData& filter);
+  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, std::shared_ptr<Img32>, const FilterData& filter);
+  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter);
 
   virtual ~TextureImage() override;
 
-  void create(std::shared_ptr<Img32> pimg, bool reinit = false);
-  void create(VkFormat format, const BR2::usize2 size);
-  void generateMipmaps(std::shared_ptr<CommandBuffer> buf = nullptr);
-
+  string_t name() { return _name; }
   VkImageView imageView() { return _imageView; }
   VkFormat format() { return _format; }
   VkImage image() { return _image; }
@@ -125,9 +118,10 @@ public:
   static VkSampleCountFlagBits multisampleToVkSampleCountFlagBits(MSAA s);
   static VkSamplerMipmapMode convertMipmapMode(MipmapMode mode, TexFilter filter);
   static void testCycleFilters(TexFilter& g_min_filter, TexFilter& g_mag_filter, MipmapMode& g_mipmap_mode);
+  void generateMipmaps(std::shared_ptr<CommandBuffer> buf = nullptr);
 
 protected:
-  void create();
+  string_t _name = "*unset";
   std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   TextureType _type = TextureType::Unset;
   std::shared_ptr<Img32> _bitmap = nullptr;
@@ -147,11 +141,9 @@ protected:
   VkImageLayout _finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  //after we've generated mipmaps
   VkImageUsageFlags _transferSrc = (VkImageUsageFlags)0;
   bool _error = false;
-  bool _created = false;
 
   void cleanup();
-  void reinit();
-  void allocateMemory();  // = VK_IMAGE_LAYOUT_UNDEFINED
+  void createGPUImage();  // = VK_IMAGE_LAYOUT_UNDEFINED
   void createView();      // = 1
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
@@ -161,34 +153,7 @@ protected:
   void flipImage20161206(uint8_t* image, int width, int height);
   VkFilter convertFilter(TexFilter filter, bool cubicSupported);
   void computeMipLevels();
-  void computeTypeProperties();
-};
-/**
-* @class VulkanCommands
-* @brief Common graphics commands.
-*/
-class VulkanCommands : public VulkanObject {
-public:
-  VulkanCommands(std::shared_ptr<Vulkan> v);
-  void begin();
-  void end();
-  void blitImage(VkImage srcImg,
-                 VkImage dstImg,
-                 const BR2::irect2& srcRegion,
-                 const BR2::irect2& dstRegion,
-                 VkImageLayout srcLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                 VkImageLayout dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                 uint32_t srcMipLevel = 0,
-                 uint32_t dstMipLevel = 0,
-                 VkImageAspectFlagBits aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT, VkFilter filter = VK_FILTER_LINEAR);
-  void imageTransferBarrier(VkImage image,
-                            VkAccessFlagBits srcAccessFlags, VkAccessFlagBits dstAccessFlags,
-                            VkImageLayout oldLayout, VkImageLayout newLayout,
-                            uint32_t baseMipLevel = 0,
-                            VkImageAspectFlagBits subresourceMask = VK_IMAGE_ASPECT_COLOR_BIT);
-
-private:
-  VkCommandBuffer _buf = VK_NULL_HANDLE;
+  bool computeTypeProperties();
 };
 /**
  * @class CommandBuffer
@@ -278,7 +243,7 @@ public:
   uint32_t _componentSizeBytes = 0;  //Size of EACH component
   uint32_t _componentCount = 0;
   uint32_t _matrixSize = 0;  //Number of entries 4, 9, 16 ..
-  //VkFormat _format; // FYI Attribute formats use colors.
+  //VkFormat _format; //TODO ,  FYI Attribute formats use colors.
   VkVertexInputAttributeDescription _desc;
   SpvReflectTypeFlags _typeFlags;
   size_t _totalSizeBytes = 0;
@@ -332,17 +297,8 @@ public:
   uint32_t _clearStencil = 0;
   OutputMRT _output = OutputMRT::RT_DefaultColor;
   CompareOp _compareOp = CompareOp::Less;
-  //uint32_t _location = 0; // layout(location=x)
-  //VkFormat _format = VK_FORMAT_UNDEFINED;
   std::shared_ptr<ShaderOutputBinding> _outputBinding = nullptr;  // This is set internally when we make the FBO
-  //bool isSwapchainColorImage() {                                  // True if this is the presentable swapchain image.
-  //  bool r = _texture == nullptr && _type == FBOType::Color;
-  //  return r;
-  //}
-  //bool isSwapchainDepthImage() {  // True if this is the presentable swapchain image.
-  //  bool r = _texture == nullptr && _type == FBOType::Depth;
-  //  return r;
-  //}
+  bool _resolve = false;                                          // used internally do not set this
   static std::shared_ptr<OutputDescription> getDepthDF(bool clear = true) {
     auto outd = std::make_shared<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultDepth;
@@ -379,19 +335,20 @@ class RenderTexture {
   friend class Swapchain;
 
 public:
-  RenderTexture(std::shared_ptr<Swapchain> swap, VkFormat format, const FilterData& filter);
+  RenderTexture(const string_t& name, std::shared_ptr<Swapchain> swap, VkFormat format, const FilterData& filter);
   virtual ~RenderTexture();
   //**TODO: use a std::map and switch texture based on multisample preference.
   //We do this if this image must match the swapchain.
 
-  std::shared_ptr<TextureImage> texture(MSAA msaa);
-  std::shared_ptr<TextureImage> createTexture(MSAA msaa);
+  std::shared_ptr<TextureImage> texture(MSAA msaa, uint32_t frame);
+  void createTexture(MSAA msaa);
 
 private:
   void recreateAllTextures();
 
-  std::map<MSAA, std::shared_ptr<TextureImage>> _textures;
+  std::map<MSAA, std::vector<std::shared_ptr<TextureImage>>> _textures;
   FilterData _filter;
+  string_t _name = "unset";
   VkFormat _format = VK_FORMAT_UNDEFINED;
   std::shared_ptr<TextureImage> _texture = nullptr;
   std::shared_ptr<Swapchain> _swapchain = nullptr;
@@ -402,9 +359,11 @@ private:
  * */
 class PassDescription {
 public:
-  PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader, MSAA c);
+  PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader, MSAA c, BlendFunc globalBlend, FramebufferBlendMode rbm);
+
   void setOutput(std::shared_ptr<OutputDescription> output);
   void setOutput(const string_t& tag, OutputMRT output, std::shared_ptr<RenderTexture> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
+
   const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
   std::vector<VkClearValue> getClearValues();
   std::shared_ptr<RenderFrame> frame() { return _frame; }
@@ -413,17 +372,20 @@ public:
   std::shared_ptr<PipelineShader> shader() { return _shader; }
   bool hasDepthBuffer();
   uint32_t colorOutputCount();
-  
+  BlendFunc globalBlend() { return _globalBlend; }
+  FramebufferBlendMode blendMode() { return _blendMode; }
+
 private:
   std::vector<std::shared_ptr<OutputDescription>> _outputs;
   std::shared_ptr<PipelineShader> _shader = nullptr;
   std::shared_ptr<RenderFrame> _frame = nullptr;
   bool _bValid = true;  //If an error happened
   MSAA _sampleCount = MSAA::Unset;
+  FramebufferBlendMode _blendMode = FramebufferBlendMode::Global;
+  BlendFunc _globalBlend = BlendFunc::Disabled;
 
   bool passError(const string_t& msg);
   void addValidOutput(std::shared_ptr<OutputDescription> desc);
-  void createColorResolveDescriptions();
 };
 /**
  * @class FramebufferAttachment
@@ -435,7 +397,7 @@ public:
   virtual ~FramebufferAttachment() override;
 
   bool init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<RenderFrame> frame);
-  VkImageView getVkImageView() { return _outputImageView; }
+  //VkImageView getVkImageView() { return _outputImageView; }
   const BR2::usize2& imageSize() { return _imageSize; }
   std::shared_ptr<OutputDescription> desc() { return _desc; }
   VkImageLayout finalLayout() { return _computedFinalLayout; }
@@ -446,9 +408,9 @@ public:
 private:
   void createTarget(std::shared_ptr<Framebuffer> fb, std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att);
   uint32_t computeLocation(std::shared_ptr<Framebuffer> fb);
-  VkImageLayout computeFinalLayout(std::shared_ptr<Framebuffer> fb,  std::shared_ptr<OutputDescription> out_att);
+  VkImageLayout computeFinalLayout(std::shared_ptr<Framebuffer> fb, std::shared_ptr<OutputDescription> out_att);
 
-  VkImageView _outputImageView = VK_NULL_HANDLE;
+ // VkImageView _outputImageView = VK_NULL_HANDLE;
   BR2::usize2 _imageSize{ 0, 0 };
   std::shared_ptr<OutputDescription> _desc = nullptr;
   std::shared_ptr<TextureImage> _target = nullptr;  //this must be set.
@@ -469,24 +431,22 @@ public:
   VkFramebuffer getVkFramebuffer() { return _framebuffer; }
   VkRenderPass getVkRenderPass() { return _renderPass; }
   MSAA sampleCount();
-
-  bool create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
-  std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
-  std::shared_ptr<PassDescription> passDescription() { return _passDescription; }
-  bool pipelineError(const string_t& msg);
   bool valid() { return _bValid; }
   const BR2::usize2& imageSize();
-  static string_t getImageDataForAttachment(std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att,
-                                            VkImage* out_image, VkFormat* out_format, BR2::usize2* out_size, uint32_t* out_miplevels, MSAA* out_samples);
+  std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
+  std::shared_ptr<PassDescription> passDescription() { return _passDescription; }
 
+  bool create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
+  bool pipelineError(const string_t& msg);
   uint32_t nextLocation();
+  uint32_t maxLocation();
 
 private:
   bool createAttachments();
   bool createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo);
   bool validate();
 
-  uint32_t _currentLocation = 0;
+  std::vector<std::shared_ptr<OutputDescription>> _resolveDescriptions;
   string_t _name = "*unset";
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
   std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
@@ -494,6 +454,7 @@ private:
   std::shared_ptr<PassDescription> _passDescription;
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   bool _bValid = true;
+  uint32_t _currentLocation = 0;
 };
 /**
  * @class Pipeline
@@ -502,8 +463,8 @@ private:
 class Pipeline : public VulkanObject {
 public:
   Pipeline(std::shared_ptr<Vulkan> v,
-           VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-           VkPolygonMode mode = VK_POLYGON_MODE_FILL);
+           VkPrimitiveTopology topo,
+           VkPolygonMode mode, VkCullModeFlags cm);
   virtual ~Pipeline() override;
   bool init(std::shared_ptr<PipelineShader> shader,
             std::shared_ptr<BR2::VertexFormat> vtxFormat,
@@ -513,13 +474,17 @@ public:
   VkPipelineLayout getVkPipelineLayout() { return _pipelineLayout; }
   VkPrimitiveTopology primitiveTopology() { return _primitiveTopology; }
   VkPolygonMode polygonMode() { return _polygonMode; }
+  VkCullModeFlags cullMode() { return _cullMode; }
   std::shared_ptr<BR2::VertexFormat> vertexFormat() { return _vertexFormat; }
   std::shared_ptr<Framebuffer> fbo() { return _fbo; }
 
 private:
+  VkPipelineColorBlendAttachmentState getVkPipelineColorBlendAttachmentState(BlendFunc bf, std::shared_ptr<Framebuffer> fb);
+
   std::shared_ptr<BR2::VertexFormat> _vertexFormat = nullptr;
   VkPrimitiveTopology _primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   VkPolygonMode _polygonMode = VK_POLYGON_MODE_FILL;
+  VkCullModeFlags _cullMode = VK_CULL_MODE_NONE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _pipeline = VK_NULL_HANDLE;
   std::shared_ptr<Framebuffer> _fbo = nullptr;
@@ -539,30 +504,28 @@ public:
   bool shaderError(const string_t& msg);
   bool renderError(const string_t& msg);
   const std::vector<std::shared_ptr<ShaderOutputBinding>>& outputBindings() { return _outputBindings; }
-
+  const std::vector<uint32_t> locations() { return _locations; }
   VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
   bool sampleShadingVariables();
-  std::shared_ptr<Pipeline> getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode);
+  std::shared_ptr<Pipeline> getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode, VkCullModeFlags cullMode);
   std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
   bool createUBO(const string_t& name, const string_t& var_name, unsigned long long bufsize = VK_WHOLE_SIZE);
   std::shared_ptr<Pipeline> boundPipeline() { return _pBoundPipeline; }
   void clearShaderDataCache(std::shared_ptr<RenderFrame> frame);
 
-  std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame, MSAA sampleCount);
+  std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame, MSAA sampleCount, BlendFunc globalBlend, FramebufferBlendMode blendMode = FramebufferBlendMode::Global);
   bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
   void endRenderPass(std::shared_ptr<CommandBuffer> buf);
   bool bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
   bool bindSampler(const string_t& name, std::shared_ptr<TextureImage> texture, uint32_t arrayIndex = 0);
-  bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode = VK_POLYGON_MODE_FILL, VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode = VK_POLYGON_MODE_FILL,
+                    VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VkCullModeFlags cull = VK_CULL_MODE_BACK_BIT);
   bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe);
   void bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size);
   bool bindDescriptors(std::shared_ptr<CommandBuffer> cmd);
   void drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances);
-  const std::vector<uint32_t> locations() {
-    return _locations;
-  }
 
 private:
   bool init();
@@ -687,7 +650,7 @@ public:
   bool beginFrame(const BR2::usize2& windowsize);
   void endFrame();
   void registerShader(std::shared_ptr<PipelineShader> shader);
-  std::shared_ptr<RenderTexture> createRenderTexture(VkFormat format, MSAA msaa, const FilterData& filter);
+  std::shared_ptr<RenderTexture> createRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter);
 
 private:
   void createSwapChain(const BR2::usize2& window_size);

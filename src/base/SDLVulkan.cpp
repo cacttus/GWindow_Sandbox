@@ -16,6 +16,7 @@ static int g_pass_test_idx = 3;
 static float g_anisotropy = 1;
 static MSAA g_multisample = MSAA::Disabled;
 bool g_test_img1 = true;
+VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
 
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
@@ -129,7 +130,15 @@ public:
 
     sdl_PrintVideoDiagnostics();
 
-    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable);
+    bool enableDebug = false;
+    #ifdef _DEBUG
+    enableDebug = true;
+    BRLogInfo("GPU debugging enabled.");
+#else
+    BRLogInfo("GPU debugging disabled.");
+    #endif
+
+    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, enableDebug);
 
     _game = std::make_shared<GameDummy>();
     _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
@@ -309,13 +318,13 @@ public:
     auto inst1 = _pShader->getUBO(c_instanceUBO_1, frame);
     auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
     updateViewProjUniformBuffer(viewProj);
-    //if (fpsMeter.frameMod(50)) {
+    //  if (_fpsMeter_Update.frameMod(50)) {
     updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt);
     updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
-    //}
+    // }
     if (test_render_texture == nullptr) {
-      test_render_texture = vulkan()->swapchain()->createRenderTexture(vulkan()->swapchain()->imageFormat(), g_multisample,
-                                                                       FilterData{ SamplerType::Sampled, g_mipmap_mode, vulkan()->maxAF(),
+      test_render_texture = vulkan()->swapchain()->createRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
+                                                                       FilterData{ SamplerType::Sampled, MipmapMode::Disabled, vulkan()->maxAF(),
                                                                                    TexFilter::Linear, TexFilter::Linear, MipLevels::Unset });
     }
 
@@ -351,17 +360,17 @@ public:
 
       //Testing Polygon Mode
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+      auto topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
       //Testing multiple Render Passes.
 
       //if x=0 test a simple pass
       //otherwise test the complex pass.
-      static int x = 0;
-      if (x == 0) {
-        auto simple_pass = _pShader->getPass(frame, g_multisample);
+      if (g_pass_test_idx == 4) {
+        auto simple_pass = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
         simple_pass->setOutput(OutputDescription::getColorDF());
         simple_pass->setOutput(OutputDescription::getDepthDF());
         if (_pShader->beginRenderPass(cmd, simple_pass)) {
-          if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+          if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
             _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
             _pShader->bindUBO("_uboViewProj", viewProj);
 
@@ -376,7 +385,7 @@ public:
       else {
         bool pass1_success = false;
         if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
-          auto pass1 = _pShader->getPass(frame, g_multisample);
+          auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
           if (g_use_rtt) {
             //The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.
             //Fix this.
@@ -388,7 +397,7 @@ public:
           }
           pass1->setOutput(OutputDescription::getDepthDF(true));
           if (_pShader->beginRenderPass(cmd, pass1)) {
-            if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+            if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
               pass1_success = true;
               if (g_pass_test_idx != 0) {
                 _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
@@ -408,8 +417,8 @@ public:
 
         if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
           //black face Smiley
-          auto tex = g_use_rtt ? test_render_texture->texture(g_multisample) : _testTexture2;
-          auto pass2 = _pShader->getPass(frame, g_multisample);
+          auto tex = g_use_rtt ? test_render_texture->texture(g_multisample, frame->frameIndex()) : _testTexture2;
+          auto pass2 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
 
           if (pass1_success) {
             pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
@@ -421,10 +430,11 @@ public:
           }
 
           if (_pShader->beginRenderPass(cmd, pass2)) {
-            if (_pShader->bindPipeline(cmd, nullptr, mode)) {
+            if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
               _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
               _pShader->bindUBO("_uboViewProj", viewProj);
 
+              //black face smiley
               _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
               _pShader->bindUBO("_uboInstanceData", inst1);
               _pShader->bindDescriptors(cmd);
@@ -456,14 +466,14 @@ public:
     ret->_size = { width, height };
     ret->_data = data;
     ret->data_len_bytes = width * height * required_bytes;
-
+    ret->_name = img;
     return ret;
   }
   void createTextureImages() {
     // auto img = loadImage(App::rootFile("test.png"));
     auto img = loadImage(App::rootFile(g_test_img1 ? "char-1.png" : "TexturesCom_MetalBare0253_2_M.png"));
     if (img) {
-      _testTexture1 = std::make_shared<TextureImage>(vulkan(), TextureType::ColorTexture, MSAA::Disabled, img,
+      _testTexture1 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img,
                                                      FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
                                                                  g_mag_filter, MipLevels::Unset });
     }
@@ -472,7 +482,7 @@ public:
     }
     auto img2 = loadImage(App::rootFile("char-2.png"));
     if (img2) {
-      _testTexture1 = std::make_shared<TextureImage>(vulkan(), TextureType::ColorTexture, MSAA::Disabled, img2,
+      _testTexture2 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img2,
                                                      FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
                                                                  g_mag_filter, MipLevels::Unset });
     }
@@ -552,6 +562,18 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
+        if (g_cullmode == VK_CULL_MODE_BACK_BIT) {
+          g_cullmode = VK_CULL_MODE_FRONT_BIT;
+        }
+        else if (g_cullmode == VK_CULL_MODE_FRONT_BIT) {
+          g_cullmode = VK_CULL_MODE_FRONT_AND_BACK;
+        }
+        else if (g_cullmode == VK_CULL_MODE_FRONT_AND_BACK) {
+          g_cullmode = VK_CULL_MODE_NONE;
+        }
+        else if (g_cullmode == VK_CULL_MODE_NONE) {
+          g_cullmode = VK_CULL_MODE_BACK_BIT;
+        }
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F3) {
@@ -564,7 +586,7 @@ bool SDLVulkan::doInput() {
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F8) {
         g_pass_test_idx++;
-        if (g_pass_test_idx > 3) {
+        if (g_pass_test_idx > 4) {
           g_pass_test_idx = 0;
         }
         break;
@@ -579,9 +601,13 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F10) {
-        g_multisample = (MSAA)((int)g_multisample + 1);
-        if (g_multisample == MSAA::MS_Enum_Count) {
+        auto c = _pInt->vulkan()->maxMSAA();
+
+        if (g_multisample == c) {
           g_multisample = MSAA::Disabled;
+        }
+        else {
+          g_multisample = c;
         }
 
         break;
@@ -613,10 +639,19 @@ void SDLVulkan::renderLoop() {
         string_t mmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Undefined-Error")));
         string_t min_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
         string_t mag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Undefined-Error")));
-        string_t mode = "mipmap=F1:Tex=" + mmip_mode + ",";
-        string_t aniso = std::string(" AF=F9(") + std::to_string(g_anisotropy) + ")";
-        string_t framef = std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber);
-        string_t out = "FPS:upd=" + fp_upd + "fps,rend=" + fp_r + std::string("fps") + framef + " F8=pass#(" + std::to_string(g_pass_test_idx) + ") F3=Line F4=RTT," + mode + ",Minf=" + min_f + ",Magf=" + mag_f + "," + aniso + " img=F11";
+
+        string_t fps = "FPS:(upd=" + fp_upd + "fps,rend=" + fp_r + std::string("fps") + std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber) + ")";
+        string_t mode = " F1=mipmap:(Tex=" + mmip_mode + ",Minf=" + min_f + ",Magf=" + mag_f + ")";
+        string_t culm = " F2=cull:(" + std::to_string((int)g_cullmode) + ")";
+        string_t line = " F3=Line:(" + std::to_string((int)g_poly_line) + ")";
+        string_t rtt = " F4=RTT:(" + std::to_string((int)g_use_rtt) + ")";
+        string_t pass = " F8=pass:(" + std::to_string(g_pass_test_idx) + ")";
+        string_t aniso = " F9=AF:(" + std::to_string(g_anisotropy) + ")";
+        string_t msaa = " F10=MSAA:(" + std::to_string((int)g_multisample) + ")";
+        string_t img = " F11=img";
+
+        string_t out = fps + mode + culm + line + rtt + pass + aniso + msaa + img;
+
         SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
       }
 

@@ -9,6 +9,7 @@
 
 #include "./SandboxHeader.h"
 #include "./VulkanHeader.h"
+#include "./VulkanClasses.h"
 namespace VG {
 
 /**
@@ -17,8 +18,13 @@ namespace VG {
 *         Outputs memory offsets of vulkan structs for debugging.
 *         Provides enum stringification.
 */
-class VulkanDebug {
+class VulkanDebug : public VulkanObject {
 public:
+  VulkanDebug(std::shared_ptr<Vulkan> v, bool enableValidationLayers);
+  virtual ~VulkanDebug() override;
+
+  void init();
+
   static string_t VkGraphicsPipelineCreateInfo_toString();
   static string_t VkResult_toString(VkResult r);
   static string_t VkColorSpaceKHR_toString(VkColorSpaceKHR sp);
@@ -28,7 +34,15 @@ public:
   static string_t VkDescriptorType_toString(VkDescriptorType t);
   static string_t OutputMRT_toString(OutputMRT t);
   static int SampleCount_ToInt(MSAA c);
-  
+  void debugPrintSupportedExtensions();
+
+private:
+  bool _bEnableValidationLayers = false;
+  VkExtFn(vkCreateDebugUtilsMessengerEXT);
+  VkExtFn(vkDestroyDebugUtilsMessengerEXT);
+  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
+  VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+
 };
 
 }  // namespace VG

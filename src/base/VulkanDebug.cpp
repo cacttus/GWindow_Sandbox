@@ -1,6 +1,57 @@
 #include "./VulkanDebug.h"
+#include "./Vulkan.h"
 
 namespace VG {
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                    VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                    void* pUserData);
+
+VulkanDebug::VulkanDebug(std::shared_ptr<Vulkan> v, bool enableValidationLayers) : VulkanObject(v) {
+  _bEnableValidationLayers = enableValidationLayers;
+}
+VulkanDebug::~VulkanDebug() {
+  if (debugMessenger != VK_NULL_HANDLE) {
+    vkDestroyDebugUtilsMessengerEXT(vulkan()->instance(), debugMessenger, nullptr);
+  }
+}
+void VulkanDebug::init() {
+  if (!_bEnableValidationLayers) {
+    return;
+  }
+
+  VkLoadExt(vulkan()->instance(), vkCreateDebugUtilsMessengerEXT);
+  VkLoadExt(vulkan()->instance(), vkDestroyDebugUtilsMessengerEXT);
+
+  VkDebugUtilsMessengerCreateInfoEXT msginfo = {
+    .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+    .pNext = nullptr,
+    .flags = 0,
+    .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+    .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+    .pfnUserCallback = debugCallback,
+    .pUserData = nullptr,
+  };
+
+  CheckVKR(vkCreateDebugUtilsMessengerEXT, vulkan()->instance(), &msginfo, nullptr, &debugMessenger);
+}
+
+void VulkanDebug::debugPrintSupportedExtensions() {
+  // Get extension properties.
+  uint32_t extensionCount = 0;
+  CheckVKR(vkEnumerateInstanceExtensionProperties, nullptr, &extensionCount, nullptr);
+  std::vector<VkExtensionProperties> extensions(extensionCount);
+  CheckVKR(vkEnumerateInstanceExtensionProperties, nullptr, &extensionCount, extensions.data());
+  string_t st = "Supported Vulkan Extensions:" + Os::newline() +
+                "Version   Extension" + Os::newline();
+  for (auto ext : extensions) {
+    st += Stz "  [" + std::to_string(ext.specVersion) + "] " + ext.extensionName + Os::newline();
+  }
+  BRLogInfo(st);
+}
 
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*
 // V_ENM_STR($1);
@@ -15,51 +66,31 @@ namespace VG {
 #define V_STC_STR(x, y)                                                                       \
   str += Stz " [" + App::toHex((int)off, true) + "][" + off + "]" + std::string(#y) + "\r\n"; \
   off += sizeof(x::y);
-//
-// string_t VulkanDebug::queueFamilyInfo_toString() {
-//   std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-//   vkGetPhysicalDeviceQueueFamilyProperties(_physicalDevice, &queueFamilyCount, queueFamilies.data());
-//
-//   string_t qf_info = "";
-//   for (int i = 0; i < queueFamilies.size(); ++i) {
-//     auto& queueFamily = queueFamilies[i];
-//
-//     qf_info += Stz "  Queue " + i + Os::newline();
-//     qf_info += Stz "   flags:";
-// #define PRINT_QUEUE_FLAG(x)             \
-//   if (queueFamily.queueFlags & x > 0) { \
-//     qf_info += Stz #x + " ";            \
-//   }
-//     PRINT_QUEUE_FLAG(VK_QUEUE_GRAPHICS_BIT);
-//     PRINT_QUEUE_FLAG(VK_QUEUE_COMPUTE_BIT);
-//     PRINT_QUEUE_FLAG(VK_QUEUE_TRANSFER_BIT);
-//     PRINT_QUEUE_FLAG(VK_QUEUE_SPARSE_BINDING_BIT);
-//     PRINT_QUEUE_FLAG(VK_QUEUE_PROTECTED_BIT);
-//     qf_info += Os::newline();
-//     qf_info += Stz "   queueCount:" + queueFamily.queueCount + Os::newline();
-//     qf_info += Stz "   Image Transfer Granularity: width:" + queueFamily.minImageTransferGranularity.width +
-//                "height:" + queueFamily.minImageTransferGranularity.height +
-//                "depth:" + queueFamily.minImageTransferGranularity.depth + Os::newline();
-//   }
-//
-//   return qf_info;
-// }
-
 int VulkanDebug::SampleCount_ToInt(MSAA c) {
   if (c == MSAA::Disabled) { return 1; }
-  else if (c == MSAA::MS_2_Samples) { return 2; }
-  else if (c == MSAA::MS_4_Samples) { return 4; }
-  else if (c == MSAA::MS_8_Samples) { return 8; }
-  else if (c == MSAA::MS_16_Samples) { return 16; }
-  else if (c == MSAA::MS_32_Samples) { return 32; }
-  else if (c == MSAA::MS_64_Samples) { return 64; }
+  else if (c == MSAA::MS_2_Samples) {
+    return 2;
+  }
+  else if (c == MSAA::MS_4_Samples) {
+    return 4;
+  }
+  else if (c == MSAA::MS_8_Samples) {
+    return 8;
+  }
+  else if (c == MSAA::MS_16_Samples) {
+    return 16;
+  }
+  else if (c == MSAA::MS_32_Samples) {
+    return 32;
+  }
+  else if (c == MSAA::MS_64_Samples) {
+    return 64;
+  }
   else {
     BRThrowException("Invalid or unsupported SampleCount enum '" + std::to_string((int)c) + "'");
   }
- }
+}
 
-
-#pragma region Structure Memory Layouts
 //We could use some kind of file processing gimmick to process all vulkan structures.
 //Perhaps sigtrap the access violations.
 string_t VulkanDebug::VkGraphicsPipelineCreateInfo_toString() {
@@ -102,8 +133,6 @@ string_t VulkanDebug::VkRenderPassBeginInfo_toString() {
 
   return str;
 }
-#pragma endregion
-#pragma region Stringify Methods
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*
 // V_ENM_STR($1);
 string_t VulkanDebug::OutputMRT_toString(OutputMRT r) {
@@ -530,6 +559,55 @@ string_t VulkanDebug::VkResult_toString(VkResult r) {
   return ret;
 }
 
-#pragma endregion
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                    VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                    void* pUserData) {
+  std::string msghead = "[GPU]";
+  if (messageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
+    msghead += Stz "[G]";
+  }
+  else if (messageType == VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+    msghead += Stz "[V]";
+  }
+  else if (messageType == VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
+    msghead += Stz "[P]";
+  }
+  else {
+    msghead += Stz "[?]";
+  }
+
+  std::string msg = "";
+  if (pCallbackData != nullptr) {
+    msg = std::string(pCallbackData->pMessage);
+  }
+
+  if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+    msghead += Stz "[V]";
+    msghead += Stz ":";
+    BRLogInfo(msghead + msg);
+  }
+  else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+    msghead += Stz "[I]";
+    msghead += Stz ":";
+    BRLogInfo(msghead + msg);
+  }
+  else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+    msghead += Stz "[W]";
+    msghead += Stz ":";
+    BRLogWarn(msghead + msg);
+  }
+  else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+    msghead += Stz "[E]";
+    msghead += Stz ":";
+    BRLogError(msghead + msg);
+  }
+  else {
+    msghead += Stz "[?]";
+    msghead += Stz ":";
+    BRLogWarn(msghead + msg);
+  }
+  return VK_FALSE;
+}
 
 }  // namespace VG

@@ -1,9 +1,15 @@
-**HUGE TODO** we have duplicate ImageView sfor attachments
-//Check whether Framebuffer::init createImageView can be removed
-// we may just be able to use texture image view
+
+
+
+**TODO: Rendertexture is shared among frames you would need one per frame.
+
+**TODO
+validate that resolve layout locations are correct
+
+** RTT is broken
+** Muultipass rendering is broken
 
 ** TDOO: test rendertexture needs to be used for the default attachment. .. so fix this.. 
-** implement resolve FBO's 
 
 1 TODO: Test out different multisample for RenderTexture and RenderTarget  Make sure it faails (see (3))
 2 TODO: use a std::map and switch Rendertexture based on multisample - don't supply multisample here.

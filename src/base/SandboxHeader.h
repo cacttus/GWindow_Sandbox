@@ -121,6 +121,7 @@ static void log_log(const std::string& str) {
 #define BRLogInfo(xx) VG::log_log(Stz xx)
 #define BRLogError(xx) BRLogInfo(Stz "Error:" + xx)
 #define BRLogErrorOnce(xx) BRLogError(Stz "Error:" + xx)
+#define BRLogErrorCycle(xx) BRLogError(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogWarnOnce(xx) BRLogWarn(xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
@@ -315,6 +316,7 @@ public:
   unsigned char* _data = nullptr;
   std::size_t data_len_bytes = 0;
   
+  string_t _name = "unset";
   BR2::usize2 _size{ 0, 0 };
   ImageFormat _format = ImageFormat::RGBA_32BIT;
 

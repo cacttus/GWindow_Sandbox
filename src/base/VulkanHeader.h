@@ -16,13 +16,23 @@ namespace VG {
 
 /////////////////////////////////////////////////////////////////////////////////
 //Macros
-//Validate a Vk Result.
 #define CheckVKR(fname_, ...)                     \
   do {                                            \
     VkResult res__ = (fname_(__VA_ARGS__));       \
     vulkan()->validateVkResult(res__, (#fname_)); \
   } while (0)
-
+#define CheckVKRV(fname_, ...)              \
+  do {                                      \
+    VkResult res__ = (fname_(__VA_ARGS__)); \
+    validateVkResult(res__, (#fname_));     \
+  } while (0)
+#define VkLoadExt(_i, _v)                          \
+  do {                                             \
+    _v = (PFN_##_v)vkGetInstanceProcAddr(_i, #_v); \
+    if (_v == nullptr) {                           \
+      BRLogError("Could not find " + #_v);         \
+    }                                              \
+  } while (0)
 //Find Vk Extension
 #define VkExtFn(_vkFn) PFN_##_vkFn _vkFn = nullptr;
 
@@ -76,6 +86,9 @@ enum class DescriptorFunction {
   ViewProjMatrixUBO,
   InstnaceMatrixUBO,
 };
+enum class FramebufferBlendMode {
+  Global, Independent
+};
 enum class BlendFunc {
   Disabled,
   AlphaBlend
@@ -83,8 +96,7 @@ enum class BlendFunc {
 enum class FBOType {
   Undefined,
   Color,
-  Depth,
-  ColorResolve
+  Depth
 };
 enum class OutputMRT {
   RT_Undefined,
@@ -105,7 +117,6 @@ enum class OutputMRT {
   RT_Custom7,
   RT_Custom8,
   RT_Custom9,
-  RT_ColorResolve,//There is only one of these because its used for the visible image.
   RT_Enum_Count,
 };
 enum class CompareOp {
@@ -145,12 +156,17 @@ enum class TextureType {
   ColorAttachment,
   SwapchainImage
 };
+enum SamplerType {
+  None,
+  Sampled
+};
 /////////////////////////////////////////////////////////////////////////////////
 //FWD
 
 //Vulakn
 class Vulkan;
 class VulkanObject;
+class VulkanDebug;
 class VulkanDeviceBuffer;
 class VulkanBuffer;
 class Sampler;
