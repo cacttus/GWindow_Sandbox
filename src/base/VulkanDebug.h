@@ -37,11 +37,18 @@ public:
   void debugPrintSupportedExtensions();
 
 private:
+  void createDebugMessenger();
+  void createDebugReport();
+
   bool _bEnableValidationLayers = false;
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
   VkExtFn(vkDestroyDebugUtilsMessengerEXT);
-  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
-  VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+  VkExtFn(vkCreateDebugReportCallbackEXT);
+  VkExtFn(vkDestroyDebugReportCallbackEXT);
+
+  
+  VkDebugUtilsMessengerEXT _debugMessenger = VK_NULL_HANDLE;
+  VkDebugReportCallbackEXT _debugReporter = VK_NULL_HANDLE;
 
 };
 

@@ -53,7 +53,6 @@ public:
   void errorExit(const string_t&);
   bool extensionEnabled(const string_t& in_ext);
   VkFormat findDepthFormat();
-  uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
   VkCommandBuffer beginOneTimeGraphicsCommands();
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer);
   std::shared_ptr<Swapchain> swapchain();

@@ -25,8 +25,8 @@ public:
   }
 
 private:
-  double accum=0;
-  double divisor=0;
+  double accum = 0;
+  double divisor = 0;
 
   uint64_t _last = 0;
   uint64_t _tmr = 0;
@@ -34,10 +34,9 @@ private:
   uint64_t _iFrame = 0;  //Current frame number
 };
 
-
 #pragma region GameDummy
 
-//A dummy game with meshes &c to test command buffer rendering
+//A dummy game with meshes &c to test command getVkBuffer rendering
 class GameDummy {
 public:
   std::shared_ptr<Mesh> _mesh1 = nullptr;
@@ -60,31 +59,26 @@ public:
   virtual ~Mesh() override;
 
   std::shared_ptr<MaterialDummy>& material() { return _material; }
-   
+  std::shared_ptr<VulkanBuffer> vertexBuffer() { return _vertexBuffer; }
+  std::shared_ptr<VulkanBuffer> indexBuffer() { return _indexBuffer; }
+  IndexType indexType() { return _indexType; }
+
   uint32_t maxRenderInstances();
   void makeBox();
   void makePlane();
-  void drawIndexed(std::shared_ptr<CommandBuffer> cmd, uint32_t instanceCount);
-  void bindBuffers(std::shared_ptr<CommandBuffer> cmd);
+  void recopyData();
 
 private:
   std::vector<v_v3c4x2n3> _boxVerts;
   std::vector<uint32_t> _boxInds;
-
-
   std::shared_ptr<VulkanBuffer> _vertexBuffer = nullptr;
   std::shared_ptr<VulkanBuffer> _indexBuffer = nullptr;
-
   RenderMode _renderMode = RenderMode::TriangleList;
   IndexType _indexType = IndexType::IndexTypeUint32;
-
   uint32_t _maxRenderInstances;
-
   VkVertexInputBindingDescription _bindingDesc;
   std::vector<VkVertexInputAttributeDescription> _attribDesc;
-
   std::shared_ptr<MaterialDummy> _material = nullptr;
-
   std::shared_ptr<BR2::VertexFormat> _vertexFormat;
 };
 
@@ -93,8 +87,6 @@ public:
   std::shared_ptr<TextureImage> _texture = nullptr;
 };
 
-}//ns Game
-
-
+}  // namespace VG
 
 #endif

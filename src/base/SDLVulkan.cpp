@@ -18,6 +18,8 @@ static MSAA g_multisample = MSAA::Disabled;
 bool g_test_img1 = true;
 VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
 bool g_lighting = true;
+float g_spec_hard = 20;     //exponent
+float g_spec_intensity = 1;  //mix value
 
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
@@ -45,7 +47,7 @@ public:
 
   uint32_t _numInstances = 25;
   uint32_t _numLights = 3;
-  uint32_t _maxLightsArray = 10;
+  uint32_t _maxLights = 10;  // **TODO: we can automatically set this via the shader's metadata
   FpsMeter _fpsMeter_Render;
   FpsMeter _fpsMeter_Update;
 
@@ -208,10 +210,10 @@ public:
     };
   }
   void createUniformBuffers() {
-    _pShader->createUBO(c_viewProjUBO, "_uboViewProj");
-    _pShader->createUBO(c_instanceUBO_1, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
-    _pShader->createUBO(c_instanceUBO_2, "_uboInstanceData", sizeof(InstanceUBOData) * _numInstances);
-    _pShader->createUBO(c_lightsUBO, "_uboLights", sizeof(GPULight) * _numLights);
+    _pShader->createUBO(c_viewProjUBO, "_uboViewProj", sizeof(ViewProjUBOData), 1);
+    _pShader->createUBO(c_instanceUBO_1, "_uboInstanceData", sizeof(InstanceUBOData), _numInstances);
+    _pShader->createUBO(c_instanceUBO_2, "_uboInstanceData", sizeof(InstanceUBOData), _numInstances);
+    _pShader->createUBO(c_lightsUBO, "_uboLights", sizeof(GPULight), _maxLights);
   }
   float pingpong_t01(int durationMs = 5000) {
     //returns the [0,1] pingpong time.
@@ -244,30 +246,34 @@ public:
   std::vector<float> rots_delta2;
   std::vector<float> rots_ini1;
   std::vector<float> rots_ini2;
-  void tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini) {
+  std::vector<BR2::vec3> axes1;
+  std::vector<BR2::vec3> axes2;
+  void tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, std::vector<BR2::vec3>& axes_ini) {
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
         rots_delta.push_back((float)rnd(-M_2PI, M_2PI));  //rotation delta.
         rots_ini.push_back((float)rnd(-M_2PI, M_2PI));    // Initial rotation, and also the value of current rotation.
+        axes_ini.push_back( BR2::vec3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)) );  // Initial rotation, and also the value of current rotation.
+        axes_ini[axes_ini.size() - 1].normalize();
       }
     }
   }
   float campos_d = 10;
+  BR2::vec3 campos = { campos_d, campos_d, campos_d };
   void updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
     //Push constants are faster.
     float t01 = pingpong_t01(10000);
 
-    float d = campos_d;
-    BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 wwf = (lookAt - campos);
     BR2::vec3 trans = campos + wwf + (lookAt - campos - wwf) * t01;
     ViewProjUBOData ub = {
-      .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 0.0f, 1.0f)),
-      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->windowSize().width, -(float)_vulkan->swapchain()->windowSize().height, 0.1f, 100.0f)
+      .view = BR2::mat4::getLookAt(campos, lookAt, BR2::vec3(0.0f, 1.0f, 0.0f)),
+      .proj = BR2::mat4::projection((float)BR2::MathUtils::radians(45.0f), (float)_vulkan->swapchain()->windowSize().width, -(float)_vulkan->swapchain()->windowSize().height, 0.1f, 100.0f),
+      .camPos = campos
     };
-    viewProjBuffer->writeData((void*)&ub, 0, sizeof(ViewProjUBOData));
+    viewProjBuffer->writeData((void*)&ub, 1);
   }
   std::vector<GPULight> lights;
   std::vector<float> lights_speed;
@@ -275,7 +281,7 @@ public:
 
   void updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
     //Must be lessthan or equal the shader array
-    if (lights.size() == 0) { 
+    if (lights.size() == 0) {
       for (size_t i = 0; i < _numLights; ++i) {
         lights.push_back(GPULight());
         lights[lights.size() - 1].pos = BR2::vec3(0, 0, 0);
@@ -284,13 +290,16 @@ public:
         if (i == 1) { lights[lights.size() - 1].color.construct(0, 1, 0); }
         if (i == 2) { lights[lights.size() - 1].color.construct(0, 0, 1); }
         //= BR2::vec3(std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.));
-        lights[lights.size() - 1].radius = 20+fr01()*10;
+        lights[lights.size() - 1].radius = 20 + fr01() * 10;
         lights[lights.size() - 1].rotation = fr01() * 6.28;
+        lights[lights.size() - 1].specColor = BR2::vec3(1, 1, 1);
+        lights[lights.size() - 1].specHardness = 1.0f;
+        lights[lights.size() - 1].specIntensity = 1.0f;
         lights_speed.push_back(2 + fr01() * 8);
-        lights_r.push_back(2 + fr01()*10);
-      } 
+        lights_r.push_back(2 + fr01() * 10);
+      }
       //Disable the rest
-      for (size_t i = _numLights; i < _maxLightsArray; ++i) {
+      for (size_t i = _numLights; i < _maxLights; ++i) {
         lights.push_back(GPULight());
         lights[lights.size() - 1].radius = 0;  //disable
         lights_speed.push_back(1);
@@ -302,23 +311,24 @@ public:
       auto& light = lights[ilight];
       if (light.radius > 0) {
         light.rotation = fmodf(light.rotation + 6.28f * (dt / lights_speed[ilight]), 6.28f);
-        light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20, sinf(light.rotation) * lights_r[ilight]);
+        light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20,  sinf(light.rotation) * lights_r[ilight]);
+        light.specHardness = g_spec_hard;
+        light.specIntensity = g_spec_intensity;
       }
     }
     auto s = sizeof(lights[0]);
     auto sz = sizeof(lights[0]) * lights.size();
-    lightsBuffer->writeData(lights.data(), 0, sz);
+    lightsBuffer->writeData(lights.data(), lights.size());
   }
-  void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt) {
+  
+  void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes) {
     float t01 = pingpong_t01(10000);
     float t02 = pingpong_t01(10000);
-    tryInitializeOffsets(offsets, rots_delta, rots_ini);
+    tryInitializeOffsets(offsets, rots_delta, rots_ini, axes);
 
     //This slowdown (e.g. 2500fps -> 80fps) is my code mat4 multiplies.
     // We could dispatch the "instance update" and also any additional physics into a compute shader to get the result more quickily.
     // Will we really have 1000's of dynamic instances updating per frame? Probably not, but it's fun to think about.
-    float d = campos_d;
-    BR2::vec3 campos = { d, d, d };
     BR2::vec3 lookAt = { 0, 0, 0 };
     BR2::vec3 wwf = (lookAt - campos) * 0.1f;
     BR2::vec3 trans(0, 0, 0);                 // campos + wwf + (lookAt - campos - wwf) * t01;
@@ -328,11 +338,11 @@ public:
       if (i < offsets.size()) {
         rots_ini[i] += rots_delta[i] * dt;
         mats[i] = BR2::mat4::translation(origin) *
-                  BR2::mat4::rotation(rots_ini[i], BR2::vec3(0, 0, 1)) *
+                  BR2::mat4::rotation(rots_ini[i], axes[i]) *
                   BR2::mat4::translation(trans + offsets[i]);
       }
     }
-    instanceBuffer->writeData(mats.data(), 0, sizeof(mats[0]) * mats.size());
+    instanceBuffer->writeData(mats.data(), mats.size());
     // ub.proj._m22 *= -1;
   }
 
@@ -366,8 +376,8 @@ public:
     auto lightsubo = _pShader->getUBO(c_lightsUBO, frame);
     updateViewProjUniformBuffer(viewProj);
     //  if (_fpsMeter_Update.frameMod(50)) {
-    updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt);
-    updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt);
+    updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt, axes1);
+    updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
     updateLights(lightsubo, dt);
     // }
     if (test_render_texture == nullptr) {
@@ -409,7 +419,13 @@ public:
       //Testing Polygon Mode
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
       auto topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-      //Testing multiple Render Passes.
+      
+      // Tests
+      // 0 Test begin/end without draw commands
+      // 3. 2 passes with different geometry & textures.
+      // 2. 2nd pass same fbo without clearing (rnder to same fbo)
+      // 3+RTT. Rendering to texture, then using texture on mesh.
+      // 4 simple pass
 
       //if x=0 test a simple pass
       //otherwise test the complex pass.
@@ -436,8 +452,6 @@ public:
         if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
           auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
           if (g_use_rtt) {
-            //The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.
-            //Fix this.
             pass1->setOutput("test_render_texture", OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::AlphaBlend, true, c_r, c_g, c_b);
           }
           else {
@@ -445,6 +459,7 @@ public:
             pass1->setOutput(OutputDescription::getColorDF(nullptr, true, c_r, c_g, c_b));
           }
           pass1->setOutput(OutputDescription::getDepthDF(true));
+
           if (_pShader->beginRenderPass(cmd, pass1)) {
             if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
               pass1_success = true;
@@ -454,7 +469,7 @@ public:
 
                 //white face Smiley
                 _pShader->bindSampler("_ufTexture0", _testTexture1);
-                _pShader->bindUBO("_uboInstanceData", inst2);
+                _pShader->bindUBO("_uboInstanceData", inst1);
                 _pShader->bindUBO("_uboLights", lightsubo);
                 _pShader->bindDescriptors(cmd);
                 _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
@@ -466,8 +481,9 @@ public:
         }
 
         if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
-          //black face Smiley
-          auto tex = g_use_rtt ? test_render_texture->texture(g_multisample, frame->frameIndex()) : _testTexture2;
+          //black Smiley
+          auto tex = g_use_rtt ? test_render_texture->texture(MSAA::Disabled, frame->frameIndex()) : _testTexture2;
+
           auto pass2 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
 
           if (pass1_success) {
@@ -486,7 +502,7 @@ public:
 
               //black face smiley
               _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
-              _pShader->bindUBO("_uboInstanceData", inst1);
+              _pShader->bindUBO("_uboInstanceData", inst2);
               _pShader->bindUBO("_uboLights", lightsubo);
               _pShader->bindDescriptors(cmd);
               _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
@@ -588,8 +604,52 @@ void SDLVulkan::init() {
   }
 }
 
+bool fueq(float x, float y, float e = 0.0001) {
+  return (x - e) <= y && (x + e) >= y;
+}
+void cycleValue(float& value, const std::vector<float>& values) {
+  if (fueq(value, values[values.size() - 1])) {
+    value = values[0];
+  }
+  else {
+    for (size_t i = 0; i < values.size() - 1; ++i) {
+      if (fueq(value, values[i])) {
+        value = values[i + 1];
+        break;
+      }
+    }
+  }
+}
+
+bool mouse_down = false;
+BR2::vec2 last_mouse_pos{ 0, 0 };
+float mouse_wheel = 0;
+
+float cam_rot = 0;
 bool SDLVulkan::doInput() {
   SDL_Event event;
+
+  mouse_wheel = 0;
+  //Rotate
+  int dx, dy;
+  SDL_GetMouseState(&dx, &dy);
+  BR2::vec2 p{ (float)dx, (float)dy };
+  if (mouse_down) {
+    BR2::vec2 delta = p - last_mouse_pos;
+    BR2::urect2 r = _pInt->getWindowDims();
+    float x = -delta.x / 300; 
+    if (x != 0) {
+      float delta_rot = M_2PI * x;
+      float zxradius = sqrt(_pInt->campos.x * _pInt->campos.x + _pInt->campos.z * _pInt->campos.z);
+      cam_rot += delta_rot;
+      cam_rot = fmodf(cam_rot, M_2PI);
+
+      _pInt->campos.x = cos(cam_rot) * zxradius;
+      _pInt->campos.z = sin(cam_rot) * zxradius;
+    }
+  }
+  last_mouse_pos = p;
+
   while (SDL_PollEvent(&event)) {
     if (event.type == SDL_QUIT) {
       return true;
@@ -601,12 +661,33 @@ bool SDLVulkan::doInput() {
         break;
       }
     }
+    else if (event.type == SDL_MOUSEMOTION) {
+    }
+    else if (event.type == SDL_MOUSEWHEEL) {
+      if (event.wheel.y != 0) {
+        mouse_wheel = std::min(10, std::max(-10, event.wheel.y));
+
+        auto n = _pInt->campos.normalized() * -1.;
+        if (_pInt->campos.length() + (n * mouse_wheel).length() > 2) {
+          _pInt->campos += n * mouse_wheel;
+        }
+        if (_pInt->campos.length() < 2) {
+          _pInt->campos = n * -2.;
+        }
+      }
+    }
+    else if (event.type == SDL_MOUSEBUTTONDOWN) {
+      mouse_down = true;
+    }
+    else if (event.type == SDL_MOUSEBUTTONUP) {
+      mouse_down = false;
+    }
     else if (event.type == SDL_KEYDOWN) {
       if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
         return true;
         break;
       }
-      else if (event.key.keysym.scancode == SDL_SCANCODE_0) {
+      else if (event.key.keysym.scancode == SDL_SCANCODE_1) {
         //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
         //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
         if (g_mipmap_mode == MipmapMode::Disabled) {
@@ -621,7 +702,7 @@ bool SDLVulkan::doInput() {
         _pInt->createTextureImages();
         break;
       }
-      else if (event.key.keysym.scancode == SDL_SCANCODE_1) {
+      else if (event.key.keysym.scancode == SDL_SCANCODE_2) {
         //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
         //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
         if (g_min_filter == TexFilter::Nearest) {
@@ -636,7 +717,7 @@ bool SDLVulkan::doInput() {
         _pInt->createTextureImages();
         break;
       }
-      else if (event.key.keysym.scancode == SDL_SCANCODE_2) {
+      else if (event.key.keysym.scancode == SDL_SCANCODE_3) {
         //g_mipmap_mode = (MipmapMode)(((int)g_mipmap_mode + 1) % ((int)MipmapMode::MipmapMode_Count));
         //TextureImage::testCycleFilters(g_min_filter, g_mag_filter, g_mipmap_mode);
         if (g_mag_filter == TexFilter::Nearest) {
@@ -649,6 +730,20 @@ bool SDLVulkan::doInput() {
           g_mag_filter = TexFilter::Nearest;
         }
         _pInt->createTextureImages();
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_4) {
+        cycleValue(g_spec_hard, { 0.0, 0.05, 0.5, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200, 400, 800, 1600, 3200 });
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_5) {
+        cycleValue(g_spec_intensity, { 0.005, 0.05, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0 });
+        break;
+      }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_8) {
+        _pInt->_game->_mesh1->recopyData();
+        _pInt->_game->_mesh2->recopyData();
+
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
@@ -731,18 +826,20 @@ void SDLVulkan::renderLoop() {
         string_t zmag_f = (g_mag_filter == TexFilter::Linear) ? ("L") : ((g_mag_filter == TexFilter::Nearest) ? ("N") : ((g_mag_filter == TexFilter::Cubic) ? ("C") : ("Error")));
 
         string_t fps = "FPS(update=" + fp_upd + "fps,render=" + fp_r + std::string("fps") + std::string(",frame:") + std::to_string(_pInt->g_iFrameNumber) + ")";
-        string_t mip_f = " 0=TMip(" + zmmip_mode + ")";
-        string_t min_f = " 1=TMinf(" + zmin_f + ")";
-        string_t mag_f = " 2=TMagf(" + zmag_f + ")";
+        string_t mip_f = " 1=TMip(" + zmmip_mode + ")";
+        string_t min_f = " 2=TMinf(" + zmin_f + ")";
+        string_t mag_f = " 3=TMagf(" + zmag_f + ")";
+        string_t specg = " 4=specH(" + std::to_string(g_spec_hard) + ")";
+        string_t speci = " 5=specI(" + std::to_string(g_spec_intensity) + ")";
         string_t culm = " F2=Cull(" + std::to_string((int)g_cullmode) + ")";
         string_t line = " F3=Line(" + std::to_string((int)g_poly_line) + ")";
         string_t rtt = " F4=RTT(" + std::to_string((int)g_use_rtt) + ")";
         string_t pass = " F8=pass(" + std::to_string(g_pass_test_idx) + ")";
         string_t aniso = " F9=AF(" + std::to_string(g_anisotropy) + ")";
-        string_t msaa = " F10=MSAA(" + std::to_string((int)g_multisample) + ")";
+        string_t msaa = " F10=MSAA(x" + std::to_string((int)TextureImage::msaa_to_int(g_multisample)) + ")";
         string_t img = " F11=img";
 
-        string_t out = fps + mip_f + min_f + mag_f + culm + line + rtt + pass + aniso + msaa + img;
+        string_t out = fps + mip_f + min_f + mag_f + specg + speci + culm + line + rtt + pass + aniso + msaa + img;
 
         SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
       }

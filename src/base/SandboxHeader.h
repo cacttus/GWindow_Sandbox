@@ -419,7 +419,7 @@ public:
   bool _fullscreen = false;
   bool _show = true;  // Show after creating
   bool _forceAspectRatio =
-    false;  // Forces the window buffer to be the same aspect as the screen.
+    false;  // Forces the window getVkBuffer to be the same aspect as the screen.
   std::shared_ptr<GraphicsWindow> _parent = nullptr;
   GraphicsWindowCreateParameters(
     const string_t& title, int32_t x, int32_t y, int32_t width,

@@ -29,9 +29,6 @@ namespace VG {
 #define VkLoadExt(_i, _v)                          \
   do {                                             \
     _v = (PFN_##_v)vkGetInstanceProcAddr(_i, #_v); \
-    if (_v == nullptr) {                           \
-      BRLogError("Could not find " + #_v);         \
-    }                                              \
   } while (0)
 //Find Vk Extension
 #define VkExtFn(_vkFn) PFN_##_vkFn _vkFn = nullptr;
@@ -78,7 +75,8 @@ enum class CommandBufferState {
   Begin,
   End,
   BeginPass,
-  EndPass
+  EndPass,
+  Submit
 };
 enum class DescriptorFunction {
   Unset,
@@ -207,8 +205,12 @@ class GameDummy;
 
 struct ViewProjUBOData { 
   //alignas(16) BR2::vec2 foo;
-  alignas(16) BR2::mat4 view;
-  alignas(16) BR2::mat4 proj;
+  //alignas(16) BR2::mat4 view;
+  //alignas(16) BR2::mat4 proj;
+  BR2::mat4 view;
+  BR2::mat4 proj;
+  BR2::vec3 camPos;
+  float pad;
 };
 struct InstanceUBOData { 
   alignas(16) BR2::mat4 model;
@@ -218,6 +220,10 @@ struct GPULight {
   float radius;
   BR2::vec3 color;
   float rotation;
+  BR2::vec3 specColor;
+  float specIntensity;
+  BR2::vec3 pad;
+  float specHardness;
 };
 class InstanceUBOClassData {
   uint32_t _maxInstances = 1;  //The maximum instances specified in the UBO
@@ -267,11 +273,11 @@ protected:
     Recursive Preprocessor
       - Deferred expression
       - Disabling Context
-    Sparse buffer binding
+    Sparse getVkBuffer binding
       - Buffer is physically allocated in multiple separate chunks.
-      - This may be good for allocating buffer pools as pools are pretty much a requirement.
+      - This may be good for allocating getVkBuffer pools as pools are pretty much a requirement.
     Descriptor sets vs descriptor pools.
-    *Indirect functions - Parameters that would be passed are read by a buffer (UBO) during execution.
+    *Indirect functions - Parameters that would be passed are read by a getVkBuffer (UBO) during execution.
     Tessellation is performed via subdivision of concentric triangles of the input triangles.
     oversampling / undersampling = bilinear filtering / anisotropic filtering
   Command Buffers vs Command pools

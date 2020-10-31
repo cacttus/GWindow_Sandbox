@@ -1,19 +1,12 @@
 
+TODO: pass->cullMode(CullMode::Front)
+      pass->polygonMode(PolygonMode::Fill)
+      pass->setAlpha(BlendState::AlphaBlend)
 
-
-**TODO: Rendertexture is shared among frames you would need one per frame.
-
-**TODO
-validate that resolve layout locations are correct
+TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.Fix this.
 
 ** RTT is broken
 ** Muultipass rendering is broken
-
-** TDOO: test rendertexture needs to be used for the default attachment. .. so fix this.. 
-
-1 TODO: Test out different multisample for RenderTexture and RenderTarget  Make sure it faails (see (3))
-2 TODO: use a std::map and switch Rendertexture based on multisample - don't supply multisample here.
-3 TODO: make sure that all RenderTextures match the FBO multisample.
 
 TODO: sample rate shading.
   VkPhysicalDeviceFeatures sampleRateShading - tells us if it's enabled.

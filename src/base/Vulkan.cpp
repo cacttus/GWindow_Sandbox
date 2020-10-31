@@ -123,6 +123,7 @@ std::vector<const char*> Vulkan::getRequiredExtensionNames(SDL_Window* win) {
 
   if (_bEnableValidationLayers) {
     extensionNames.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    extensionNames.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
   }
   return extensionNames;
 }
@@ -485,18 +486,7 @@ VkFormat Vulkan::findSupportedFormat(const std::vector<VkFormat>& candidates, Vk
 
   throw std::runtime_error("failed to find supported format!");
 }
-uint32_t Vulkan::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-  VkPhysicalDeviceMemoryProperties props;
-  vkGetPhysicalDeviceMemoryProperties(physicalDevice(), &props);
 
-  for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
-    if (typeFilter & (1 << i) && (props.memoryTypes[i].propertyFlags & properties) == properties) {
-      return i;
-    }
-  }
-  throw std::runtime_error("Failed to find valid memory type for vt buffer.");
-  return 0;
-}
 VkCommandBuffer Vulkan::beginOneTimeGraphicsCommands() {
   VkCommandBufferAllocateInfo allocInfo = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,  //VkStructureType

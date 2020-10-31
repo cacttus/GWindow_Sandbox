@@ -1796,12 +1796,12 @@ static SpvReflectResult ParseDescriptorBindings(Parser* p_parser, SpvReflectShad
     p_descriptor->type_description = p_type;
 
     // If this is in the StorageBuffer storage class, it's for sure a storage
-    // buffer descriptor. We need to handle this case earlier because in SPIR-V
-    // there are two ways to indicate a storage buffer:
+    // getVkBuffer descriptor. We need to handle this case earlier because in SPIR-V
+    // there are two ways to indicate a storage getVkBuffer:
     // 1) Uniform storage class + BufferBlock decoration, or
     // 2) StorageBuffer storage class + Buffer decoration.
     // The 1) way is deprecated since SPIR-V v1.3. But the Buffer decoration is
-    // also used together with Uniform storage class to mean uniform buffer..
+    // also used together with Uniform storage class to mean uniform getVkBuffer..
     // We'll handle the pre-v1.3 cases in ParseDescriptorType().
     if (pointer_storage_class == SpvStorageClassStorageBuffer) {
       p_descriptor->descriptor_type = SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1952,7 +1952,7 @@ static SpvReflectResult ParseUAVCounterBindings(SpvReflectShaderModule* p_module
     }
 
     SpvReflectDescriptorBinding* p_counter_descriptor = NULL;
-    // Use UAV counter buffer id if present...
+    // Use UAV counter getVkBuffer id if present...
     if (p_descriptor->uav_counter_id != UINT32_MAX) {
       for (uint32_t counter_descriptor_index = 0; counter_descriptor_index < p_module->descriptor_binding_count; ++counter_descriptor_index) {
         SpvReflectDescriptorBinding* p_test_counter_descriptor = &(p_module->descriptor_bindings[counter_descriptor_index]);
