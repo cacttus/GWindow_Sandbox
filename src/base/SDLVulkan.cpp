@@ -487,8 +487,11 @@ public:
           auto pass2 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
 
           if (pass1_success) {
-            pass2->setOutput(OutputDescription::getColorDF(nullptr, g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
-            pass2->setOutput(OutputDescription::getDepthDF(g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt)));
+            //3 && rtt - clear - we're going to draw the texture from last frame - testing rendertextures
+            //3 && !rtt - don't clear - we're going to attempt a second pass on the same data.
+            bool clear = g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt);
+            pass2->setOutput(OutputDescription::getColorDF(nullptr, clear));
+            pass2->setOutput(OutputDescription::getDepthDF(clear));
           }
           else {
             pass2->setOutput(OutputDescription::getColorDF());
@@ -746,6 +749,11 @@ bool SDLVulkan::doInput() {
 
         break;
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_9) {
+        _pInt->vulkan()->swapchain()->copyImageFlag();
+
+        break;
+      }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
         if (g_cullmode == VK_CULL_MODE_BACK_BIT) {
           g_cullmode = VK_CULL_MODE_FRONT_BIT;
@@ -831,6 +839,7 @@ void SDLVulkan::renderLoop() {
         string_t mag_f = " 3=TMagf(" + zmag_f + ")";
         string_t specg = " 4=specH(" + std::to_string(g_spec_hard) + ")";
         string_t speci = " 5=specI(" + std::to_string(g_spec_intensity) + ")";
+        string_t savimg = " 9=save";
         string_t culm = " F2=Cull(" + std::to_string((int)g_cullmode) + ")";
         string_t line = " F3=Line(" + std::to_string((int)g_poly_line) + ")";
         string_t rtt = " F4=RTT(" + std::to_string((int)g_use_rtt) + ")";
@@ -839,7 +848,7 @@ void SDLVulkan::renderLoop() {
         string_t msaa = " F10=MSAA(x" + std::to_string((int)TextureImage::msaa_to_int(g_multisample)) + ")";
         string_t img = " F11=img";
 
-        string_t out = fps + mip_f + min_f + mag_f + specg + speci + culm + line + rtt + pass + aniso + msaa + img;
+        string_t out = fps + mip_f + min_f + mag_f + specg + speci + savimg + culm + line + rtt + pass + aniso + msaa + img;
 
         SDL_SetWindowTitle(_pInt->_pSDLWindow, out.c_str());
       }

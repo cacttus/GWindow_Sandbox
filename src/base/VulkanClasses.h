@@ -38,7 +38,8 @@ public:
   size_t itemSize() { return _itemSize; }
   size_t itemCount() { return _itemCount; }
 
-  void copy_host(void* data, size_t copy_count_items, size_t data_offset_items, size_t device_offset_item);
+  void copy_from(void* src_buf, size_t copy_count_items, size_t data_offset_items, size_t device_offset_item);
+  void copy_to(void* dst_buf, size_t copy_count_items, size_t data_offset_items, size_t buffer_offset_items);
   void copy_device(std::shared_ptr<VulkanDeviceBuffer> host_buf, size_t item_copyCount, size_t itemOffset_Host, size_t itemOffset_Gpu);
   static uint32_t findMemoryType(VkPhysicalDevice d, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
@@ -126,10 +127,10 @@ public:
   static void testCycleFilters(TexFilter& g_min_filter, TexFilter& g_mag_filter, MipmapMode& g_mipmap_mode);
   void generateMipmaps(std::shared_ptr<CommandBuffer> buf = nullptr);
   static uint32_t msaa_to_int(MSAA s);
+  std::shared_ptr<Img32> copyImageFromGPU();
 
 protected:
   string_t _name = "*unset";
-  std::shared_ptr<VulkanDeviceBuffer> _host = nullptr;
   TextureType _type = TextureType::Unset;
   std::shared_ptr<Img32> _bitmap = nullptr;
   VkImage _image = VK_NULL_HANDLE;  // If this is a VulkanBufferType::Image
@@ -155,7 +156,6 @@ protected:
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
   void copyImageToGPU();
-  void copyBufferToImage();
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
   void flipImage20161206(uint8_t* image, int width, int height);
   VkFilter convertFilter(TexFilter filter, bool cubicSupported);
@@ -169,7 +169,7 @@ class CommandBuffer : public VulkanObject {
 public:
   CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
   virtual ~CommandBuffer() override;
-  
+
   CommandBufferState state() { return _state; }
   VkCommandBuffer getVkCommandBuffer() { return _commandBuffer; }
 
@@ -178,7 +178,9 @@ public:
   bool beginPass();
   void endPass();
   void end();
-  void submit(std::vector<VkPipelineStageFlags> waitStages = {}, std::vector<VkSemaphore> waitSemaphores = {}, std::vector<VkSemaphore> signalSemaphores = {}, VkFence submitFence = VK_NULL_HANDLE, bool waitGPUIdle=false);
+  void submit(std::vector<VkPipelineStageFlags> waitStages = {}, std::vector<VkSemaphore> waitSemaphores = {}, std::vector<VkSemaphore> signalSemaphores = {}, VkFence submitFence = VK_NULL_HANDLE, bool waitGPUIdle = true);
+  void copyBufferToImage(std::shared_ptr<VulkanDeviceBuffer> buf, VkImage img, const BR2::usize2& size);
+  void copyImageToBuffer(std::shared_ptr<TextureImage> image, std::shared_ptr<VulkanDeviceBuffer> buf);
   void blitImage(VkImage srcImg, VkImage dstImg, const BR2::irect2& srcRegion, const BR2::irect2& dstRegion,
                  VkImageLayout srcLayout, VkImageLayout dstLayout, uint32_t srcMipLevel, uint32_t dstMipLevel,
                  VkImageAspectFlagBits aspectFlags, VkFilter filter);
@@ -642,6 +644,7 @@ public:
   Swapchain(std::shared_ptr<Vulkan> v);  //TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
+
   void outOfDate() { _bSwapChainOutOfDate = true; }
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
@@ -656,12 +659,16 @@ public:
   void endFrame();
   void registerShader(std::shared_ptr<PipelineShader> shader);
   std::shared_ptr<RenderTexture> createRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter);
-
+  void copyImageFlag() {
+    _copyImage_Flag = true;
+  }
 private:
   void createSwapChain(const BR2::usize2& window_size);
   void cleanupSwapChain();
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
+
+  bool _copyImage_Flag = false;
 
   FrameState _frameState = FrameState::Unset;
   std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;

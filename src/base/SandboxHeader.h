@@ -123,6 +123,7 @@ static void log_log(const std::string& str) {
 #define BRLogErrorOnce(xx) BRLogError(Stz "Error:" + xx)
 #define BRLogErrorCycle(xx) BRLogError(Stz "Error:" + xx)
 #define BRLogWarn(xx) BRLogInfo(Stz "Warning: " + xx)
+#define BRLogWarnCycle(xx) BRLogInfo(Stz "Warning: " + xx)
 #define BRLogWarnOnce(xx) BRLogWarn(xx)
 #define BRLogDebug(xx) BRLogInfo(Stz "Debug: " + xx)
 #define AssertOrThrow2(x)         \
@@ -368,12 +369,20 @@ public:
   string_t _name = "unset";
   BR2::usize2 _size{ 0, 0 };
   ImageFormat _format = ImageFormat::RGBA_32BIT;
+  VkFormat _vkformat = VK_FORMAT_B8G8R8A8_SRGB;
 
   //TODO: use an internal format, and then use a conversion.
   //TODO: make sure this image is a 32 bit format after loading.
   //TODO: the input fmt for VulkanImage must match the image destination.
   VkFormat format() { return VK_FORMAT_R8G8B8A8_SRGB; }
   const BR2::usize2 size() { return _size; }
+  void save(const char* filename);
+  Img32() {}
+  ~Img32() {
+    if (_data) {
+      delete[] _data;
+    }
+  }
 };
 class Os {
 public:

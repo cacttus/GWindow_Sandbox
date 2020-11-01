@@ -46,7 +46,7 @@ VulkanDeviceBuffer::~VulkanDeviceBuffer() {
   _buffer = VK_NULL_HANDLE;
   _bufferMemory = VK_NULL_HANDLE;
 }
-void VulkanDeviceBuffer::copy_host(void* data, size_t copy_count_items, size_t data_offset_items, size_t buffer_offset_items) {
+void VulkanDeviceBuffer::copy_from(void* src_buf, size_t copy_count_items, size_t data_offset_items, size_t buffer_offset_items) {
   //Copy supplied data to the gpu host-side memory getVkBuffer, this is required for both staged and host-only buffers.
   AssertOrThrow2(_isGpuBuffer == false);
   AssertOrThrow2(copy_count_items + buffer_offset_items <= itemCount());
@@ -60,7 +60,25 @@ void VulkanDeviceBuffer::copy_host(void* data, size_t copy_count_items, size_t d
   void* gpu_data = nullptr;
   CheckVKR(vkMapMemory, vulkan()->device(), _bufferMemory, buffer_offset_bytes, copy_bytes, 0, &gpu_data);
   if (gpu_data) {
-    memcpy(gpu_data, (void*)((char*)data + data_offset_bytes), copy_bytes);
+    memcpy(gpu_data, (void*)((char*)src_buf + data_offset_bytes), copy_bytes);
+  }
+  vkUnmapMemory(vulkan()->device(), _bufferMemory);
+}
+void VulkanDeviceBuffer::copy_to(void* dst_buf, size_t copy_count_items, size_t data_offset_items, size_t buffer_offset_items) {
+  //Copy supplied data to the gpu host-side memory getVkBuffer, this is required for both staged and host-only buffers.
+  AssertOrThrow2(_isGpuBuffer == false);
+  AssertOrThrow2(copy_count_items + buffer_offset_items <= itemCount());
+
+  size_t data_offset_bytes = buffer_offset_items * itemSize();
+  size_t buffer_offset_bytes = data_offset_items * itemSize();
+  size_t copy_bytes = copy_count_items * itemSize();
+
+  AssertOrThrow2(buffer_offset_bytes + copy_bytes <= _byteSize);
+
+  void* gpu_data = nullptr;
+  CheckVKR(vkMapMemory, vulkan()->device(), _bufferMemory, buffer_offset_bytes, copy_bytes, 0, &gpu_data);
+  if (gpu_data) {
+    memcpy((void*)((char*)dst_buf + data_offset_bytes), gpu_data, copy_bytes);
   }
   vkUnmapMemory(vulkan()->device(), _bufferMemory);
 }
@@ -145,7 +163,7 @@ void VulkanBuffer::writeData(void* items, size_t item_count, size_t item_offset)
   if (_bUseStagingBuffer) {
     AssertOrThrow2(_hostBuffer != nullptr);
     AssertOrThrow2(_gpuBuffer != nullptr);
-    _hostBuffer->copy_host(items, item_count, 0, 0);
+    _hostBuffer->copy_from(items, item_count, 0, 0);
     _gpuBuffer->copy_device(_hostBuffer, item_count, 0, 0);
 
     //DELETING HOST BUFFER ** If we decide to dynamically copy vertexes we will need to specify a MemoryType This is a segue into memory pools
@@ -155,7 +173,7 @@ void VulkanBuffer::writeData(void* items, size_t item_count, size_t item_offset)
   else {
     AssertOrThrow2(_hostBuffer != nullptr);
     AssertOrThrow2(_gpuBuffer == nullptr);
-    _hostBuffer->copy_host(items, item_count, 0, 0);
+    _hostBuffer->copy_from(items, item_count, 0, 0);
   }
 }
 std::shared_ptr<VulkanDeviceBuffer> VulkanBuffer::buffer() {
@@ -525,6 +543,7 @@ void TextureImage::generateMipmaps(std::shared_ptr<CommandBuffer> buf) {
                             _filter._mipLevels - 1, VK_IMAGE_ASPECT_COLOR_BIT);
   if (destroyBuf) {
     buf->end();
+    buf->submit({}, {}, {}, 0, true);
   }
 }
 void TextureImage::copyImageToGPU() {
@@ -533,42 +552,55 @@ void TextureImage::copyImageToGPU() {
   }
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
-  _host = std::make_shared<VulkanDeviceBuffer>(vulkan(),
-                                               1,  // 1 byte - TODO - this should be the size of a pixel and pixel count
-                                               _bitmap->data_len_bytes,
-                                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  _host->copy_host(_bitmap->_data, _bitmap->data_len_bytes, 0, 0);
+  auto buf = std::make_shared<VulkanDeviceBuffer>(vulkan(),
+                                                  1,  // 1 byte - TODO - this should be the size of a pixel and pixel count
+                                                  _bitmap->data_len_bytes,
+                                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  buf->copy_from(_bitmap->_data, _bitmap->data_len_bytes, 0, 0);
 
   //Undefined layout will be discard image data.
   transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage();
+  CommandBuffer cmd(vulkan(), nullptr);
+  cmd.begin();
+  cmd.copyBufferToImage(buf, _image, _size);
+  cmd.end();
+  cmd.submit({}, {}, {}, 0, true);
   transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   //Cleanup host getVkBuffer. We are done with it.
-  _host = nullptr;
+  buf = nullptr;
 }
-void TextureImage::copyBufferToImage() {
-  //todo:
-  //GraphicsCommands g
-  //g->copyBufferToImage(..)
+std::shared_ptr<Img32> TextureImage::copyImageFromGPU() {
+  vulkan()->waitIdle();
+  size_t size_bytes = _size.width * _size.height * 4;
+  //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
+  //For loaded images only.
+  auto buf = std::make_shared<VulkanDeviceBuffer>(vulkan(),
+                                                  1,                                  
+                                                  size_bytes,  //We must convert the image to 4 components unsigned byte
+                                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
-  VkBufferImageCopy region = {
-    .bufferOffset = 0,
-    .bufferRowLength = 0,
-    .bufferImageHeight = 0,
-    .imageSubresource = {
-      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-      .mipLevel = 0,
-      .baseArrayLayer = 0,
-      .layerCount = 1,
-    },
-    .imageOffset = { 0, 0, 0 },
-    .imageExtent = { _size.width, _size.height, 1 },
-  };
-  vkCmdCopyBufferToImage(commandBuffer, _host->getVkBuffer(), _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-  vulkan()->endOneTimeGraphicsCommands(commandBuffer);
+  //Undefined layout will be discard image data.
+  //transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  CommandBuffer cmd(vulkan(),nullptr);
+  cmd.begin();
+  cmd.copyImageToBuffer(getThis<TextureImage>(), buf);
+  cmd.end();
+  cmd.submit();
+  //transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  std::shared_ptr<Img32> image = std::make_shared<Img32>();
+  image->_size.width = _size.width;
+  image->_size.height = _size.height;
+  image->_vkformat = _format;
+  image->_data = new unsigned char[size_bytes];
+  image->data_len_bytes = size_bytes;
+  buf->copy_to(image->_data, size_bytes, 0, 0);
+  buf = nullptr;
+
+  return image;
 }
 void TextureImage::transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
   auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
@@ -919,6 +951,10 @@ void CommandBuffer::submit(std::vector<VkPipelineStageFlags> waitStages, std::ve
 
   VkCommandBuffer buf = getVkCommandBuffer();
 
+  if (waitStages.size() == 0 && waitSemaphores.size() == 0 && submitFence == VK_NULL_HANDLE && waitIdle == false) {
+    BRLogWarnCycle("No sync objects specified for CommandBuffer::submit and command waitidle is not set either - random behavior will occur.");
+  }
+
   AssertOrThrow2(waitStages.size() == waitSemaphores.size());  //these correspond.
 
   VkSubmitInfo submitInfo = {
@@ -932,7 +968,7 @@ void CommandBuffer::submit(std::vector<VkPipelineStageFlags> waitStages, std::ve
     .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size()),
     .pSignalSemaphores = signalSemaphores.data(),
   };
-  CheckVKR(vkQueueSubmit, vulkan()->graphicsQueue(), 1, &submitInfo, submitFence);//submitFence is signaled once all buffers complete execution
+  CheckVKR(vkQueueSubmit, vulkan()->graphicsQueue(), 1, &submitInfo, submitFence);  //submitFence is signaled once all buffers complete execution
 
   if (waitIdle) {
     CheckVKR(vkQueueWaitIdle, vulkan()->graphicsQueue());
@@ -1041,6 +1077,44 @@ void CommandBuffer::copyBuffer(VkBuffer from, VkBuffer to, size_t count, size_t 
     .size = count,
   };
   vkCmdCopyBuffer(_commandBuffer, from, to, 1, &copyRegion);
+}
+void CommandBuffer::copyBufferToImage(std::shared_ptr<VulkanDeviceBuffer> buf, VkImage img, const BR2::usize2& size) {
+  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::BeginPass);
+
+  VkBufferImageCopy region = {
+    .bufferOffset = 0,
+    .bufferRowLength = 0,
+    .bufferImageHeight = 0,
+    .imageSubresource = {
+      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .mipLevel = 0,
+      .baseArrayLayer = 0,
+      .layerCount = 1,
+    },
+    .imageOffset = { 0, 0, 0 },
+    .imageExtent = { size.width, size.height, 1 },
+  };
+
+  vkCmdCopyBufferToImage(_commandBuffer, buf->getVkBuffer(), img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
+void CommandBuffer::copyImageToBuffer(std::shared_ptr<TextureImage> image, std::shared_ptr<VulkanDeviceBuffer> buf) {
+  validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::BeginPass);
+
+  VkBufferImageCopy region = {
+    .bufferOffset = 0,
+    .bufferRowLength = 0,
+    .bufferImageHeight = 0,
+    .imageSubresource = {
+      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .mipLevel = 0,
+      .baseArrayLayer = 0,
+      .layerCount = 1,
+    },
+    .imageOffset = { 0, 0, 0 },
+    .imageExtent = { image->imageSize().width, image->imageSize().height, 1 },
+  };
+
+  vkCmdCopyImageToBuffer(_commandBuffer, image->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buf->getVkBuffer(), 1, &region);
 }
 void CommandBuffer::bindMesh(std::shared_ptr<Mesh> mesh) {
   validateState(_state == CommandBufferState::BeginPass);
@@ -3255,14 +3329,13 @@ void RenderFrame::endFrame() {
   CheckVKR(vkResetFences, vulkan()->device(), 1, &_inFlightFence);
 
   AssertOrThrow2(_pCommandBuffer->state() != CommandBufferState::Submit);
-  _pCommandBuffer->submit({ 
-    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT //Wait at the color attachment output
-    }, { 
-      _imageAvailableSemaphore  //Wait for image available.
-    }, {
-      _renderFinishedSemaphore 
-    }, _inFlightFence);
-
+  _pCommandBuffer->submit({
+                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT  //Wait at the color attachment output
+                          },
+                          {
+                            _imageAvailableSemaphore  //Wait for image available.
+                          },
+                          { _renderFinishedSemaphore }, _inFlightFence);
 
   std::vector<VkSwapchainKHR> chains{ _pSwapchain->getVkSwapchain() };
 
@@ -3492,6 +3565,28 @@ void Swapchain::endFrame() {
     return;
   }
   _frames[_currentFrame]->endFrame();
+
+  if (_copyImage_Flag) {
+    string_t err;
+    auto target = this->frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
+    auto img = target->copyImageFromGPU();
+    img->save("out_Final_Result.png");
+    
+    for (int i=0; i<_renderTextures.size(); ++i) {
+      auto tex = _renderTextures[i]->texture(MSAA::Disabled, _currentFrame);
+      if (tex) {
+        auto img = tex->copyImageFromGPU();
+        img->save(std::string("out_RenderTexture" + std::to_string(i) +".png").c_str());
+      }
+      else {
+        Gu::debugBreak();
+      }
+    }
+
+    _copyImage_Flag = false;
+  }
+
+
   _currentFrame = (_currentFrame + 1) % _frames.size();
   _frameState = FrameState::FrameEnd;
 }

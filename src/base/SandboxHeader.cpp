@@ -2,6 +2,20 @@
 #include <sstream>
 
 namespace VG {
+void Img32::save(const char* filepath) {
+  AssertOrThrow2(_data != nullptr && _size.width > 0 && _size.height > 0);
+  unsigned char* imageData = _data;
+  unsigned int w = _size.width;
+  unsigned int h = _size.height;
+  unsigned char* buffer = 0;
+  size_t buffersize = 0;
+  unsigned error = lodepng_encode_memory(&buffer, &buffersize, imageData, w, h, LCT_RGBA, 8);
+  unsigned int ret = lodepng_save_file(buffer, buffersize, filepath);
+  if (ret) {
+    BRLogError("Lodepng returned an error saving file: " + std::to_string(ret));
+    Gu::debugBreak();
+  }
+}
 string_t App::_appRoot = "";
 string_t App::toHex(int value, bool bIncludePrefix) {
   std::stringstream ss;
@@ -138,14 +152,14 @@ std::vector<char> Gu::readFile(const std::string& file) {
 int64_t Gu::getMilliseconds() {
   int64_t ret = 0;
   std::chrono::nanoseconds ns =
-      std::chrono::high_resolution_clock::now().time_since_epoch();
+    std::chrono::high_resolution_clock::now().time_since_epoch();
   ret = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
   return ret / 1000;
 }
 int64_t Gu::getMicroseconds() {
   int64_t ret = 0;
   std::chrono::nanoseconds ns =
-      std::chrono::high_resolution_clock::now().time_since_epoch();
+    std::chrono::high_resolution_clock::now().time_since_epoch();
   ret = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
   return ret;
 }
