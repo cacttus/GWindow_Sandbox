@@ -3611,7 +3611,12 @@ std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(const string_t& na
   _renderTextures.push_back(rt);
   return rt;
 }
-
+std::shared_ptr<Img32> Swapchain::grabImage() {
+  string_t err;
+  auto target = this->frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
+  auto img = target->copyImageFromGPU();
+  return img;
+}
 #pragma endregion
 
 }  // namespace VG

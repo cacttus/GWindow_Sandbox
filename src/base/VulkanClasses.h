@@ -662,6 +662,8 @@ public:
   void copyImageFlag() {
     _copyImage_Flag = true;
   }
+  std::shared_ptr<Img32> grabImage();
+
 private:
   void createSwapChain(const BR2::usize2& window_size);
   void cleanupSwapChain();

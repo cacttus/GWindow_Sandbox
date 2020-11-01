@@ -18,7 +18,7 @@ static MSAA g_multisample = MSAA::Disabled;
 bool g_test_img1 = true;
 VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
 bool g_lighting = true;
-float g_spec_hard = 20;     //exponent
+float g_spec_hard = 20;      //exponent
 float g_spec_intensity = 1;  //mix value
 
 const bool g_wait_fences = false;
@@ -51,9 +51,106 @@ public:
   FpsMeter _fpsMeter_Render;
   FpsMeter _fpsMeter_Update;
 
+  SDL_Window* _pDebugWindow = nullptr;
+  SDL_Surface* _pDebugWindow_Surface = nullptr;
+  SDL_Renderer* _pDebugRenderer = nullptr;
+  SDL_Texture* _pDebugTexture = nullptr;
+  std::shared_ptr<Img32> _debugImageData = nullptr;
 #pragma endregion
 
 #pragma region SDL
+  void makeDebugWindow() {
+    _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    SDLUtils::checkSDLErr();
+
+    _pDebugRenderer = SDL_CreateRenderer(_pDebugWindow, -1, 0);
+    SDLUtils::checkSDLErr();
+
+    _pDebugWindow_Surface = SDL_GetWindowSurface(_pDebugWindow);
+    SDLUtils::checkSDLErr();
+
+    //_pDebugTexture = SDL_CreateTextureFromSurface(_pDebugRenderer, _pDebugWindow_Surface);
+    //SDLUtils::checkSDLErr();
+    _pDebugTexture = SDL_CreateTexture(_pDebugRenderer, SDL_PIXELFORMAT_BGRA32, SDL_TEXTUREACCESS_STREAMING, 500, 500);
+    SDLUtils::checkSDLErr();
+
+    Uint32 fmt;
+    int access, w, h;
+    SDL_QueryTexture(_pDebugTexture, &fmt, &access, &w, &h);
+    SDLUtils::checkSDLErr();
+    if (fmt == SDL_PIXELFORMAT_RGBA32) {
+      SDLUtils::checkSDLErr();
+    }
+    else if (fmt == SDL_PIXELFORMAT_ARGB32) {
+      SDLUtils::checkSDLErr();
+    }
+    else if (fmt == SDL_PIXELFORMAT_BGRA32) {
+      SDLUtils::checkSDLErr();
+    }
+    else if (fmt == SDL_PIXELFORMAT_RGB24) {
+      SDLUtils::checkSDLErr();
+    }
+    else if (fmt == SDL_PIXELFORMAT_BGR24) {
+      SDLUtils::checkSDLErr();
+    }
+    else {
+      Gu::debugBreak();  //unrecognized format.
+      _pDebugWindow = nullptr;
+    }
+  }
+
+  void drawDebugWindow() {
+    if (_debugImageData != nullptr) {
+      void* img_pixels = _debugImageData->_data;
+      int img_w = _debugImageData->_size.width;
+      int img_h = _debugImageData->_size.height;
+      int img_BPP = 4;
+      int img_pitch = img_BPP * _debugImageData->_size.width;
+
+      SDL_Rect trect;
+      trect.x = 0;      
+      trect.y = 0;      
+      trect.w = img_w;  
+      trect.h = img_h;  
+
+      int tex_pitch = 0;
+      void* tex_px = 0;
+      if (!SDL_LockTexture(_pDebugTexture, &trect, &tex_px, &tex_pitch)) {
+        SDLUtils::checkSDLErr();
+        if (tex_pitch != img_pitch) {
+          //Error - incompatibel formats.
+          SDL_UnlockTexture(_pDebugTexture);
+          SDLUtils::checkSDLErr();
+          Gu::debugBreak();
+          return;
+        }
+        SDLUtils::checkSDLErr();
+        memcpy(tex_px, img_pixels, (size_t)img_w * (size_t)img_h * (size_t)img_BPP);  //  * pitch .. testing
+        SDL_UnlockTexture(_pDebugTexture);
+      }
+      SDLUtils::checkSDLErr();
+
+      int dw, dh;
+      SDL_GetWindowSize(_pDebugWindow, &dw, &dh);
+      SDLUtils::checkSDLErr();
+
+      SDL_Rect wrect;
+      wrect.x = 0;   //Extreme left of the window
+      wrect.y = 0;   //Very bottom of the window
+      wrect.w = dw;  //100 pixels width
+      wrect.h = dh;  //100 pixels height
+
+      //Copying the texture on to the window using renderer and rectangle
+      SDL_RenderCopy(_pDebugRenderer, _pDebugTexture, &trect, &wrect);
+      SDLUtils::checkSDLErr();
+    }
+
+    SDL_RenderPresent(_pDebugRenderer);
+    SDLUtils::checkSDLErr();
+
+    _debugImageData = nullptr;
+  }
+
   SDL_Window* makeSDLWindow(const GraphicsWindowCreateParameters& params,
                             int render_system, bool show) {
     string_t title;
@@ -252,9 +349,9 @@ public:
     if (offsets.size() == 0) {
       for (size_t i = 0; i < _numInstances; ++i) {
         offsets.push_back({ rr, rr, rr });
-        rots_delta.push_back((float)rnd(-M_2PI, M_2PI));  //rotation delta.
-        rots_ini.push_back((float)rnd(-M_2PI, M_2PI));    // Initial rotation, and also the value of current rotation.
-        axes_ini.push_back( BR2::vec3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)) );  // Initial rotation, and also the value of current rotation.
+        rots_delta.push_back((float)rnd(-M_2PI, M_2PI));                    //rotation delta.
+        rots_ini.push_back((float)rnd(-M_2PI, M_2PI));                      // Initial rotation, and also the value of current rotation.
+        axes_ini.push_back(BR2::vec3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)));  // Initial rotation, and also the value of current rotation.
         axes_ini[axes_ini.size() - 1].normalize();
       }
     }
@@ -311,7 +408,7 @@ public:
       auto& light = lights[ilight];
       if (light.radius > 0) {
         light.rotation = fmodf(light.rotation + 6.28f * (dt / lights_speed[ilight]), 6.28f);
-        light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20,  sinf(light.rotation) * lights_r[ilight]);
+        light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20, sinf(light.rotation) * lights_r[ilight]);
         light.specHardness = g_spec_hard;
         light.specIntensity = g_spec_intensity;
       }
@@ -320,7 +417,7 @@ public:
     auto sz = sizeof(lights[0]) * lights.size();
     lightsBuffer->writeData(lights.data(), lights.size());
   }
-  
+
   void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes) {
     float t01 = pingpong_t01(10000);
     float t02 = pingpong_t01(10000);
@@ -419,7 +516,7 @@ public:
       //Testing Polygon Mode
       auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
       auto topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-      
+
       // Tests
       // 0 Test begin/end without draw commands
       // 3. 2 passes with different geometry & textures.
@@ -640,7 +737,7 @@ bool SDLVulkan::doInput() {
   if (mouse_down) {
     BR2::vec2 delta = p - last_mouse_pos;
     BR2::urect2 r = _pInt->getWindowDims();
-    float x = -delta.x / 300; 
+    float x = -delta.x / 300;
     if (x != 0) {
       float delta_rot = M_2PI * x;
       float zxradius = sqrt(_pInt->campos.x * _pInt->campos.x + _pInt->campos.z * _pInt->campos.z);
@@ -750,8 +847,6 @@ bool SDLVulkan::doInput() {
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_9) {
-        _pInt->vulkan()->swapchain()->copyImageFlag();
-
         break;
       }
       else if (event.key.keysym.scancode == SDL_SCANCODE_F2) {
@@ -816,6 +911,8 @@ bool SDLVulkan::doInput() {
   return false;
 }
 void SDLVulkan::renderLoop() {
+  _pInt->makeDebugWindow();
+
   bool exit = false;
   while (!exit) {
     exit = doInput();
@@ -854,6 +951,13 @@ void SDLVulkan::renderLoop() {
       }
 
       _pInt->drawFrame();
+
+      if (_pInt->_pDebugWindow) {
+        if (_pInt->_fpsMeter_Render.frameMod(50)) {
+          _pInt->_debugImageData = _pInt->vulkan()->swapchain()->grabImage();
+          _pInt->drawDebugWindow();
+        }
+      }
     }
     catch (std::runtime_error& err) {
       bool device_lost = !strcmp(err.what(), Vulkan::c_strErrDeviceLost);
