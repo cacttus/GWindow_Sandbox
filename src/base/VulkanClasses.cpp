@@ -919,7 +919,7 @@ void CommandBuffer::submit(std::vector<VkPipelineStageFlags> waitStages, std::ve
 
   VkCommandBuffer buf = getVkCommandBuffer();
 
-  AssertOrThrow2(waitStages.size()==waitSemaphores.size());//these correspond.
+  AssertOrThrow2(waitStages.size() == waitSemaphores.size());  //these correspond.
 
   VkSubmitInfo submitInfo = {
     .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -932,12 +932,12 @@ void CommandBuffer::submit(std::vector<VkPipelineStageFlags> waitStages, std::ve
     .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size()),
     .pSignalSemaphores = signalSemaphores.data(),
   };
-  CheckVKR(vkQueueSubmit, vulkan()->graphicsQueue(), 1, &submitInfo, submitFence);
-  
+  CheckVKR(vkQueueSubmit, vulkan()->graphicsQueue(), 1, &submitInfo, submitFence);//submitFence is signaled once all buffers complete execution
+
   if (waitIdle) {
-    vkQueueWaitIdle(vulkan()->graphicsQueue());
+    CheckVKR(vkQueueWaitIdle, vulkan()->graphicsQueue());
   }
-  
+
   _state = CommandBufferState::Submit;
 }
 bool CommandBuffer::beginPass() {
@@ -1500,7 +1500,7 @@ void FramebufferAttachment::createTarget(std::shared_ptr<Framebuffer> fb, std::s
   string_t out_errors = "";
   if (out_att->_texture != nullptr) {
     _target = out_att->_texture->texture(samples, frame->frameIndex());
-    
+
     if (_target == nullptr) {
       out_att->_texture->createTexture(fb->sampleCount());
       _target = out_att->_texture->texture(samples, frame->frameIndex());
@@ -1705,7 +1705,7 @@ bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shar
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,// VK_IMAGE_LAYOUT_UNDEFINED,
+        .initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  // VK_IMAGE_LAYOUT_UNDEFINED,
         .finalLayout = att->finalLayout(),
       });
       if (att->desc()->_resolve) {
@@ -1835,7 +1835,10 @@ bool Framebuffer::validate() {
   }
 
   //Validate depth sample count
-  bool allowOverSampleDepthBuffer = vulkan()->extensionEnabled(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
+  //TODO:
+  //TODO:
+  //TODO:
+  bool allowOverSampleDepthBuffer = false;  //vulkan()->extensionEnabled(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
   for (size_t i = 0; i < _attachments.size(); ++i) {
     auto output = _attachments[i];
 
@@ -3190,12 +3193,12 @@ void RenderFrame::createSyncObjects() {
 }
 bool RenderFrame::beginFrame() {
   //I feel like the async aspect of RenderFrame might need to be a separate DispatchedFrame structure or..
-  VkResult res;
+  VkResult res = VK_SUCCESS;
   uint64_t wait_fences = UINT64_MAX;
   if (!vulkan()->waitFences()) {
     wait_fences = 0;  //Don't wait if no image available.
   }
-
+  //Waits for all command buffers to complete execution
   res = vkWaitForFences(vulkan()->device(), 1, &_inFlightFence, VK_TRUE, wait_fences);
   if (res != VK_SUCCESS) {
     if (res == VK_NOT_READY) {
@@ -3249,32 +3252,17 @@ void RenderFrame::endFrame() {
     return;
   }
 
+  CheckVKR(vkResetFences, vulkan()->device(), 1, &_inFlightFence);
+
   AssertOrThrow2(_pCommandBuffer->state() != CommandBufferState::Submit);
-  _pCommandBuffer->submit({ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }, { _imageAvailableSemaphore }, { _renderFinishedSemaphore }, _inFlightFence);
-  ////Submit the recorded command getVkBuffer.
-  //VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+  _pCommandBuffer->submit({ 
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT //Wait at the color attachment output
+    }, { 
+      _imageAvailableSemaphore  //Wait for image available.
+    }, {
+      _renderFinishedSemaphore 
+    }, _inFlightFence);
 
-  //VkCommandBuffer buf = _pCommandBuffer->getVkCommandBuffer();
-
-  ////aquire next image
-  //VkSubmitInfo submitInfo = {
-  //  .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-  //  .pNext = nullptr,
-  //  //Note: Eadch entry in waitStages corresponds to the semaphore in pWaitSemaphores - we can wait for multiple stages
-  //  //to finish rendering, or just wait for the framebuffer output.
-  //  .waitSemaphoreCount = 1,
-  //  .pWaitSemaphores = &_imageAvailableSemaphore,
-  //  .pWaitDstStageMask = waitStages,
-  //  .commandBufferCount = 1,
-  //  .pCommandBuffers = &buf,
-
-  //  //The semaphore is signaled when the queue has completed the requested wait stages.
-  //  .signalSemaphoreCount = 1,
-  //  .pSignalSemaphores = &_renderFinishedSemaphore,
-  //};
-  //vkQueueSubmit(vulkan()->graphicsQueue(), 1, &submitInfo, _inFlightFence);
-
-  vkResetFences(vulkan()->device(), 1, &_inFlightFence);
 
   std::vector<VkSwapchainKHR> chains{ _pSwapchain->getVkSwapchain() };
 
@@ -3509,7 +3497,7 @@ void Swapchain::endFrame() {
 }
 void Swapchain::waitImage(uint32_t imageIndex, VkFence myFence) {
   if (_imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-    vkWaitForFences(vulkan()->device(), 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+    CheckVKR(vkWaitForFences, vulkan()->device(), 1, &_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
   }
   _imagesInFlight[imageIndex] = myFence;
 }

@@ -63,14 +63,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallback(
   const char* pLayerPrefix,
   const char* pMessage,
   void* pUserData) {
-  BRLogDebug(std::string("    [GPU] p:") + std::string(pLayerPrefix) + std::string("c:") + std::to_string(messageCode) + " -> " + std::string(pMessage));
-
+  //BRLogDebug(std::string("    [GPU] p:") + std::string(pLayerPrefix) + std::string("c:") + std::to_string(messageCode) + " -> " + std::string(pMessage));
 
   return VK_FALSE;
 }
 
-VulkanDebug::VulkanDebug(std::shared_ptr<Vulkan> v, bool enableValidationLayers) : VulkanObject(v) {
-  _bEnableValidationLayers = enableValidationLayers;
+VulkanDebug::VulkanDebug(std::shared_ptr<Vulkan> v, bool enableDebug) : VulkanObject(v) {
+  _enableDebug = enableDebug;
 }
 VulkanDebug::~VulkanDebug() {
   if (_debugMessenger != VK_NULL_HANDLE) {
@@ -80,14 +79,15 @@ VulkanDebug::~VulkanDebug() {
     vkDestroyDebugReportCallbackEXT(vulkan()->instance(), _debugReporter, nullptr);
   }
 }
-void VulkanDebug::init() {
-  if (!_bEnableValidationLayers) {
+void VulkanDebug::createDebugObjects() {
+  if (!_enableDebug) {
     return;
   }
 
   createDebugMessenger();
   createDebugReport();
 }
+
 void VulkanDebug::createDebugReport() {
   VkLoadExt(vulkan()->instance(), vkCreateDebugReportCallbackEXT);
   VkLoadExt(vulkan()->instance(), vkDestroyDebugReportCallbackEXT);
@@ -104,10 +104,7 @@ void VulkanDebug::createDebugReport() {
       .pUserData = nullptr
     };
 
-    vkCreateDebugReportCallbackEXT(
-      vulkan()->instance(),
-      &info,
-      nullptr, &_debugReporter);
+    CheckVKR(vkCreateDebugReportCallbackEXT, vulkan()->instance(), &info, nullptr, &_debugReporter);
   }
 }
 void VulkanDebug::createDebugMessenger() {
@@ -132,20 +129,6 @@ void VulkanDebug::createDebugMessenger() {
     CheckVKR(vkCreateDebugUtilsMessengerEXT, vulkan()->instance(), &msginfo, nullptr, &_debugMessenger);
   }
 }
-void VulkanDebug::debugPrintSupportedExtensions() {
-  // Get extension properties.
-  uint32_t extensionCount = 0;
-  CheckVKR(vkEnumerateInstanceExtensionProperties, nullptr, &extensionCount, nullptr);
-  std::vector<VkExtensionProperties> extensions(extensionCount);
-  CheckVKR(vkEnumerateInstanceExtensionProperties, nullptr, &extensionCount, extensions.data());
-  string_t st = "Supported Vulkan Extensions:" + Os::newline() +
-                "Version   Extension" + Os::newline();
-  for (auto ext : extensions) {
-    st += Stz "  [" + std::to_string(ext.specVersion) + "] " + ext.extensionName + Os::newline();
-  }
-  BRLogInfo(st);
-}
-
 // ^\s+([a-zA-Z0-9_]+)\s=\s.*
 // V_ENM_STR($1);
 #define V_ENM_STR(xx_)    \
@@ -651,7 +634,5 @@ string_t VulkanDebug::VkResult_toString(VkResult r) {
   V_ENM_STR(VK_RESULT_MAX_ENUM);
   return ret;
 }
-
-
 
 }  // namespace VG

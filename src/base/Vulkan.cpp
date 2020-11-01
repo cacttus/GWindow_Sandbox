@@ -15,7 +15,7 @@ std::shared_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, b
 Vulkan::Vulkan() {
 }
 Vulkan::~Vulkan() {
-  vkDeviceWaitIdle(_device);
+  CheckVKRV(vkDeviceWaitIdle, _device);
 
   _pSwapchain = nullptr;
   _pQueueFamilies = nullptr;
@@ -43,9 +43,8 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
 }
 
 void Vulkan::initVulkan(const string_t& title, SDL_Window* win, bool enableDebug) {
-  createInstance(title,win);
   _pDebug = std::make_unique<VulkanDebug>(getThis<Vulkan>(), enableDebug);
-  _pDebug->init();
+  createInstance(title, win);
   pickPhysicalDevice();
   createLogicalDevice();
   getDeviceProperties();
@@ -131,6 +130,7 @@ std::vector<const char*> Vulkan::getValidationLayers() {
   std::vector<const char*> layerNames{};
   if (_bEnableValidationLayers) {
     layerNames.push_back("VK_LAYER_LUNARG_standard_validation");
+    //layerNames.push_back("VK_LAYER_KHRONOS_validation");
   }
 
   //Check if validation layers are supported.
@@ -159,6 +159,10 @@ bool Vulkan::isValidationLayerSupported(const string_t& name) {
     CheckVKRV(vkEnumerateInstanceLayerProperties, &layerCount, nullptr);
     std::vector<VkLayerProperties> availableLayers(layerCount);
     CheckVKRV(vkEnumerateInstanceLayerProperties, &layerCount, availableLayers.data());
+
+    //    CheckVKRV(vkEnumerateInstanceExtensionProperties, nullptr, &layerCount, nullptr);
+    //std::vector<VkExtensionProperties> asdfg(layerCount);
+    //    CheckVKRV(vkEnumerateInstanceExtensionProperties, nullptr, &layerCount, asdfg.data());
 
     for (auto layer : availableLayers) {
       supported_validation_layers.insert(std::make_pair(layer.layerName, layer));
@@ -497,7 +501,7 @@ VkCommandBuffer Vulkan::beginOneTimeGraphicsCommands() {
   };
 
   VkCommandBuffer commandBuffer;
-  vkAllocateCommandBuffers(device(), &allocInfo, &commandBuffer);
+  CheckVKRV(vkAllocateCommandBuffers, device(), &allocInfo, &commandBuffer);
 
   VkCommandBufferBeginInfo beginInfo = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,  //VkStructureType
@@ -506,12 +510,12 @@ VkCommandBuffer Vulkan::beginOneTimeGraphicsCommands() {
     .pInheritanceInfo = nullptr,                           //const VkCommandBufferInheritanceInfo*
   };
 
-  vkBeginCommandBuffer(commandBuffer, &beginInfo);
+  CheckVKRV(vkBeginCommandBuffer, commandBuffer, &beginInfo);
 
   return commandBuffer;
 }
 void Vulkan::endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
-  vkEndCommandBuffer(commandBuffer);
+  CheckVKRV(vkEndCommandBuffer, commandBuffer);
 
   VkSubmitInfo submitInfo = {
     .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,  //VkStructureType
@@ -524,8 +528,8 @@ void Vulkan::endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
     .pSignalSemaphores = nullptr,            //const VkSemaphore*
   };
 
-  vkQueueSubmit(graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(graphicsQueue());
+  CheckVKRV(vkQueueSubmit, graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+  CheckVKRV(vkQueueWaitIdle, graphicsQueue());
 
   vkFreeCommandBuffers(device(), commandPool(), 1, &commandBuffer);
 }

@@ -24,10 +24,10 @@ public:
   };
 
 public:
-  static constexpr const char* c_strErrDeviceLost = "VK_ERROR_DEVICE_LOST"; //TODO; move this somewhere else.
+  static constexpr const char* c_strErrDeviceLost = "VK_ERROR_DEVICE_LOST";  //TODO; move this somewhere else.
   Vulkan();
   virtual ~Vulkan();
-    
+
   static std::shared_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
 
   const VkSurfaceKHR& windowSurface() { return _windowSurface; }
@@ -60,15 +60,10 @@ public:
 private:
   void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
   void initVulkan(const string_t& title, SDL_Window* win, bool enableDebug);
-
   void createInstance(const string_t& title, SDL_Window* win);
-
-  void init2();
-  void setupDebug();
   std::vector<const char*> getRequiredExtensionNames(SDL_Window* win);
   std::vector<const char*> getValidationLayers();
   bool isValidationLayerSupported(const string_t& name);
-  void debugPrintSupportedExtensions();
   void pickPhysicalDevice();
   std::unordered_map<string_t, VkExtensionProperties>& getDeviceExtensions();
   bool isExtensionSupported(const string_t& extName);
@@ -80,10 +75,8 @@ private:
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
   std::unique_ptr<VulkanDebug> _pDebug = nullptr;
-
   std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
-
   VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
   VkDevice _device = VK_NULL_HANDLE;
   VkInstance _instance = VK_NULL_HANDLE;

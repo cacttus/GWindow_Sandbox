@@ -191,6 +191,7 @@ class Swapchain;
 class RenderTexture;
 class RenderTarget;
 class PassDescription;
+class Extensions;
 
 //Dummies
 class Mesh;
@@ -236,6 +237,16 @@ protected:
   std::shared_ptr<Ty> getThis() {
     return std::dynamic_pointer_cast<Ty>(this->shared_from_this());
   }
+};
+class VectorUtils {
+public:
+  template <typename T_From, typename T_To>
+  static std::vector<T_To> convertVector(const std::vector<T_From>& from, std::function<T_To(const T_From&)> func) {
+    std::vector<T_To> ret(from.size());
+    std::transform(from.begin(), from.end(), ret.begin(), func);
+    return ret;
+  }
+
 };
 
 }  // namespace VG

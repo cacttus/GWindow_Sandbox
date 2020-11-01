@@ -11,7 +11,11 @@
 #include "./VulkanHeader.h"
 #include "./VulkanClasses.h"
 namespace VG {
-
+class ValidationLayerExtension {
+public:
+  const char* _layer;
+  std::vector<const char*> _extensions;
+};
 /**
 *  @class VulkanDebug
 *  @brief A lot of vulkan errors are simple access violations relevant to a struct.
@@ -23,7 +27,7 @@ public:
   VulkanDebug(std::shared_ptr<Vulkan> v, bool enableValidationLayers);
   virtual ~VulkanDebug() override;
 
-  void init();
+  void createDebugObjects();
 
   static string_t VkGraphicsPipelineCreateInfo_toString();
   static string_t VkResult_toString(VkResult r);
@@ -34,22 +38,20 @@ public:
   static string_t VkDescriptorType_toString(VkDescriptorType t);
   static string_t OutputMRT_toString(OutputMRT t);
   static int SampleCount_ToInt(MSAA c);
-  void debugPrintSupportedExtensions();
+
 
 private:
   void createDebugMessenger();
   void createDebugReport();
 
-  bool _bEnableValidationLayers = false;
+  bool _enableDebug = false;
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
   VkExtFn(vkDestroyDebugUtilsMessengerEXT);
   VkExtFn(vkCreateDebugReportCallbackEXT);
   VkExtFn(vkDestroyDebugReportCallbackEXT);
 
-  
   VkDebugUtilsMessengerEXT _debugMessenger = VK_NULL_HANDLE;
   VkDebugReportCallbackEXT _debugReporter = VK_NULL_HANDLE;
-
 };
 
 }  // namespace VG

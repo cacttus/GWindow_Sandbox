@@ -571,7 +571,7 @@ public:
   }
   void cleanup() {
     //This stops all threads before we cleanup.
-    vkDeviceWaitIdle(vulkan()->device());
+    CheckVKR(vkDeviceWaitIdle, vulkan()->device());
 
     // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
     cleanupShaderMemory();
