@@ -3611,10 +3611,26 @@ std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(const string_t& na
   _renderTextures.push_back(rt);
   return rt;
 }
-std::shared_ptr<Img32> Swapchain::grabImage() {
+std::shared_ptr<Img32> Swapchain::grabImage(int debugImg) {
   string_t err;
-  auto target = this->frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
-  auto img = target->copyImageFromGPU();
+  std::shared_ptr<TextureImage> target = nullptr;
+  if (debugImg == 0) {
+    target = frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
+  }
+  else if (debugImg == 1) {
+    target = _renderTextures[0]->texture(MSAA::Disabled, frames()[0]->frameIndex());
+  }
+  else{
+    return nullptr;
+  }
+
+  //Note: we set this to null in SDLVulkan.cpp. and make a new buffer each frame (thanks shared_ptr)
+  // This would be loads faster if we didn't discard the buffer each frame, however
+  //i'm not sure i'm going to keep this little feature.
+  std::shared_ptr<Img32> img = nullptr;
+  if (target) {
+    img = target->copyImageFromGPU();
+  }
   return img;
 }
 #pragma endregion
