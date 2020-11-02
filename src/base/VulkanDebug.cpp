@@ -1,5 +1,5 @@
 #include "./VulkanDebug.h"
-#include "./Vulkan.h"
+#include "./VulkanClasses.h"
 
 namespace VG {
 

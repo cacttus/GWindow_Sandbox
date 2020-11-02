@@ -164,10 +164,10 @@
     <None Include="test.vs" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\base\GameClasses.h" />
+    <ClInclude Include="src\base\GWindowHeader.h" />
+    <ClInclude Include="src\base\GWorld.h" />
     <ClInclude Include="src\base\SandboxHeader.h" />
-    <ClInclude Include="src\base\SDLVulkan.h" />
-    <ClInclude Include="src\base\Vulkan.h" />
+    <ClInclude Include="src\base\GWindow.h" />
     <ClInclude Include="src\base\VulkanClasses.h" />
     <ClInclude Include="src\base\VulkanDebug.h" />
     <ClInclude Include="src\base\VulkanHeader.h" />
@@ -176,11 +176,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\VulkanGame\src\ext\lodepng.cpp" />
-    <ClCompile Include="src\base\GameClasses.cpp" />
+    <ClCompile Include="src\base\GWorld.cpp" />
     <ClCompile Include="src\base\main.cpp" />
     <ClCompile Include="src\base\SandboxHeader.cpp" />
-    <ClCompile Include="src\base\SDLVulkan.cpp" />
-    <ClCompile Include="src\base\Vulkan.cpp" />
+    <ClCompile Include="src\base\GWindow.cpp" />
     <ClCompile Include="src\base\VulkanClasses.cpp" />
     <ClCompile Include="src\base\VulkanDebug.cpp" />
     <ClCompile Include="src\ext\spirv-reflect\spirv_reflect.c" />

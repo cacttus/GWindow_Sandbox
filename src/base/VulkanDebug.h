@@ -7,7 +7,6 @@
 #ifndef __VULKANDEBUG_16018075671561130827_H__
 #define __VULKANDEBUG_16018075671561130827_H__
 
-#include "./SandboxHeader.h"
 #include "./VulkanHeader.h"
 #include "./VulkanClasses.h"
 namespace VG {

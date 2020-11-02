@@ -16,8 +16,9 @@
 */
 
 #include "./SandboxHeader.h"
-#include "./SDLVulkan.h"
-#include "./SandboxHeader.h"
+#include "./VulkanHeader.h"
+#include "./GWindowHeader.h"
+#include "./GWindow.h"
 
 typedef std::string string_t;
 
@@ -31,7 +32,7 @@ float randomFloat() {
 }
 
 class vec3 {
- public:
+public:
   float x, y, z;
   vec3() { x = y = z = 0; }
   vec3(float dx, float dy, float dz) {
@@ -101,7 +102,7 @@ class GScene;
 
 // Dummy
 class RenderWindow {
- public:
+public:
   string_t _name = "<unset>";
   RenderWindow(const string_t& name) { _name = name; }
   void setScene(std::shared_ptr<GScene> s) { _scene = s; }
@@ -117,18 +118,18 @@ class RenderWindow {
 
   std::shared_ptr<GScene> _scene;
 
- private:
+private:
 };
 
 // Execute std::cout on main thread.
 class Cout {
- public:
+public:
   static std::deque<std::packaged_task<void()>> _msgs;
   static std::mutex _mutex;
 
   static void print(const string_t& str) {
     std::packaged_task<void()> task(
-        [str]() { std::cout << str << std::endl; });  //!!
+      [str]() { std::cout << str << std::endl; });  //!!
     //  std::future<void> result = task.get_future();
     {
       std::lock_guard<std::mutex> lock(Cout::_mutex);
@@ -157,7 +158,7 @@ std::mutex Cout::_mutex;
 
 class AsyncEngineComponent
     : public std::enable_shared_from_this<AsyncEngineComponent> {
- public:
+public:
   AsyncEngineComponent(const string_t& name) { _name = name; }
   std::thread _myThread;
   void launch() {
@@ -197,7 +198,7 @@ class AsyncEngineComponent
 
   std::mutex& getMtx() { return _mtx; }
 
- protected:
+protected:
   virtual void update() = 0;
   int64_t last = VG::Gu::getMilliseconds();
   int64_t elapsed = 0;
@@ -208,7 +209,7 @@ class AsyncEngineComponent
   string_t _name = "<unset>";
 };
 class GObject {
- public:
+public:
   // Update + Render must use the same variables to test for races.
   vec3 _pos;
   vec3 _vel;
@@ -234,7 +235,7 @@ class GObject {
     _error_monster = new std::string();
     *_error_monster = std::string(128, 'A');
     _error_monster_last =
-        _error_monster_last.substr(0, _error_monster_last.length() / 2);
+      _error_monster_last.substr(0, _error_monster_last.length() / 2);
 
     // Do some BS operation. to update position/velocity
     for (int i = 0; i < 100; ++i) {
@@ -249,7 +250,7 @@ class GObject {
   }
 };
 class GScene : public AsyncEngineComponent {
- public:
+public:
   GScene(const string_t& name) : AsyncEngineComponent(name) {}
   void addObject(std::shared_ptr<GObject> ob) {
     std::lock_guard<std::mutex>(this->_mtx);
@@ -261,7 +262,7 @@ class GScene : public AsyncEngineComponent {
     }
   }
 
- protected:
+protected:
   void update() override {
     // This is running asynchronously.
     for (auto obj : _objs) {
@@ -269,7 +270,7 @@ class GScene : public AsyncEngineComponent {
     }
   }
 
- private:
+private:
   std::vector<std::shared_ptr<GObject>> _objs;
 };
 void RenderWindow::renderScene() {
@@ -304,12 +305,12 @@ void asyncSceneTest() {
                                               std::to_string(i)));
     for (int iObj = 0; iObj < 10; ++iObj) {
       scenes[scenes.size() - 1]->addObject(std::make_shared<GObject>(
-          std::string("") + "Scene" + std::to_string(i) + "_obj" +
-          std::to_string(iObj)));
+        std::string("") + "Scene" + std::to_string(i) + "_obj" +
+        std::to_string(iObj)));
     }
 
     std::shared_ptr<RenderWindow> rw = std::make_shared<RenderWindow>(
-        std::string("") + "Window" + std::to_string(i));
+      std::string("") + "Window" + std::to_string(i));
     rw->setScene(scenes[scenes.size() - 1]);
     windows.push_back(rw);
   }
@@ -334,17 +335,30 @@ void asyncSceneTest() {
   }
   std::cout << "..Done" << std::endl;
 }
-   
+
 int main(int argc, char** argv) {
   VG::App::_appRoot.assign(VG::App::getDirectoryNameFromPath(argv[0]));
 
   BRLogInfo("Creating vulkan.");
-  VG::SDLVulkan sv;
-  sv.init();
-  sv.renderLoop();
+
+  VG::GSDL sv;
+  try {
+    sv.init();
+    sv.start();
+    sv.renderLoop();
+    //std::shared_ptr<VG::GWindow> win1 = sv.createWindow();
+    //std::shared_ptr<VG::GWindow> win2 = sv.createWindow();
+  }
+  catch (std::exception& ex) {
+  }
+  //TODO:
+  //catch (VG::Exception& ex) {
+  //}
+
+  //sv.init();
+
 
   //asyncSceneTest();
-
 
   return 0;
 }

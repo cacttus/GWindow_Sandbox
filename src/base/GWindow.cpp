@@ -1,10 +1,10 @@
-#include "./SDLVulkan.h"
-#include "./VulkanHeader.h"
-#include "./Vulkan.h"
-#include "./VulkanDebug.h"
-#include "./VulkanClasses.h"
+#include "./GWindow.h"
 
 namespace VG {
+#define fr01() ((float)_rnd_distribution(_rnd_engine))
+#define rnd(a, b) ((a) + ((b) - (a)) * (fr01()))
+#define rr ((float)rnd(-3, 3))
+
 //**Testing
 static MipmapMode g_mipmap_mode = MipmapMode::Disabled;
 static TexFilter g_min_filter = TexFilter::Linear;
@@ -19,22 +19,33 @@ VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
 bool g_lighting = true;
 float g_spec_hard = 20;      //exponent
 float g_spec_intensity = 1;  //mix value
-
 const bool g_wait_fences = false;
 const bool g_vsync_enable = false;
 
-//Data from Vulkan-Tutorial
+#pragma region GWindow
+
 GWindow::GWindow(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
 }
 GWindow::~GWindow() {
 }
 
-SDLVulkan::SDLVulkan() {
+#pragma endregion GWindow
+
+#pragma region GSDL
+
+GSDL::GSDL() {
 }
-SDLVulkan::~SDLVulkan() {
+GSDL::~GSDL() {
   cleanup();
 }
-void SDLVulkan::makeDebugTexture(int w, int h) {
+void GSDL::start() {
+}
+std::shared_ptr<GWindow> GSDL::createWindow() {
+  return nullptr;
+}
+
+
+void GSDL::makeDebugTexture(int w, int h) {
   if (_pDebugTexture != nullptr) {
     SDL_DestroyTexture(_pDebugTexture);
     _pDebugTexture = nullptr;
@@ -44,7 +55,7 @@ void SDLVulkan::makeDebugTexture(int w, int h) {
   _pDebugTexture = SDL_CreateTexture(_pDebugRenderer, SDL_PIXELFORMAT_BGRA32, SDL_TEXTUREACCESS_STREAMING, w, h);
   SDLUtils::checkSDLErr();
 }
-void SDLVulkan::makeDebugWindow() {
+void GSDL::makeDebugWindow() {
   destroyDebugWindow();
   _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   SDLUtils::checkSDLErr();
@@ -55,7 +66,7 @@ void SDLVulkan::makeDebugWindow() {
   _pDebugWindow_Surface = SDL_GetWindowSurface(_pDebugWindow);
   SDLUtils::checkSDLErr();
 }
-void SDLVulkan::drawDebugWindow() {
+void GSDL::drawDebugWindow() {
   if (_debugImageData != nullptr) {
     void* img_pixels = _debugImageData->_data;
     int img_w = _debugImageData->_size.width;
@@ -126,7 +137,7 @@ void SDLVulkan::drawDebugWindow() {
   //Reset image dtaa for next copy
   _debugImageData = nullptr;
 }
-void SDLVulkan::destroyDebugWindow() {
+void GSDL::destroyDebugWindow() {
   if (_pDebugTexture != nullptr) {
     SDL_DestroyTexture(_pDebugTexture);
     _pDebugTexture = nullptr;
@@ -142,7 +153,7 @@ void SDLVulkan::destroyDebugWindow() {
   _debugImageData = nullptr;
   _debugImg = 0;
 }
-void SDLVulkan::test_overlay() {
+void GSDL::test_overlay() {
   //Mixing SDL with Vulkan - no but.. yes.
   if (_vulkan_renderer == nullptr) {
     _vulkan_renderer = SDL_CreateRenderer(_pSDLWindow, -1, SDL_RENDERER_ACCELERATED);
@@ -164,7 +175,7 @@ void SDLVulkan::test_overlay() {
 
   SDLUtils::checkSDLErr();
 }
-SDL_Window* SDLVulkan::makeSDLWindow(const GraphicsWindowCreateParameters& params, int render_system, bool show) {
+SDL_Window* GSDL::makeSDLWindow(const GraphicsWindowCreateParameters& params, int render_system, bool show) {
   string_t title;
   bool bFullscreen = false;
   SDL_Window* ret = nullptr;
@@ -223,7 +234,7 @@ SDL_Window* SDLVulkan::makeSDLWindow(const GraphicsWindowCreateParameters& param
 
   return ret;
 }
-void SDLVulkan::init() {
+void GSDL::init() {
   try {
     // Make the window.
     SDL_SetMainReady();
@@ -270,7 +281,7 @@ void SDLVulkan::init() {
     throw ex;
   }
 }
-void SDLVulkan::sdl_PrintVideoDiagnostics() {
+void GSDL::sdl_PrintVideoDiagnostics() {
   // Init Video
   // SDL_Init(SDL_INIT_VIDEO);
 
@@ -307,7 +318,7 @@ void SDLVulkan::sdl_PrintVideoDiagnostics() {
     }
   }
 }
-BR2::urect2 SDLVulkan::getWindowDims() {
+BR2::urect2 GSDL::getWindowDims() {
   int win_w = 0, win_h = 0;
   int pos_x = 0, pos_y = 0;
   SDL_GetWindowSize(_pSDLWindow, &win_w, &win_h);
@@ -319,13 +330,13 @@ BR2::urect2 SDLVulkan::getWindowDims() {
     static_cast<uint32_t>(win_h)
   };
 }
-void SDLVulkan::createUniformBuffers() {
+void GSDL::createUniformBuffers() {
   _pShader->createUBO(c_viewProjUBO, "_uboViewProj", sizeof(ViewProjUBOData), 1);
   _pShader->createUBO(c_instanceUBO_1, "_uboInstanceData", sizeof(InstanceUBOData), _numInstances);
   _pShader->createUBO(c_instanceUBO_2, "_uboInstanceData", sizeof(InstanceUBOData), _numInstances);
   _pShader->createUBO(c_lightsUBO, "_uboLights", sizeof(GPULight), _maxLights);
 }
-float SDLVulkan::pingpong_t01(int durationMs) {
+float GSDL::pingpong_t01(int durationMs) {
   //returns the [0,1] pingpong time.
   //The duration of each PING and PONG is durationMs / 2
   // 0...1 ... 0 ... 1
@@ -342,7 +353,7 @@ float SDLVulkan::pingpong_t01(int durationMs) {
   }
   return t01;
 }
-void SDLVulkan::tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, std::vector<BR2::vec3>& axes_ini) {
+void GSDL::tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, std::vector<BR2::vec3>& axes_ini) {
   if (offsets.size() == 0) {
     for (size_t i = 0; i < _numInstances; ++i) {
       offsets.push_back({ rr, rr, rr });
@@ -353,7 +364,7 @@ void SDLVulkan::tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vecto
     }
   }
 }
-void SDLVulkan::updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
+void GSDL::updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewProjBuffer) {
   //Push constants are faster.
   float t01 = pingpong_t01(10000);
 
@@ -367,7 +378,7 @@ void SDLVulkan::updateViewProjUniformBuffer(std::shared_ptr<VulkanBuffer> viewPr
   };
   viewProjBuffer->writeData((void*)&ub, 1);
 }
-void SDLVulkan::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
+void GSDL::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
   //Must be lessthan or equal the shader array
   if (lights.size() == 0) {
     for (size_t i = 0; i < _numLights; ++i) {
@@ -379,7 +390,7 @@ void SDLVulkan::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float d
       if (i == 2) { lights[lights.size() - 1].color.construct(0, 0, 1); }
       //= BR2::vec3(std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.), std::min(.3 + fr01(), 1.));
       lights[lights.size() - 1].radius = 20 + fr01() * 10;
-      lights[lights.size() - 1].rotation = fr01() * 6.28;
+      lights[lights.size() - 1].rotation = fr01() * (float)M_2PI;
       lights[lights.size() - 1].specColor = BR2::vec3(1, 1, 1);
       lights[lights.size() - 1].specHardness = 1.0f;
       lights[lights.size() - 1].specIntensity = 1.0f;
@@ -408,7 +419,7 @@ void SDLVulkan::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float d
   auto sz = sizeof(lights[0]) * lights.size();
   lightsBuffer->writeData(lights.data(), lights.size());
 }
-void SDLVulkan::updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes) {
+void GSDL::updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes) {
   float t01 = pingpong_t01(10000);
   float t02 = pingpong_t01(10000);
   tryInitializeOffsets(offsets, rots_delta, rots_ini, axes);
@@ -432,7 +443,7 @@ void SDLVulkan::updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instan
   instanceBuffer->writeData(mats.data(), mats.size());
   // ub.proj._m22 *= -1;
 }
-void SDLVulkan::drawFrame() {
+void GSDL::drawFrame() {
   if (_vulkan->swapchain()->beginFrame(getWindowDims().size)) {
     static auto last_time = std::chrono::high_resolution_clock::now();
     double t01 = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
@@ -447,7 +458,7 @@ void SDLVulkan::drawFrame() {
     g_iFrameNumber++;
   }
 }
-void SDLVulkan::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
+void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
   uint32_t frameIndex = frame->frameIndex();
 
   auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
@@ -458,7 +469,7 @@ void SDLVulkan::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double d
   //  if (_fpsMeter_Update.frameMod(50)) {
   updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt, axes1);
   updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
-  updateLights(lightsubo, dt);
+  updateLights(lightsubo, (float)dt);
   // }
   if (test_render_texture == nullptr) {
     test_render_texture = vulkan()->swapchain()->createRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
@@ -598,7 +609,7 @@ void SDLVulkan::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double d
   }
   cmd->end();
 }
-std::shared_ptr<Img32> SDLVulkan::loadImage(const string_t& img) {
+std::shared_ptr<Img32> GSDL::loadImage(const string_t& img) {
   unsigned char* data = nullptr;  //the raw pixels
   unsigned int width, height;
 
@@ -619,7 +630,7 @@ std::shared_ptr<Img32> SDLVulkan::loadImage(const string_t& img) {
   ret->_name = img;
   return ret;
 }
-void SDLVulkan::createTextureImages() {
+void GSDL::createTextureImages() {
   // auto img = loadImage(App::rootFile("test.png"));
   auto img = loadImage(App::rootFile(g_test_img1 ? "char-1.png" : "TexturesCom_MetalBare0253_2_M.png"));
   if (img) {
@@ -640,17 +651,17 @@ void SDLVulkan::createTextureImages() {
     vulkan()->errorExit("Could not load test image 2.");
   }
 }
-void SDLVulkan::allocateShaderMemory() {
+void GSDL::allocateShaderMemory() {
   cleanupShaderMemory();
 
   createUniformBuffers();
   createTextureImages();
 }
-void SDLVulkan::cleanupShaderMemory() {
+void GSDL::cleanupShaderMemory() {
   _testTexture1 = nullptr;
   _testTexture2 = nullptr;
 }
-void SDLVulkan::cleanup() {
+void GSDL::cleanup() {
   destroyDebugWindow();
 
   //This stops all threads before we cleanup.
@@ -663,42 +674,36 @@ void SDLVulkan::cleanup() {
 
   SDL_DestroyWindow(_pSDLWindow);
 }
-bool SDLVulkan::fueq(float x, float y, float e) {
+bool GSDL::fueq(float x, float y, float e) {
   return (x - e) <= y && (x + e) >= y;
 }
-void SDLVulkan::cycleValue(float& value, const std::vector<float>& values) {
-  if (fueq(value, values[values.size() - 1])) {
-    value = values[0];
+void GSDL::cycleValue(float& value, const std::vector<double>& values) {
+  if (fueq((float)value, (float)values[values.size() - 1])) {
+    value = (float)values[0];
   }
   else {
     for (size_t i = 0; i < values.size() - 1; ++i) {
-      if (fueq(value, values[i])) {
-        value = values[i + 1];
+      if (fueq(value, (float)values[i])) {
+        value = (float)values[i + 1];
         break;
       }
     }
   }
 }
-bool SDLVulkan::doInput() {
-  SDL_Event event;
-
-  
-
+void GSDL::handleCamera() {
   mouse_wheel = 0;
-  float min_radius = 2;
   //Rotate
   int dx, dy;
   SDL_GetMouseState(&dx, &dy);
   BR2::vec2 p{ (float)dx, (float)dy };
   if (mouse_down) {
-
     BR2::vec2 delta = p - last_mouse_pos;
     BR2::urect2 r = getWindowDims();
     float x = -delta.x / 300;
     float y = -delta.y / 300;
-    if (x != 0 || y!=0) {
-      float delta_rot_x = M_2PI * x;
-      float delta_rot_y = M_PI * y;
+    if (x != 0 || y != 0) {
+      float delta_rot_x = (float)(M_2PI *(double)  x);
+      float delta_rot_y = (float)(M_PI * (double) y);
       float zxradius = sqrt(campos.x * campos.x + campos.y * campos.y + campos.z * campos.z);
 
       if (_initial_cam_rot_set == false) {
@@ -711,23 +716,27 @@ bool SDLVulkan::doInput() {
       }
 
       theta += delta_rot_x;
-      theta = fmodf(theta, M_2PI);
+      theta = (float)fmod(theta, M_2PI);
 
       phi += delta_rot_y;
-      if (phi < 0.001) {
-        phi = 0.001;
+      if (phi < 0.001f) {
+        phi = 0.001f;
       }
-      if (phi >= M_PI-0.001) {
-        phi = M_PI-0.001;
+      if (phi >= (float)M_PI - 0.001f) {
+        phi = (float)M_PI - 0.001f;
       }
 
       campos.x = sin(phi) * cos(theta) * zxradius;
       campos.z = sin(phi) * sin(theta) * zxradius;
       campos.y = cos(phi) * zxradius;
-
     }
   }
   last_mouse_pos = p;
+}
+bool GSDL::doInput() {
+  SDL_Event event;
+
+  handleCamera();
 
   while (SDL_PollEvent(&event)) {
     if (event.type == SDL_QUIT) {
@@ -751,7 +760,7 @@ bool SDLVulkan::doInput() {
     }
     else if (event.type == SDL_MOUSEWHEEL) {
       if (event.wheel.y != 0) {
-        mouse_wheel = std::min(10, std::max(-10, event.wheel.y));
+        mouse_wheel = (float)std::min(10, std::max(-10, event.wheel.y));
 
         auto n = campos.normalized() * -1.;
         if (campos.length() + (n * mouse_wheel).length() > 2) {
@@ -884,7 +893,7 @@ bool SDLVulkan::doInput() {
   }
   return false;
 }
-void SDLVulkan::renderLoop() {
+void GSDL::renderLoop() {
   bool exit = false;
   while (!exit) {
     exit = doInput();
@@ -924,7 +933,7 @@ void SDLVulkan::renderLoop() {
 
       drawFrame();
 
-    //  test_overlay(); silly
+      //  test_overlay(); silly
 
       if (_pDebugWindow) {
         if (_fpsMeter_Render.frameMod(50)) {
@@ -947,5 +956,7 @@ void SDLVulkan::renderLoop() {
     }
   }
 }
+
+#pragma endregion GSDL
 
 }  // namespace VG

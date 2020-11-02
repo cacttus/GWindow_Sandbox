@@ -7,11 +7,10 @@
 #ifndef __GAMECLASSES_16031607627136953668913090414_H__
 #define __GAMECLASSES_16031607627136953668913090414_H__
 
+#include "./VulkanHeader.h"
 #include "./VulkanClasses.h"
 
 namespace VG {
-class Mesh;
-class GameDummy;
 
 class FpsMeter {
 public:

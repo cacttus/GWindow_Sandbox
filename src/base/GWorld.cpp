@@ -1,7 +1,5 @@
-#include "./GameClasses.h"
+#include "./GWorld.h"
 #include "./VulkanClasses.h"
-#include "./SandboxHeader.h"
-#include "./Vulkan.h"
 
 namespace VG {
 
