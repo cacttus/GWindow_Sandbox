@@ -682,23 +682,49 @@ void SDLVulkan::cycleValue(float& value, const std::vector<float>& values) {
 bool SDLVulkan::doInput() {
   SDL_Event event;
 
+  
+
   mouse_wheel = 0;
+  float min_radius = 2;
   //Rotate
   int dx, dy;
   SDL_GetMouseState(&dx, &dy);
   BR2::vec2 p{ (float)dx, (float)dy };
   if (mouse_down) {
+
     BR2::vec2 delta = p - last_mouse_pos;
     BR2::urect2 r = getWindowDims();
     float x = -delta.x / 300;
-    if (x != 0) {
-      float delta_rot = M_2PI * x;
-      float zxradius = sqrt(campos.x * campos.x + campos.z * campos.z);
-      cam_rot += delta_rot;
-      cam_rot = fmodf(cam_rot, M_2PI);
+    float y = -delta.y / 300;
+    if (x != 0 || y!=0) {
+      float delta_rot_x = M_2PI * x;
+      float delta_rot_y = M_PI * y;
+      float zxradius = sqrt(campos.x * campos.x + campos.y * campos.y + campos.z * campos.z);
 
-      campos.x = cos(cam_rot) * zxradius;
-      campos.z = sin(cam_rot) * zxradius;
+      if (_initial_cam_rot_set == false) {
+        if (zxradius == 0) {
+          zxradius = min_radius;
+        }
+        phi = acos(campos.y / zxradius);
+        theta = acos((campos.z / zxradius) / sin(phi));
+        _initial_cam_rot_set = true;
+      }
+
+      theta += delta_rot_x;
+      theta = fmodf(theta, M_2PI);
+
+      phi += delta_rot_y;
+      if (phi < 0.001) {
+        phi = 0.001;
+      }
+      if (phi >= M_PI-0.001) {
+        phi = M_PI-0.001;
+      }
+
+      campos.x = sin(phi) * cos(theta) * zxradius;
+      campos.z = sin(phi) * sin(theta) * zxradius;
+      campos.y = cos(phi) * zxradius;
+
     }
   }
   last_mouse_pos = p;
@@ -731,8 +757,8 @@ bool SDLVulkan::doInput() {
         if (campos.length() + (n * mouse_wheel).length() > 2) {
           campos += n * mouse_wheel;
         }
-        if (campos.length() < 2) {
-          campos = n * -2.;
+        if (campos.length() < min_radius) {
+          campos = n * -min_radius;
         }
       }
     }

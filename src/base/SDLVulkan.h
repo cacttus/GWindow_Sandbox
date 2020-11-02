@@ -101,8 +101,9 @@ private:
   bool mouse_down = false;
   BR2::vec2 last_mouse_pos{ 0, 0 };
   float mouse_wheel = 0;
-
-  float cam_rot = 0;
+  bool _initial_cam_rot_set = false;
+  float theta = 0;
+  float phi= 0;
 
   //Temps & shader
   std::vector<GPULight> lights;
