@@ -49,14 +49,13 @@ endif()
 
 # VG
 add_executable(${VG_TARGET_NAME} 
-${CMAKE_CURRENT_SOURCE_DIR}/src/base/SDLVulkan.cpp 
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/GWindow.cpp 
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/main.cpp 
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/SandboxHeader.cpp 
 #Begin vulkan classes.
-${CMAKE_CURRENT_SOURCE_DIR}/src/base/Vulkan.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanClasses.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanDebug.cpp
-${CMAKE_CURRENT_SOURCE_DIR}/src/base/GameClasses.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/GWorld.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/ext/spirv-reflect/spirv_reflect.c
 ~/git/VulkanGame/src/ext/lodepng.cpp
 )

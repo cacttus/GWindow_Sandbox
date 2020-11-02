@@ -86,6 +86,18 @@
 
 namespace VG {
 
+#ifndef BR2_OS_LINUX
+#if defined(linux)
+#define BR2_OS_LINUX
+#endif
+#endif
+
+#ifndef BR2_OS_WINDOWS
+#if defined(_WIN32)
+#define BR2_OS_WINDOWS
+#endif
+#endif
+
 //This is a stub namespace for the base BR2 functions.
 typedef std::string string_t;
 //Defines

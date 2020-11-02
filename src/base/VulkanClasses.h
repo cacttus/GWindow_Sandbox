@@ -746,8 +746,8 @@ private:
   void getDeviceProperties();
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
-  std::unique_ptr<VulkanDebug> _pDebug = nullptr;
-  std::unique_ptr<QueueFamilies> _pQueueFamilies = nullptr;
+  std::unique_ptr<VulkanDebug> _pDebug;
+  std::unique_ptr<QueueFamilies> _pQueueFamilies;
   std::shared_ptr<Swapchain> _pSwapchain = nullptr;
   VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
   VkDevice _device = VK_NULL_HANDLE;

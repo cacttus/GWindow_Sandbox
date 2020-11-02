@@ -41,6 +41,8 @@ GSDL::~GSDL() {
 void GSDL::start() {
 }
 std::shared_ptr<GWindow> GSDL::createWindow() {
+  std::shared_ptr<GWindow> win = nullptr;
+
   return nullptr;
 }
 
@@ -50,17 +52,25 @@ void GSDL::makeDebugTexture(int w, int h) {
     SDL_DestroyTexture(_pDebugTexture);
     _pDebugTexture = nullptr;
   }
-  //_pDebugTexture = SDL_CreateTextureFromSurface(_pDebugRenderer, _pDebugWindow_Surface);
-  //SDLUtils::checkSDLErr();
   _pDebugTexture = SDL_CreateTexture(_pDebugRenderer, SDL_PIXELFORMAT_BGRA32, SDL_TEXTUREACCESS_STREAMING, w, h);
   SDLUtils::checkSDLErr();
 }
 void GSDL::makeDebugWindow() {
   destroyDebugWindow();
-  _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+  _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE |SDL_WINDOW_VULKAN);
   SDLUtils::checkSDLErr();
 
-  _pDebugRenderer = SDL_CreateRenderer(_pDebugWindow, -1, 0);
+int flags=0;
+#if defined(BR2_OS_LINUX)
+//flags = SDL_RENDERER_ACCELERATED;
+#elif defined(BR2_OS_WINDOWS)
+#endif
+
+//SDL Doc  You may not combine this with 3D or the rendering API on this window.
+// But what if we make a new window? it shouldnot mess with up new window
+
+
+  _pDebugRenderer = SDL_CreateRenderer(_pDebugWindow, -1, flags);
   SDLUtils::checkSDLErr();
 
   _pDebugWindow_Surface = SDL_GetWindowSurface(_pDebugWindow);
@@ -234,6 +244,7 @@ SDL_Window* GSDL::makeSDLWindow(const GraphicsWindowCreateParameters& params, in
 
   return ret;
 }
+
 void GSDL::init() {
   try {
     // Make the window.
@@ -936,7 +947,8 @@ void GSDL::renderLoop() {
       //  test_overlay(); silly
 
       if (_pDebugWindow) {
-        if (_fpsMeter_Render.frameMod(50)) {
+        int modd = (int)(std::max(_fpsMeter_Render.getFpsAvg() * 0.25, 1.0));
+        if (_fpsMeter_Render.frameMod(modd)) {
           _debugImageData = vulkan()->swapchain()->grabImage(_debugImg);
           //If this returns nullptr, reset the image index.
           if (_debugImageData == nullptr) {

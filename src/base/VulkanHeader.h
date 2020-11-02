@@ -10,8 +10,6 @@
 //We remove this when we plug this back into VG
 #include "./SandboxHeader.h"
 
-//#include "../base/BaseHeader.h"
-
 namespace VG {
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -155,6 +153,10 @@ enum class TextureType {
   ColorAttachment,
   SwapchainImage
 };
+//X.h defines None
+#ifdef None
+#undef None
+#endif
 enum SamplerType {
   None,
   Sampled
