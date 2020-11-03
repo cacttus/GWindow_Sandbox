@@ -21,8 +21,8 @@ TODO: sample rate shading.
     * Integrate BR2::VertexFormat
 2. Implement the GWindow_Sandbox UI
   * Multiple Vulkan Windows.
-3. Move GWindow_Sandbox Vulkan code to Vulkan
-    * Alternatively - move Vulkan to GWindow Sandbox
+3. Move GWindow_Sandbox Vulkan code to VG
+    * Alternatively - move VG to GWindow Sandbox
     * Isolate the GL classes.
 
 ## Bugs 
@@ -71,44 +71,3 @@ TODO: sample rate shading.
     * _pipeline->bindTexture(_texture)
 * Replace parseUserType with the code from VG
 * Stereoscopic rendering (VR) - swapChainCreateInfo->imageArrayLayers
-
-### Notes
-* *Wanted design
-  onStart(){
-    Shader s  = Shader({base_mesh.vs, base_mesh.fs});
-    Mesh m = loadMesh("Character")
-    if(m.setShader(s))
-    {
-      //Shader is compatible
-
-      auto ob = Game::createObject("MyChar");
-      ob.addComponent(m);
-
-      Camera c;
-      c.lookAt({0,0,0});
-      c.position({10,10,10});
-
-      Toolbar tb;
-      tb.addChild({
-        Button{.width=100, .text="Wave" .push=[](){ Game::getOb("Character").animate("Wave"); },
-        Button{.width=100, .text="Dance" .push=[](){ Game::getOb("Character").animate("Dance"); },
-        });
-    }
-  }
-
-  onUpdate(){
-    shader->begin()
-    shader->draw(mesh)
-    shader->end()
-        }
-
-### Fun Stuff        
-
-(x) Kronecker
-(+) Direct sum = lined up, zeroed new dimensions
-A = { 0 1 } B = {2 3 4}
-A (+) B = 0 1 2 3 4
-Det(a (+) b ) = Det(a)*Det(b)
-Tr(a (+) b) = Tr(a)+Tr(b)
-Tensor Product = Kronecker product
-Particles move as waves, not linearly. (Matter-waves)
