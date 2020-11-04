@@ -14,12 +14,12 @@
   asynchronously (without real intervention).
 
 */
-
-#include "./SandboxHeader.h"
+ 
+#include "./SandboxHeader.h" 
 #include "./VulkanHeader.h"
-#include "./GWindowHeader.h"
+#include "./GWindowHeader.h" 
 #include "./GWindow.h"
-
+ 
 typedef std::string string_t;
 
 float randomFloat() {

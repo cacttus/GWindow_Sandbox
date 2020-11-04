@@ -1,6 +1,7 @@
 #include "./VulkanClasses.h"
 #include "./VulkanDebug.h"
 #include "./GWorld.h"
+#include "./VulkanUtils.h"
 
 namespace VG {
 
@@ -576,14 +577,14 @@ std::shared_ptr<Img32> TextureImage::copyImageFromGPU() {
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
   auto buf = std::make_shared<VulkanDeviceBuffer>(vulkan(),
-                                                  1,                                  
+                                                  1,
                                                   size_bytes,  //We must convert the image to 4 components unsigned byte
                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
   //Undefined layout will be discard image data.
   //transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  CommandBuffer cmd(vulkan(),nullptr);
+  CommandBuffer cmd(vulkan(), nullptr);
   cmd.begin();
   cmd.copyImageToBuffer(getThis<TextureImage>(), buf);
   cmd.end();
@@ -1340,8 +1341,8 @@ PassDescription::PassDescription(std::shared_ptr<RenderFrame> frame, std::shared
   }
 
   // Check Multisampling
-  int s_a = VulkanDebug::SampleCount_ToInt(shader->vulkan()->maxMSAA());
-  int s_b = VulkanDebug::SampleCount_ToInt(_sampleCount);
+  int s_a = VulkanUtils::SampleCount_ToInt(shader->vulkan()->maxMSAA());
+  int s_b = VulkanUtils::SampleCount_ToInt(_sampleCount);
   if (s_a < s_b) {
     BRLogWarnOnce("Supplied multisample count '" + std::to_string(s_b) + "' was greater than the GPU max supported '" + std::to_string(s_a) + "'.");
     _sampleCount = shader->vulkan()->maxMSAA();
@@ -1470,7 +1471,7 @@ bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo, std::shared_p
     return fbo->pipelineError("Framebuffer::createAttachments Mipmapping enabled with MSAA - this is not valid in Vulkan. Culprit: '" + _desc->_name + "'");
   }
   if (_target->imageSize().width == 0 || _target->imageSize().height == 0) {
-    return fbo->pipelineError("Invalid input image size for framebuffer attachment '" + _desc->_name + "'  '" + VulkanDebug::OutputMRT_toString(_desc->_output) + "'");
+    return fbo->pipelineError("Invalid input image size for framebuffer attachment '" + _desc->_name + "'  '" + VulkanUtils::OutputMRT_toString(_desc->_output) + "'");
   }
 
   VkImageAspectFlagBits aspect;
@@ -1532,7 +1533,7 @@ std::shared_ptr<TextureImage> RenderFrame::createNewRenderTarget(OutputMRT targe
   std::shared_ptr<TextureImage> ret = nullptr;
   FBOType type = OutputDescription::outputTypeToFBOType(target);
 
-  string_t name = VulkanDebug::OutputMRT_toString(target) + "_" + std::to_string((int)TextureImage::msaa_to_int(samples)) + "_SAMPLE";
+  string_t name = VulkanUtils::OutputMRT_toString(target) + "_" + std::to_string((int)TextureImage::msaa_to_int(samples)) + "_SAMPLE";
 
   auto siz = _pSwapchain->windowSize();
   if (target == OutputMRT::RT_DefaultColor) {
@@ -1900,8 +1901,8 @@ bool Framebuffer::validate() {
         sc_first_color = sc;
       }
       else if (sc_first_color != sc) {
-        int sc1 = VulkanDebug::SampleCount_ToInt(sc_first_color);
-        int sc2 = VulkanDebug::SampleCount_ToInt(sc);
+        int sc1 = VulkanUtils::SampleCount_ToInt(sc_first_color);
+        int sc2 = VulkanUtils::SampleCount_ToInt(sc);
         return pipelineError(Stz "Sample count '" + std::to_string(sc2) + "' for " + output->desc()->_name + " does not match other color sample counts '" + std::to_string(sc1) + "' .");
       }
     }
@@ -1917,8 +1918,8 @@ bool Framebuffer::validate() {
 
     if (output->desc()->_type == FBOType::Depth) {
       MSAA sc = output->target()->sampleCount();
-      int sc_color_ct = VulkanDebug::SampleCount_ToInt(sc_first_color);
-      int sc_depth_ct = VulkanDebug::SampleCount_ToInt(sc);
+      int sc_color_ct = VulkanUtils::SampleCount_ToInt(sc_first_color);
+      int sc_depth_ct = VulkanUtils::SampleCount_ToInt(sc);
       if (allowOverSampleDepthBuffer) {
         if (sc_depth_ct < sc_color_ct) {
           return pipelineError("Depth buffer sample count less than color buffer sample count with VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME enabled.");
@@ -2300,28 +2301,12 @@ bool PipelineShader::init() {
   }
   return true;
 }
-VkShaderStageFlagBits spvReflectShaderStageFlagBitsToVk(SpvReflectShaderStageFlagBits b) {
-  if (b == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
-    return VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
-    return VK_SHADER_STAGE_VERTEX_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
-    return VK_SHADER_STAGE_GEOMETRY_BIT;
-  }
-  else if (b == SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT) {
-    return VK_SHADER_STAGE_COMPUTE_BIT;
-  }
-  else {
-    BRThrowException("Unsupported Spv->Vk shader stage conversion.");
-  }
-}
-std::shared_ptr<ShaderModule> PipelineShader::getModule(VkShaderStageFlagBits stage, bool throwIfNotFound) {
+
+std::shared_ptr<ShaderModule> PipelineShader::getModule(ShaderStage stage, bool throwIfNotFound) {
   std::shared_ptr<ShaderModule> mod = nullptr;
   for (auto module : _modules) {
-    auto vks = spvReflectShaderStageFlagBitsToVk(module->reflectionData()->shader_stage);
-    if (vks == stage) {
+    auto ss = VulkanUtils::spvReflectShaderStageFlagBits_To_ShaderStage(module->reflectionData()->shader_stage);
+    if (ss == stage) {
       mod = module;
       break;
     }
@@ -2333,24 +2318,24 @@ std::shared_ptr<ShaderModule> PipelineShader::getModule(VkShaderStageFlagBits st
   return mod;
 }
 bool PipelineShader::checkGood() {
-  std::shared_ptr<ShaderModule> vert = getModule(VK_SHADER_STAGE_VERTEX_BIT);
+  std::shared_ptr<ShaderModule> vert = getModule(ShaderStage::VertexStage);
   auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
   if (vert->reflectionData()->input_variable_count >= maxinputs) {
     return shaderError("Error creating shader '" + name() + "' - too many input variables");
   }
 
-  std::shared_ptr<ShaderModule> frag = getModule(VK_SHADER_STAGE_FRAGMENT_BIT);
+  std::shared_ptr<ShaderModule> frag = getModule(ShaderStage::FragmentStage);
   auto maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
   if (frag->reflectionData()->output_variable_count >= maxAttachments) {
     return shaderError("Error creating shader '" + name() + "' - too many output attachments in fragment shader.");
   }
 
   //TODO: geom
-  std::shared_ptr<ShaderModule> geom = getModule(VK_SHADER_STAGE_GEOMETRY_BIT);
+  std::shared_ptr<ShaderModule> geom = getModule(ShaderStage::GeometryStage);
   return true;
 }
 bool PipelineShader::createInputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_VERTEX_BIT, true);
+  std::shared_ptr<ShaderModule> mod = getModule(ShaderStage::VertexStage, true);
 
   auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
   auto maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
@@ -2494,7 +2479,7 @@ OutputMRT PipelineShader::parseShaderOutputTag(const string_t& tag) {
   return OutputMRT::RT_Undefined;
 }
 bool PipelineShader::createOutputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(VK_SHADER_STAGE_FRAGMENT_BIT, true);
+  std::shared_ptr<ShaderModule> mod = getModule(ShaderStage::FragmentStage, true);
   if (mod == nullptr) {
     return shaderError("Fragment module not found for shader '" + this->name() + "'");
   }
@@ -2521,7 +2506,7 @@ bool PipelineShader::createOutputs() {
         return shaderError("Depth format output from shader, this is not implemented.");
       }
       else {
-        return shaderError("Unhandled shader output variable format '" + VulkanDebug::VkFormat_toString(fb->_format) + "'");
+        return shaderError("Unhandled shader output variable format '" + VulkanUtils::VkFormat_toString(fb->_format) + "'");
       }
       _locations.push_back(fb->_location);
 
@@ -2663,6 +2648,8 @@ DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
   return ret;
 }
 bool PipelineShader::createDescriptors() {
+  //Create uniform blocks
+  //Create samplers
   uint32_t _nPool_Samplers = 0;
   uint32_t _nPool_UBOs = 0;
 
@@ -2678,27 +2665,27 @@ bool PipelineShader::createDescriptors() {
       if (d->_name.length() == 0) {
         BRLogWarn("Name of one or more input shader variables was not specified for shader module '" + module->name() + "'");
       }
-      d->_binding = descriptor.binding;
-
-      for (auto other : bindingLocations) {
-        //**Reusing descriptors will cause severe vulkan errors. It will hault the GPU.
-        if (d->_binding == other->_binding) {
-          return shaderError("Duplicate binding specified for descriptor '" + d->_name + "' and '" + other->_name + "' and the ubo object is different.");
-        }
-      }
-      bindingLocations.push_back(d);
 
       d->_arraySize = 1;
       d->_function = classifyDescriptor(d->_name);
 
       if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_VERTEX_BIT) {
-        d->_stage = VK_SHADER_STAGE_VERTEX_BIT;
+        d->_stage = ShaderStage::VertexStage;
       }
       else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_FRAGMENT_BIT) {
-        d->_stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        d->_stage = ShaderStage::FragmentStage;
       }
       else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_GEOMETRY_BIT) {
-        d->_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+        d->_stage = ShaderStage::GeometryStage;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT) {
+        d->_stage = ShaderStage::ComputeStage;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_TESSELLATION_CONTROL_BIT) {
+        d->_stage = ShaderStage::TessControlStage;
+      }
+      else if (module->reflectionData()->shader_stage == SPV_REFLECT_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
+        d->_stage = ShaderStage::TessEvalStage;
       }
       else {
         return shaderError("Invalid or unsupported shader stage (SpvReflectShaderStage):  " + std::to_string(module->reflectionData()->shader_stage));
@@ -2741,6 +2728,32 @@ bool PipelineShader::createDescriptors() {
       else {
         return shaderError("Shader descriptor not supported - Spirv-Reflect Descriptor: " + descriptor.descriptor_type);
       }
+
+      d->_binding = descriptor.binding;
+
+      //Reusing names is alright, but may cause problems with built-in variables. This is disabled by default.
+
+      for (auto other : bindingLocations) {
+        //**Reusing descriptors will cause severe vulkan errors. It will hault the GPU.
+        if (d->_binding == other->_binding) {
+          return shaderError("Duplicate binding specified for descriptor '" + d->_name + "' in stage '" + VulkanUtils::ShaderStage_toString(d->_stage) + "', and '" +
+                             other->_name + "' in stage '" + VulkanUtils::ShaderStage_toString(other->_stage));
+        }
+        if (StringUtil::equals(d->_name, other->_name)) {
+          string_t st_dupe = "Duplicate named shader variables encountered: '" + d->_name + "' in stage '" + VulkanUtils::ShaderStage_toString(d->_stage) + "', and '" +
+                             other->_name + "' in stage '" + VulkanUtils::ShaderStage_toString(other->_stage) +
+                             ". It is recommended that variables have different names, or, multi-stage uniform data is passed as varying variables. " +
+                             "";
+          // if (vulkan()->allowDuplicateUniforms()) {
+          // shaderWarning(st_dupe);
+          // }
+          // else {
+          shaderError(st_dupe);
+          //}
+        }
+      }
+      bindingLocations.push_back(d);
+
       _descriptors.insert(std::make_pair(d->_name, d));
     }
   }
@@ -2758,7 +2771,7 @@ bool PipelineShader::createDescriptors() {
   VkDescriptorPoolCreateInfo poolInfo = {
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
     .pNext = nullptr,
-    .flags = 0 /*VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT*/,
+    .flags = 0,  //VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT - this may cause fragmentation
     .maxSets = static_cast<uint32_t>(vulkan()->swapchainImageCount()),
     .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
     .pPoolSizes = poolSizes.data(),
@@ -2773,7 +2786,7 @@ bool PipelineShader::createDescriptors() {
       .binding = desc->_binding,
       .descriptorType = desc->_type,
       .descriptorCount = desc->_arraySize,
-      .stageFlags = desc->_stage,
+      .stageFlags = static_cast<VkShaderStageFlags>(VulkanUtils::ShaderStage_to_VkShaderStageFlagBits(desc->_stage)),
       .pImmutableSamplers = nullptr,
     });
   }
@@ -2899,30 +2912,30 @@ bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<TextureIm
 
   std::shared_ptr<Descriptor> desc = getDescriptor(name);
   if (desc == nullptr) {
-    return renderError("Descriptor '" + name + "'could not be found for shader.");
-  }
+      return renderError("Descriptor '" + name + "'could not be found for shader.");
+    }
 
-  VkDescriptorImageInfo imageInfo = {
-    .sampler = texture->sampler(),
-    .imageView = texture->imageView(),
-    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  };
-  VkWriteDescriptorSet descriptorWrite = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .pNext = nullptr,
-    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
-    .dstBinding = desc->_binding,
-    .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
-    .descriptorCount = 1,
-    .descriptorType = desc->_type,
-    .pImageInfo = &imageInfo,
-    .pBufferInfo = nullptr,
-    .pTexelBufferView = nullptr,
-  };
+    VkDescriptorImageInfo imageInfo = {
+      .sampler = texture->sampler(),
+      .imageView = texture->imageView(),
+      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = nullptr,
+      .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
+      .dstBinding = desc->_binding,
+      .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
+      .descriptorCount = 1,
+      .descriptorType = desc->_type,
+      .pImageInfo = &imageInfo,
+      .pBufferInfo = nullptr,
+      .pTexelBufferView = nullptr,
+    };
 
-  desc->_isBound = true;
+    desc->_isBound = true;
 
-  vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
   return true;
 }
 string_t PipelineShader::createUniqueFBOName(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> passdesc) {
@@ -2931,7 +2944,7 @@ string_t PipelineShader::createUniqueFBOName(std::shared_ptr<RenderFrame> frame,
   for (auto io = 0; io < passdesc->outputs().size(); ++io) {
     auto desc = passdesc->outputs()[io];
     ret += ".(";
-    ret += VulkanDebug::OutputMRT_toString(desc->_output);
+    ret += VulkanUtils::OutputMRT_toString(desc->_output);
     ret += desc->_clear ? ".clear" : ".retain";
     // ret += desc->isSwapchainColorImage() ? ".swap_color" : (desc->isSwapchainDepthImage() ? ".swap_depth" : ".rendertexture");
     ret += ")";
@@ -3570,12 +3583,12 @@ void Swapchain::endFrame() {
     auto target = this->frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
     auto img = target->copyImageFromGPU();
     img->save("out_Final_Result.png");
-    
-    for (int i=0; i<_renderTextures.size(); ++i) {
+
+    for (int i = 0; i < _renderTextures.size(); ++i) {
       auto tex = _renderTextures[i]->texture(MSAA::Disabled, _currentFrame);
       if (tex) {
         auto img = tex->copyImageFromGPU();
-        img->save(std::string("out_RenderTexture" + std::to_string(i) +".png").c_str());
+        img->save(std::string("out_RenderTexture" + std::to_string(i) + ".png").c_str());
       }
       else {
         Gu::debugBreak();
@@ -3584,7 +3597,6 @@ void Swapchain::endFrame() {
 
     _copyImage_Flag = false;
   }
-
 
   _currentFrame = (_currentFrame + 1) % _frames.size();
   _frameState = FrameState::FrameEnd;
@@ -3619,7 +3631,7 @@ std::shared_ptr<Img32> Swapchain::grabImage(int debugImg) {
   else if (debugImg == 1) {
     target = _renderTextures[0]->texture(MSAA::Disabled, frames()[0]->frameIndex());
   }
-  else{
+  else {
     return nullptr;
   }
 
@@ -4053,7 +4065,7 @@ void Vulkan::checkErrors() {
 void Vulkan::validateVkResult(VkResult res, const string_t& fname) {
   checkErrors();
   if (res != VK_SUCCESS) {
-    errorExit(Stz "Error: '" + fname + "' returned '" + VulkanDebug::VkResult_toString(res) + "' (" + res + ")" + Os::newline());
+    errorExit(Stz "Error: '" + fname + "' returned '" + VulkanUtils::VkResult_toString(res) + "' (" + res + ")" + Os::newline());
   }
 }
 
@@ -4177,6 +4189,5 @@ float Vulkan::maxAF() {
 }
 
 #pragma endregion
-
 
 }  // namespace VG

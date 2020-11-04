@@ -245,7 +245,7 @@ public:
   uint32_t _arraySize = 0;
   uint32_t _blockSizeBytes = 0;
   uint32_t _bufferSizeBytes = 0;
-  VkShaderStageFlags _stage;
+  ShaderStage _stage;
   bool _isBound = false;
   DescriptorFunction _function = DescriptorFunction::Unset;
 };
@@ -556,7 +556,7 @@ private:
   OutputMRT parseShaderOutputTag(const string_t& tag);
   DescriptorFunction classifyDescriptor(const string_t& name);
   BR2::VertexUserType parseUserType(const string_t& err);
-  std::shared_ptr<ShaderModule> getModule(VkShaderStageFlagBits stage, bool throwIfNotFound = false);
+  std::shared_ptr<ShaderModule> getModule(ShaderStage stage, bool throwIfNotFound = false);
   std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
   VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
   bool beginPassGood();

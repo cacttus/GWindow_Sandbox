@@ -159,6 +159,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include=".gitignore" />
+    <None Include="d_v3n3_grid.fs" />
+    <None Include="d_v3n3_grid.gs" />
+    <None Include="d_v3n3_grid.vs" />
     <None Include="Tasks.md" />
     <None Include="test.fs" />
     <None Include="test.vs" />
@@ -171,6 +174,7 @@
     <ClInclude Include="src\base\VulkanClasses.h" />
     <ClInclude Include="src\base\VulkanDebug.h" />
     <ClInclude Include="src\base\VulkanHeader.h" />
+    <ClInclude Include="src\base\VulkanUtils.h" />
     <ClInclude Include="src\ext\spirv-reflect\include\spirv\unified1\spirv.h" />
     <ClInclude Include="src\ext\spirv-reflect\spirv_reflect.h" />
   </ItemGroup>
@@ -182,6 +186,7 @@
     <ClCompile Include="src\base\GWindow.cpp" />
     <ClCompile Include="src\base\VulkanClasses.cpp" />
     <ClCompile Include="src\base\VulkanDebug.cpp" />
+    <ClCompile Include="src\base\VulkanUtils.cpp" />
     <ClCompile Include="src\ext\spirv-reflect\spirv_reflect.c" />
   </ItemGroup>
   <ItemGroup>

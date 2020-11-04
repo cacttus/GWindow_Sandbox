@@ -405,8 +405,8 @@ void GSDL::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
       lights[lights.size() - 1].specColor = BR2::vec3(1, 1, 1);
       lights[lights.size() - 1].specHardness = 1.0f;
       lights[lights.size() - 1].specIntensity = 1.0f;
-      lights_speed.push_back(2 + fr01() * 8);
-      lights_r.push_back(2 + fr01() * 10);
+      lights_speed.push_back(2 + fr01() * 8);   
+      lights_r.push_back(2 + fr01() * 10); 
     }
     //Disable the rest
     for (size_t i = _numLights; i < _maxLights; ++i) {
@@ -421,7 +421,7 @@ void GSDL::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
     auto& light = lights[ilight];
     if (light.radius > 0) {
       light.rotation = fmodf(light.rotation + 6.28f * (dt / lights_speed[ilight]), 6.28f);
-      light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 20, sinf(light.rotation) * lights_r[ilight]);
+      light.pos = BR2::vec3(cosf(light.rotation) * lights_r[ilight], 4, sinf(light.rotation) * lights_r[ilight]);
       light.specHardness = g_spec_hard;
       light.specIntensity = g_spec_intensity;
     }

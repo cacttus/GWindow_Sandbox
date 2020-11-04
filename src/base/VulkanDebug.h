@@ -28,17 +28,6 @@ public:
 
   void createDebugObjects();
 
-  static string_t VkGraphicsPipelineCreateInfo_toString();
-  static string_t VkResult_toString(VkResult r);
-  static string_t VkColorSpaceKHR_toString(VkColorSpaceKHR sp);
-  static string_t VkFormat_toString(VkFormat fmt);
-  static string_t VkMemoryPropertyFlags_toString(VkMemoryPropertyFlags r);
-  static string_t VkRenderPassBeginInfo_toString();
-  static string_t VkDescriptorType_toString(VkDescriptorType t);
-  static string_t OutputMRT_toString(OutputMRT t);
-  static int SampleCount_ToInt(MSAA c);
-
-
 private:
   void createDebugMessenger();
   void createDebugReport();

@@ -53,6 +53,13 @@
 #include <unordered_set>
 #include <functional>
 
+#ifdef BR2_OS_WINDOWS
+#define BR2_FUNC string_t(__FUNCTION__)
+#elif defined(BR2_OS_LINUX)
+//may be __func__ or __PRETTY_FUNCTION_
+#define BR2_FUNC string_t(__FUNCTION__)
+#endif
+
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
 //#include <Windows.h>

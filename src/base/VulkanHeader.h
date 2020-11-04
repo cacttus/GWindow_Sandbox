@@ -153,11 +153,21 @@ enum class TextureType {
   ColorAttachment,
   SwapchainImage
 };
+enum class ShaderStage {
+  Unset,
+  VertexStage,
+  TessControlStage,
+  TessEvalStage,
+  GeometryStage,
+  FragmentStage,
+  ComputeStage,
+  AllStages,
+};
 //X.h defines None
 #ifdef None
 #undef None
 #endif
-enum SamplerType {
+enum class SamplerType {
   None,
   Sampled
 };

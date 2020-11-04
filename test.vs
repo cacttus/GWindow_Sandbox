@@ -33,11 +33,10 @@ void main() {
   mat4 m_model = _uboInstanceData.instances[gl_InstanceIndex].model;
 
   vec4 p_t = m_model * vec4(_v301,1);
-  vec4 n_t = m_model * vec4(_n301,1);
   gl_Position = _uboViewProj.proj * _uboViewProj.view * p_t;
   _vColorVS = _c401;
   _vTexcoordVS = _x201;
-  _vNormalVS = normalize(n_t.xyz);
   _vPositionVS = p_t.xyz;
-  _vNormalVS = normalize((m_model * vec4(_v301 + _n301, 1)).xyz - _vPositionVS);
+  _vNormalVS = normalize( (transpose(inverse(m_model * _uboViewProj.view)) * vec4(_n301,1)).xyz );//Timv
+  _vCamPosVS = _uboViewProj.camPos;
 }

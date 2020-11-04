@@ -54,10 +54,11 @@ void main() {
             continue;           
         }
 
-        vec3 lightDirFrag = -lightdir;
         vec3 vFragToViewDir = normalize(_vCamPosVS - _vPositionVS);
-        vec3 vReflect = reflect(-lightDirFrag, _vNormalVS);
-        float eDotR = clamp(pow(clamp(dot(vReflect, vFragToViewDir), 0,1), _uboLights.lights[iLight].specHardness), 0,1 );
+        vec3 vReflect = normalize(reflect(lightdir, _vNormalVS));
+        float lDotN = clamp(dot(vReflect, vFragToViewDir), 0,1);
+        float eDotR = clamp(pow(lDotN, _uboLights.lights[iLight].specHardness), 0,1);
+       
         lightSpecRGB += _uboLights.lights[iLight].specColor * _uboLights.lights[iLight].specIntensity * linearAttenuation * eDotR;
         lightDiffuseRGB += _uboLights.lights[iLight].color * lamb * linearAttenuation;
    }
