@@ -55,6 +55,7 @@ ${CMAKE_CURRENT_SOURCE_DIR}/src/base/SandboxHeader.cpp
 #Begin vulkan classes.
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanClasses.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanDebug.cpp
+${CMAKE_CURRENT_SOURCE_DIR}/src/base/VulkanUtils.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/base/GWorld.cpp
 ${CMAKE_CURRENT_SOURCE_DIR}/src/ext/spirv-reflect/spirv_reflect.c
 ~/git/VulkanGame/src/ext/lodepng.cpp

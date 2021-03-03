@@ -163,7 +163,7 @@ enum class ShaderStage {
   ComputeStage,
   AllStages,
 };
-//X.h defines None
+//Note: X.h defines None
 #ifdef None
 #undef None
 #endif

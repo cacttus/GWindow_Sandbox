@@ -550,7 +550,7 @@ void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
       }
     }
     else {
-      bool pass1_success = false;
+      bool pass1_success = false; 
       if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
         auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
         if (g_use_rtt) {
@@ -643,7 +643,7 @@ std::shared_ptr<Img32> GSDL::loadImage(const string_t& img) {
 }
 void GSDL::createTextureImages() {
   // auto img = loadImage(App::rootFile("test.png"));
-  auto img = loadImage(App::rootFile(g_test_img1 ? "char-1.png" : "TexturesCom_MetalBare0253_2_M.png"));
+  auto img = loadImage(App::rootFile(g_test_img1 ? "grass.png" : "TexturesCom_MetalBare0253_2_M.png"));
   if (img) {
     _testTexture1 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img,
                                                    FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
@@ -652,7 +652,7 @@ void GSDL::createTextureImages() {
   else {
     vulkan()->errorExit("Could not load test image 1.");
   }
-  auto img2 = loadImage(App::rootFile("char-2.png"));
+  auto img2 = loadImage(App::rootFile("dirt.png"));
   if (img2) {
     _testTexture2 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img2,
                                                    FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,

@@ -2610,6 +2610,7 @@ BR2::VertexUserType PipelineShader::parseUserType(const string_t& zname) {
 VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt) {
   //This is basically a glsl attribute specifying a layout identifier
   //So we need to match the input descriptions with the input vertex info.
+  //TODO: FMT is not used.
 
   VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,

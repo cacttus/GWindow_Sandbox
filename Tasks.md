@@ -1,4 +1,3 @@
-
 Metaglob project steps
 * Shared uniforms?
 * get geometry shaders to work.
@@ -10,7 +9,7 @@ TODO: pass->cullMode(CullMode::Front)
       pass->polygonMode(PolygonMode::Fill)
       pass->setAlpha(BlendState::AlphaBlend)
 
-TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image.Fix this.
+TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image. Fix this.
 
 TODO: RTT is broken
       Multipass rendering is broken
@@ -26,6 +25,7 @@ TODO: sample rate shading.
   * Deferred Lighting.
   * Vertex Formats, and Fill/Mode data (in getPipeline)
     * Integrate BR2::VertexFormat
+    * getVertexInputInfo
 2. Implement the GWindow_Sandbox UI
   * Multiple Vulkan Windows.
 3. Move GWindow_Sandbox Vulkan code to VG

@@ -171,6 +171,11 @@ public:
   }
 };
 
+//We will share the BR2 VTX Format later.
+class DummyVertexFormat {
+  public:
+};
+
 //String
 typedef std::string string_t;
 #define Stz std::string("") +
