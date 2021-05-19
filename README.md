@@ -28,5 +28,10 @@ cmake -GNinja -DCMAKE_BUILD_TYPE=Release -S ./ -B ./build &&
 cd ./build &&
 ninja
 
+### Build VSCode
+Ctrl+Shift+P
+cmake: build
+cmake: debug
 
-
+### Note
+If you get "X Error of failed request: BadValue (integer parameter out of range for operation)" try restarting
