@@ -11,22 +11,13 @@ Sandbox for testing the Vulkan rendering system.
 * cmake tools
 * shader language support
 
-### Install these packages if not installed (copy paste)
-sudo apt install cmake &&
-sudo apt install libsdl2-dev && 
-sudo apt install libsdl2-net-dev &&
-sudo apt install libvulkan-dev &&
-sudo apt install libncurses-dev &&
-sudo apt install ninja-build
+### Ubuntu, Linux Mint, 
+* Replaced setup with a script.
+* Run setup.ubuntu.sh in terminal as root IN the GWindow_Sandbox folder for Mint and Ubuntu versions.
 
-### Install Shaderc inside of /GWindow_Sandbox directory (copy paste)
-git clone https://github.com/google/shaderc.git  &&
-cd shaderc &&
-./utils/git-sync-deps &&
-mkdir build &&
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -S ./ -B ./build &&
-cd ./build &&
-ninja
+### Else
+* Copy packages from setup.ubuntu.sh for pacman
+* Install shaderc see setup.ubuntu.sh
 
 ### Build VSCode
 Ctrl+Shift+P
