@@ -10,3 +10,4 @@
 *.vcxproj.user
 /x64/
 *.spv
+/CMakeFiles
