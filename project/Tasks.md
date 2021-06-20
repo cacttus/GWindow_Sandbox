@@ -1,10 +1,19 @@
-TODO: get validation layers to work. No debug info is present.
+Metaglob project steps
+* Shared uniforms?
+* get geometry shaders to work.
+* implement meta-globs.
+
+TODO: get validation layers to work. I get no debug info.
+
 TODO: pass->cullMode(CullMode::Front)
       pass->polygonMode(PolygonMode::Fill)
       pass->setAlpha(BlendState::AlphaBlend)
+
 TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image. Fix this.
-TODO: Bugs: RTT is broken
-      Bugs: Multipass rendering is broken
+
+TODO: RTT is broken
+      Multipass rendering is broken
+
 TODO: sample rate shading.
   VkPhysicalDeviceFeatures sampleRateShading - tells us if it's enabled.
 
