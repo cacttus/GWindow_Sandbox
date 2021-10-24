@@ -1,7 +1,8 @@
 /**
 *  @file VulkanHeader.h
 *  @date 09/15/2020
-*  @author MetalMario971
+*  @author Derek Page
+*  @brief Header file for Vulkan API
 */
 #pragma once
 #ifndef __VULKANHEADER_1602796034935462942505497138_H__

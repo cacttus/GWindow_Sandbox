@@ -1,7 +1,8 @@
 /**
  *  @file SandboxHeader.h
  *  @date 09/02/2020
- *  @author MetalMario971
+ *  @author Derek Page
+ *  @brief Header file for dummy VulkanGame engine components
  */
 #pragma once
 #ifndef __SANDBOXHEADER_160169492510355883169343686315_H__

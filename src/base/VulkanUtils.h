@@ -1,7 +1,7 @@
 /**
 *  @file VulkanDebug.h
 *  @date 20201004
-*  @author MetalMario971
+*  @author Derek Page
 */
 #pragma once
 #ifndef __VULKANUTILS_16018075671561130827_H__

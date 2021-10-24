@@ -1,7 +1,7 @@
 /**
 *  @file GameClasses.h
 *  @date 09/19/2020
-*  @author MetalMario971
+*  @author Derek Page
 */
 #pragma once
 #ifndef __GAMECLASSES_16031607627136953668913090414_H__

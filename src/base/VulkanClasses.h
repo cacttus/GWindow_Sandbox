@@ -1,7 +1,7 @@
 /**
 *  @file VulkanClasses.h
 *  @date 09/15/2020
-*  @author MetalMario971
+*  @author Derek Page
 *  @brief Vulkan class defs go here for now. We may break this up in the future.
 */
 #pragma once

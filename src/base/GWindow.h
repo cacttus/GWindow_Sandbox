@@ -2,7 +2,8 @@
 /**
  *  @file GVulkan.h
  *  @date 09/02/2020
- *  @author MetalMario971
+ *  @author Derek Page
+ *  @brief Test window for multiple Vulkan windows
  */
 #pragma once
 #ifndef __SDLVULKAN_160169401317456691411060057473_H__
