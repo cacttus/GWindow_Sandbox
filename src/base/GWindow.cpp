@@ -24,7 +24,7 @@ const bool g_vsync_enable = false;
 
 #pragma region GWindow
 
-GWindow::GWindow(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+GWindow::GWindow(Vulkan* v) : VulkanObject(v) {
 }
 GWindow::~GWindow() {
 }
@@ -40,8 +40,8 @@ GSDL::~GSDL() {
 }
 void GSDL::start() {
 }
-std::shared_ptr<GWindow> GSDL::createWindow() {
-  std::shared_ptr<GWindow> win = nullptr;
+std::unique_ptr<GWindow> GSDL::createWindow() {
+  std::unique_ptr<GWindow> win = nullptr;
 
   return nullptr;
 }
@@ -272,16 +272,9 @@ void GSDL::init() {
 
     _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, enableDebug);
 
-    _game = std::make_shared<GameDummy>();
-    _game->_mesh1 = std::make_shared<Mesh>(_vulkan);
-    _game->_mesh1->makeBox();
-    _game->_mesh2 = std::make_shared<Mesh>(_vulkan);
-    _game->_mesh2->makeBox();
+    createGameAndShaderTest();
 
-    //Make Shader.
-    _pShader = PipelineShader::create(_vulkan, "Vulkan-Tutorial-Test-Shader",
-                                      std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
-    allocateShaderMemory();
+
 
     BRLogInfo("Showing window..");
     SDL_ShowWindow(_pSDLWindow);
@@ -291,6 +284,20 @@ void GSDL::init() {
     cleanup();
     throw ex;
   }
+}
+void GSDL::createGameAndShaderTest(){
+    _game = nullptr;
+    _pShader = nullptr;
+    _game = std::make_shared<GameDummy>();
+    _game->_mesh1 = std::make_shared<Mesh>(_vulkan.get());
+    _game->_mesh1->makeBox();
+    _game->_mesh2 = std::make_shared<Mesh>(_vulkan.get());
+    _game->_mesh2->makeBox();
+
+    //Make Shader.
+    _pShader = PipelineShader::create(_vulkan.get(), "Vulkan-Tutorial-Test-Shader",
+                                      std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
+    allocateShaderMemory();
 }
 void GSDL::sdl_PrintVideoDiagnostics() {
   // Init Video
@@ -460,7 +467,7 @@ void GSDL::drawFrame() {
     double t01 = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
     last_time = std::chrono::high_resolution_clock::now();
 
-    std::shared_ptr<RenderFrame> frame = _vulkan->swapchain()->currentFrame();
+    RenderFrame* frame = _vulkan->swapchain()->currentFrame();
     if (frame != nullptr) {
       recordCommandBuffer(frame, t01);
     }
@@ -469,7 +476,7 @@ void GSDL::drawFrame() {
     g_iFrameNumber++;
   }
 }
-void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
+void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
   uint32_t frameIndex = frame->frameIndex();
 
   auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
@@ -482,11 +489,12 @@ void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
   updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
   updateLights(lightsubo, (float)dt);
   // }
-  if (test_render_texture == nullptr) {
-    test_render_texture = vulkan()->swapchain()->createRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
+  
+  //if (test_render_texture.lock() == nullptr) {
+  auto test_render_texture = vulkan()->swapchain()->getRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
                                                                      FilterData{ SamplerType::Sampled, MipmapMode::Disabled, vulkan()->maxAF(),
                                                                                  TexFilter::Linear, TexFilter::Linear, MipLevels::Unset });
-  }
+  //}
 
   auto cmd = frame->commandBuffer();
   cmd->begin();
@@ -535,7 +543,7 @@ void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
       auto simple_pass = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
       simple_pass->setOutput(OutputDescription::getColorDF());
       simple_pass->setOutput(OutputDescription::getDepthDF());
-      if (_pShader->beginRenderPass(cmd, simple_pass)) {
+      if (_pShader->beginRenderPass(cmd, std::move(simple_pass))) {
         if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
           _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
           _pShader->bindUBO("_uboViewProj", viewProj);
@@ -562,7 +570,7 @@ void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
         }
         pass1->setOutput(OutputDescription::getDepthDF(true));
 
-        if (_pShader->beginRenderPass(cmd, pass1)) {
+        if (_pShader->beginRenderPass(cmd, std::move(pass1))) {
           if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
             pass1_success = true;
             if (g_pass_test_idx != 0) {
@@ -600,7 +608,7 @@ void GSDL::recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt) {
           pass2->setOutput(OutputDescription::getDepthDF());
         }
 
-        if (_pShader->beginRenderPass(cmd, pass2)) {
+        if (_pShader->beginRenderPass(cmd, std::move(pass2))) {
           if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
             _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
             _pShader->bindUBO("_uboViewProj", viewProj);

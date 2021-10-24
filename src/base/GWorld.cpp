@@ -40,51 +40,11 @@ void FpsMeter::update() {
 
 #pragma region Mesh
 
-Mesh::Mesh(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+Mesh::Mesh(Vulkan* v) : VulkanObject(v) {
 }
 Mesh::~Mesh() {
 }
 uint32_t Mesh::maxRenderInstances() { return _maxRenderInstances; }
-
-
-
-
-//void Mesh::makePlane() {
-//  //    vec2(0.0, -.5),
-//  //vec2(.5, .5),
-//  //vec2(-.5, .5)
-//  _planeVerts = {
-//    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f, 1 } },
-//    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f, 1 } },
-//    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1 } },
-//    { { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f, 1 } }
-//  };
-//  _planeInds = {
-//    0, 1, 2, 2, 3, 0
-//  };
-//
-//  // _planeVerts = {
-//  //   { { 0.0f, -0.5f }, { 1, 0, 0, 1 } },
-//  //   { { 0.5f, 0.5f }, { 0, 1, 0, 1 } },
-//  //   { { -0.5f, 0.5f }, { 0, 0, 1, 1 } }
-//  // };
-//
-//  size_t v_datasize = sizeof(v_v2c4) * _planeVerts.size();
-// 
-//  _vertexBuffer = std::make_shared<VulkanBuffer>(
-//    vulkan(),
-//    VulkanBufferType::VertexBuffer,
-//    true,
-//    v_datasize,  
-// 
-//  size_t i_datasize = sizeof(uint32_t) * _planeInds.size();
-//  _indexBuffer = std::make_shared<VulkanBuffer>(
-//    vulkan(),
-//    VulkanBufferType::IndexBuffer,
-//    true,
-//    i_datasize,
-//    _planeInds.data(),  i_datasize);
-//}
 void Mesh::makeBox() {
   //      6     7
   //  2      3
@@ -100,8 +60,6 @@ void Mesh::makeBox() {
     { { 0, 1, 1 }, { 1, 1, 1, 1 } }, 
     { { 1, 1, 1 }, { 1, 1, 1, 1 } },
   };    
-  //Construct box from the old box coordintes (no texture)
-  //Might be wrong - opengl coordinates.
 #define BV_VFACE(bl, br, tl, tr, nx)            \
   { bv[bl]._pos, bv[bl]._color, { 0, 1 }, nx }, \
   { bv[br]._pos, bv[br]._color, { 1, 1 }, nx }, \
@@ -131,7 +89,7 @@ void Mesh::makeBox() {
     BV_IFACE(4),
     BV_IFACE(5),
   };
-  _vertexBuffer = std::make_shared<VulkanBuffer>(
+  _vertexBuffer = std::make_unique<VulkanBuffer>(
     vulkan(),
     VulkanBufferType::VertexBuffer,
     true,
@@ -140,7 +98,7 @@ void Mesh::makeBox() {
     _boxVerts.data(),
     _boxVerts.size());
 
-  _indexBuffer = std::make_shared<VulkanBuffer>(
+  _indexBuffer = std::make_unique<VulkanBuffer>(
     vulkan(),
     VulkanBufferType::IndexBuffer,
     true,
@@ -165,8 +123,6 @@ void Mesh::recopyData() {
     { { 0, 1, 1 }, { 1, 1, 1, 1 } },
     { { 1, 1, 1 }, { 1, 1, 1, 1 } },
   };
-  //Construct box from the old box coordintes (no texture)
-  //Might be wrong - opengl coordinates.
 #define BV_VFACE(bl, br, tl, tr, nx)              \
   { bv[bl]._pos, bv[bl]._color, { 0, 1 }, nx },   \
     { bv[br]._pos, bv[br]._color, { 1, 1 }, nx }, \
@@ -199,25 +155,7 @@ void Mesh::recopyData() {
   _vertexBuffer->vulkan()->waitIdle();  
   _vertexBuffer->writeData(_boxVerts.data(), _boxVerts.size());
   _indexBuffer->writeData(_boxInds.data(), _boxInds.size());
-    
-    //= std::make_shared<VulkanBuffer>(
-    //vulkan(),
-    //VulkanBufferType::VertexBuffer,
-    //true,
-    //sizeof(VertType),
-    //_boxVerts.size(),
-    //_boxVerts.data(),
-    //_boxVerts.size());
-
-   
-    //std::make_shared<VulkanBuffer>(
-    //vulkan(),
-    //VulkanBufferType::IndexBuffer,
-    //true,
-    //sizeof(uint32_t),
-    //_boxInds.size(),
-    //_boxInds.data(),
-    //_boxInds.size());
+ 
 }
 
 

@@ -7,7 +7,7 @@ namespace VG {
 
 #pragma region VulkanDeviceBuffer
 
-VulkanDeviceBuffer::VulkanDeviceBuffer(std::shared_ptr<Vulkan> pvulkan, size_t itemSize, size_t itemCount, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) : VulkanObject(pvulkan) {
+VulkanDeviceBuffer::VulkanDeviceBuffer(Vulkan* pvulkan, size_t itemSize, size_t itemCount, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) : VulkanObject(pvulkan) {
   _itemSize = itemSize;
   _itemCount = itemCount;
   _byteSize = _itemSize * _itemCount;
@@ -82,7 +82,7 @@ void VulkanDeviceBuffer::copy_to(void* dst_buf, size_t copy_count_items, size_t 
   }
   vkUnmapMemory(vulkan()->device(), _bufferMemory);
 }
-void VulkanDeviceBuffer::copy_device(std::shared_ptr<VulkanDeviceBuffer> host_buf, size_t item_copyCount, size_t itemOffset_Host, size_t itemOffset_Gpu) {
+void VulkanDeviceBuffer::copy_device(VulkanDeviceBuffer* host_buf, size_t item_copyCount, size_t itemOffset_Host, size_t itemOffset_Gpu) {
   AssertOrThrow2(_isGpuBuffer == true);
   AssertOrThrow2(host_buf != nullptr);
   AssertOrThrow2(itemOffset_Host + item_copyCount <= host_buf->itemCount());
@@ -113,7 +113,7 @@ uint32_t VulkanDeviceBuffer::findMemoryType(VkPhysicalDevice d, uint32_t typeFil
 #pragma endregion
 
 #pragma region VulkanBuffer
-VulkanBuffer::VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, size_t itemSize, size_t itemCount, void* items, size_t item_count) : VulkanObject(dev) {
+VulkanBuffer::VulkanBuffer(Vulkan* dev, VulkanBufferType eType, bool bStaged, size_t itemSize, size_t itemCount, void* items, size_t item_count) : VulkanObject(dev) {
   //@param data - data to be copied, or nullptr to make empty.
   //@param bStaged - If this getVkBuffer is staged for GPU copying. If false this getVkBuffer resized on host (cpu) memory.
   //                 Set this to false if buffers are being updated frequently (ubo data).
@@ -143,12 +143,12 @@ VulkanBuffer::VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, 
     //Create a staging getVkBuffer for efficiency operations
     //Staging buffers only make sense for data that resides on the GPu and doesn't get updated per frame.
     // Uniform data is not a goojd option for staging buffers, but mesh and bone data is a good option.
-    _hostBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    _gpuBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT | bufType, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    _hostBuffer = std::make_unique<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    _gpuBuffer = std::make_unique<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT | bufType, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   }
   else {
     //Allocate non-staged
-    _hostBuffer = std::make_shared<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, bufType, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    _hostBuffer = std::make_unique<VulkanDeviceBuffer>(vulkan(), itemSize, itemCount, bufType, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   }
 
   if (items != nullptr) {
@@ -164,11 +164,12 @@ void VulkanBuffer::writeData(void* items, size_t item_count, size_t item_offset)
     AssertOrThrow2(_hostBuffer != nullptr);
     AssertOrThrow2(_gpuBuffer != nullptr);
     _hostBuffer->copy_from(items, item_count, 0, 0);
-    _gpuBuffer->copy_device(_hostBuffer, item_count, 0, 0);
+    _gpuBuffer->copy_device(_hostBuffer.get(), item_count, 0, 0);
 
     //DELETING HOST BUFFER ** If we decide to dynamically copy vertexes we will need to specify a MemoryType This is a segue into memory pools
     //HostOnly, DeviceOnly, Coherent (copy)
-    _hostBuffer = nullptr;
+    //_hostBuffer = nullptr;
+    //Not sure why this was nulled out.
   }
   else {
     AssertOrThrow2(_hostBuffer != nullptr);
@@ -176,21 +177,21 @@ void VulkanBuffer::writeData(void* items, size_t item_count, size_t item_offset)
     _hostBuffer->copy_from(items, item_count, 0, 0);
   }
 }
-std::shared_ptr<VulkanDeviceBuffer> VulkanBuffer::buffer() {
+VulkanDeviceBuffer* VulkanBuffer::buffer() {
   if (_bUseStagingBuffer) {
     AssertOrThrow2(_gpuBuffer);
-    return _gpuBuffer;
+    return _gpuBuffer.get();
   }
   else {
     AssertOrThrow2(_hostBuffer);
-    return _hostBuffer;
+    return _hostBuffer.get();
   }
 }
 
 #pragma endregion
 
 #pragma region TextureImage
-TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter) : VulkanObject(v) {
+TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter) : VulkanObjectShared(v) {
   _type = type;
   _filter = filter;
   _samples = samples;
@@ -202,7 +203,7 @@ TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, Text
     _filter._anisotropy = 0;  // Disabled
   }
 }
-TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat format, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
+TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat format, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
   //Depth format constructor
   cleanup();
   _format = format;
@@ -218,7 +219,7 @@ TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, Text
   createSampler();
   generateMipmaps();
 }
-TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat format, VkImage image, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
+TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat format, VkImage image, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
   //Swapchain Image Constructor
   cleanup();
   _image = image;
@@ -230,7 +231,7 @@ TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, Text
   createView();
   generateMipmaps();
 }
-TextureImage::TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, std::shared_ptr<Img32> pimg, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
+TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, std::shared_ptr<Img32> pimg, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
   AssertOrThrow2(pimg != nullptr);
   cleanup();
   _bitmap = pimg;
@@ -490,7 +491,7 @@ bool TextureImage::isFeatureSupported(VkFormatFeatureFlagBits flag) {
   bool supported = formatProperties.optimalTilingFeatures & flag;
   return supported;
 }
-void TextureImage::generateMipmaps(std::shared_ptr<CommandBuffer> buf) {
+void TextureImage::generateMipmaps(CommandBuffer* buf) {
   if (_filter._mipmap == MipmapMode::Disabled || _filter._mipLevels == 1) {
     return;
   }
@@ -499,11 +500,11 @@ void TextureImage::generateMipmaps(std::shared_ptr<CommandBuffer> buf) {
     return;
   }
 
-  bool destroyBuf = false;
+  std::unique_ptr<CommandBuffer> cmd_pt = nullptr;
   if (buf == nullptr) {
-    buf = std::make_shared<CommandBuffer>(vulkan(), nullptr);
+    cmd_pt = std::make_unique<CommandBuffer>(vulkan(), nullptr);
+    buf = cmd_pt.get();
     buf->begin();
-    destroyBuf = true;
   }
 
   int32_t last_level_width = static_cast<int32_t>(_size.width);
@@ -541,9 +542,10 @@ void TextureImage::generateMipmaps(std::shared_ptr<CommandBuffer> buf) {
                             VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, _finalLayout,
                             _filter._mipLevels - 1, VK_IMAGE_ASPECT_COLOR_BIT);
-  if (destroyBuf) {
+  if (cmd_pt.get()) {
     buf->end();
     buf->submit({}, {}, {}, 0, true);
+    buf = nullptr;
   }
 }
 void TextureImage::copyImageToGPU() {
@@ -552,7 +554,7 @@ void TextureImage::copyImageToGPU() {
   }
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
-  auto buf = std::make_shared<VulkanDeviceBuffer>(vulkan(),
+  auto buf = std::make_unique<VulkanDeviceBuffer>(vulkan(),
                                                   1,  // 1 byte - TODO - this should be the size of a pixel and pixel count
                                                   _bitmap->data_len_bytes,
                                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -563,7 +565,7 @@ void TextureImage::copyImageToGPU() {
   transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   CommandBuffer cmd(vulkan(), nullptr);
   cmd.begin();
-  cmd.copyBufferToImage(buf, _image, _size);
+  cmd.copyBufferToImage(buf.get(), _image, _size);
   cmd.end();
   cmd.submit({}, {}, {}, 0, true);
   transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -576,7 +578,7 @@ std::shared_ptr<Img32> TextureImage::copyImageFromGPU() {
   size_t size_bytes = _size.width * _size.height * 4;
   //**Note this assumes a color texture: see  VK_IMAGE_ASPECT_COLOR_BIT
   //For loaded images only.
-  auto buf = std::make_shared<VulkanDeviceBuffer>(vulkan(),
+  auto buf = std::make_unique<VulkanDeviceBuffer>(vulkan(),
                                                   1,
                                                   size_bytes,  //We must convert the image to 4 components unsigned byte
                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -586,7 +588,7 @@ std::shared_ptr<Img32> TextureImage::copyImageFromGPU() {
   //transitionImageLayout(_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   CommandBuffer cmd(vulkan(), nullptr);
   cmd.begin();
-  cmd.copyImageToBuffer(getThis<TextureImage>(), buf);
+  cmd.copyImageToBuffer(getThis<TextureImage>(), buf.get());
   cmd.end();
   cmd.submit();
   //transitionImageLayout(_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -895,7 +897,7 @@ void TextureImage::createView() {
 
 #pragma region CommandBuffer
 
-CommandBuffer::CommandBuffer(std::shared_ptr<Vulkan> v, std::shared_ptr<RenderFrame> pframe) : VulkanObject(v) {
+CommandBuffer::CommandBuffer(Vulkan* v, RenderFrame* pframe) : VulkanObject(v) {
   _sharedPool = vulkan()->commandPool();
   _pRenderFrame = pframe;
 
@@ -1078,7 +1080,7 @@ void CommandBuffer::copyBuffer(VkBuffer from, VkBuffer to, size_t count, size_t 
   };
   vkCmdCopyBuffer(_commandBuffer, from, to, 1, &copyRegion);
 }
-void CommandBuffer::copyBufferToImage(std::shared_ptr<VulkanDeviceBuffer> buf, VkImage img, const BR2::usize2& size) {
+void CommandBuffer::copyBufferToImage(VulkanDeviceBuffer* buf, VkImage img, const BR2::usize2& size) {
   validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::BeginPass);
 
   VkBufferImageCopy region = {
@@ -1097,7 +1099,7 @@ void CommandBuffer::copyBufferToImage(std::shared_ptr<VulkanDeviceBuffer> buf, V
 
   vkCmdCopyBufferToImage(_commandBuffer, buf->getVkBuffer(), img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
-void CommandBuffer::copyImageToBuffer(std::shared_ptr<TextureImage> image, std::shared_ptr<VulkanDeviceBuffer> buf) {
+void CommandBuffer::copyImageToBuffer(std::shared_ptr<TextureImage> image, VulkanDeviceBuffer* buf) {
   validateState(_state == CommandBufferState::Begin || _state == CommandBufferState::BeginPass);
 
   VkBufferImageCopy region = {
@@ -1118,8 +1120,11 @@ void CommandBuffer::copyImageToBuffer(std::shared_ptr<TextureImage> image, std::
 }
 void CommandBuffer::bindMesh(std::shared_ptr<Mesh> mesh) {
   validateState(_state == CommandBufferState::BeginPass);
-  std::shared_ptr<VulkanBuffer> verts = mesh->vertexBuffer();
-  std::shared_ptr<VulkanBuffer> indexes = mesh->indexBuffer();
+  VulkanBuffer* verts = mesh->vertexBuffer();
+  VulkanBuffer* indexes = mesh->indexBuffer();
+  AssertOrThrow2(verts);
+  AssertOrThrow2(indexes);
+
   IndexType indexType = mesh->indexType();
 
   VkIndexType vulkan_idxtype = VK_INDEX_TYPE_UINT32;
@@ -1159,7 +1164,7 @@ public:
   SpvReflectShaderModule* _spvReflectModule = nullptr;
   string_t _baseName = "*unset*";
 
-  ShaderModule_Internal(std::shared_ptr<Vulkan> pv) : VulkanObject(pv) {
+  ShaderModule_Internal(Vulkan* pv) : VulkanObject(pv) {
   }
   ~ShaderModule_Internal() {
     if (_spvReflectModule) {
@@ -1217,7 +1222,7 @@ public:
   }
 };
 SpvReflectShaderModule* ShaderModule::reflectionData() { return _pInt->_spvReflectModule; }
-ShaderModule::ShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& files) : VulkanObject(v) {
+ShaderModule::ShaderModule(Vulkan* v, const string_t& base_name, const string_t& files) : VulkanObject(v) {
   _pInt = std::make_unique<ShaderModule_Internal>(v);
   _pInt->_baseName = base_name;
   _pInt->load(files);
@@ -1268,7 +1273,7 @@ FBOType OutputDescription::outputTypeToFBOType(OutputMRT out) {
 
 #pragma region RenderTexture
 
-RenderTexture::RenderTexture(const string_t& name, std::shared_ptr<Swapchain> s, VkFormat format, const FilterData& filter) {
+RenderTexture::RenderTexture(const string_t& name, Swapchain* s, VkFormat format, const FilterData& filter) {
   _format = format;
   _filter = filter;
   _swapchain = s;
@@ -1299,7 +1304,7 @@ void RenderTexture::createTexture(MSAA msaa) {
     BRThrowException("Too many MSAA sampled textures in RenderTexture - limit 2");
   }
 
-  for (auto frame : _swapchain->frames()) {
+  for (auto& frame : _swapchain->frames()) {
     auto tex = std::make_shared<TextureImage>(_swapchain->vulkan(),
                                               _name,
                                               TextureType::ColorAttachment,
@@ -1328,7 +1333,7 @@ std::shared_ptr<TextureImage> RenderTexture::texture(MSAA msaa, uint32_t frame) 
 
 #pragma region PassDescription
 
-PassDescription::PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader, MSAA c, BlendFunc globalBlend, FramebufferBlendMode rbm) {
+PassDescription::PassDescription(RenderFrame* frame, PipelineShader* shader, MSAA c, BlendFunc globalBlend, FramebufferBlendMode rbm) {
   _shader = shader;
   _frame = frame;
   _sampleCount = c;
@@ -1348,12 +1353,13 @@ PassDescription::PassDescription(std::shared_ptr<RenderFrame> frame, std::shared
     _sampleCount = shader->vulkan()->maxMSAA();
   }
 }
-void PassDescription::setOutput(std::shared_ptr<OutputDescription> output) {
-  addValidOutput(output);
+void PassDescription::setOutput(std::unique_ptr<OutputDescription> output) {
+  addValidOutput(std::move(output));
 }
-void PassDescription::setOutput(const string_t& tag, OutputMRT output_e, std::shared_ptr<RenderTexture> tex,
+void PassDescription::setOutput(const string_t& tag, OutputMRT output_e, RenderTexture* tex,
                                 BlendFunc blend, bool clear, float clear_r, float clear_g, float clear_b) {
-  auto output = std::make_shared<OutputDescription>();
+  AssertOrThrow2(tex != nullptr);
+  auto output = std::make_unique<OutputDescription>();
   output->_name = tag;
   output->_texture = tex;
   output->_blending = blend;
@@ -1365,7 +1371,7 @@ void PassDescription::setOutput(const string_t& tag, OutputMRT output_e, std::sh
   output->_output = output_e;
   output->_clear = clear;
   output->_compareOp = CompareOp::Less;
-  addValidOutput(output);
+  addValidOutput(std::move(output));
 }
 bool PassDescription::passError(const string_t& msg) {
   string_t out_msg = "[PassDescription]:" + msg;
@@ -1373,7 +1379,7 @@ bool PassDescription::passError(const string_t& msg) {
   _bValid = false;
   return false;
 }
-void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att) {
+void PassDescription::addValidOutput(std::unique_ptr<OutputDescription> out_att) {
   //Adds an output description to the pass and assigns it a shader binding.
   AssertOrThrow2(_shader != nullptr);
   bool valid = true;
@@ -1387,7 +1393,7 @@ void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att)
     else if (binding->_output == out_att->_output) {
       if (found_binding == false) {
         //Copy binding info
-        out_att->_outputBinding = binding;
+        out_att->_outputBinding = binding.get();
         found_binding = true;
       }
       else {
@@ -1402,12 +1408,12 @@ void PassDescription::addValidOutput(std::shared_ptr<OutputDescription> out_att)
   }
 
   if (valid) {
-    _outputs.push_back(out_att);
+    _outputs.push_back(std::move(out_att));
   }
 }
 std::vector<VkClearValue> PassDescription::getClearValues() {
   std::vector<VkClearValue> clearValues;
-  for (auto att : this->_outputs) {
+  for (auto& att : _outputs) {
     if (att->_clear) {
       VkClearValue cv;
       if (att->_type == FBOType::Depth) {
@@ -1432,7 +1438,7 @@ std::vector<VkClearValue> PassDescription::getClearValues() {
 }
 uint32_t PassDescription::colorOutputCount() {
   uint32_t n = 0;
-  for (auto output : outputs()) {
+  for (auto& output : _outputs) {
     if (output->_type == FBOType::Color) {
       n++;
     }
@@ -1440,7 +1446,7 @@ uint32_t PassDescription::colorOutputCount() {
   return n;
 }
 bool PassDescription::hasDepthBuffer() {
-  for (auto output : outputs()) {
+  for (auto& output : _outputs) {
     if (output->_type == FBOType::Depth) {
       return true;
     }
@@ -1452,12 +1458,12 @@ bool PassDescription::hasDepthBuffer() {
 
 #pragma region FramebufferAttachment
 
-FramebufferAttachment::FramebufferAttachment(std::shared_ptr<Vulkan> v, std::shared_ptr<OutputDescription> desc) : VulkanObject(v) {
+FramebufferAttachment::FramebufferAttachment(Vulkan* v, OutputDescription* desc) : VulkanObject(v) {
   _desc = desc;
 }
 FramebufferAttachment::~FramebufferAttachment() {
 }
-bool FramebufferAttachment::init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<RenderFrame> frame) {
+bool FramebufferAttachment::init(Framebuffer* fbo, RenderFrame* frame) {
   createTarget(fbo, frame, _desc);
 
   if (_computedLocation == FramebufferAttachment::InvalidLocation) {
@@ -1563,7 +1569,7 @@ std::shared_ptr<TextureImage> RenderFrame::createNewRenderTarget(OutputMRT targe
   }
   return ret;
 }
-void FramebufferAttachment::createTarget(std::shared_ptr<Framebuffer> fb, std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att) {
+void FramebufferAttachment::createTarget(Framebuffer* fb, RenderFrame* frame, OutputDescription* out_att) {
   AssertOrThrow2(fb->sampleCount() != MSAA::Unset);
 
   MSAA samples = fb->sampleCount();
@@ -1592,11 +1598,11 @@ void FramebufferAttachment::createTarget(std::shared_ptr<Framebuffer> fb, std::s
   _computedLocation = computeLocation(fb);
   _computedFinalLayout = computeFinalLayout(fb, out_att);
 }
-uint32_t FramebufferAttachment::computeLocation(std::shared_ptr<Framebuffer> fb) {
+uint32_t FramebufferAttachment::computeLocation(Framebuffer* fb) {
   //Locations must come sequentially in the correct order.
   return fb->nextLocation();
 }
-VkImageLayout FramebufferAttachment::computeFinalLayout(std::shared_ptr<Framebuffer> fb, std::shared_ptr<OutputDescription> out_att) {
+VkImageLayout FramebufferAttachment::computeFinalLayout(Framebuffer* fb, OutputDescription* out_att) {
   VkImageLayout ret = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
   bool multisampling = fb->sampleCount() != MSAA::Disabled;
 
@@ -1639,7 +1645,7 @@ VkImageLayout FramebufferAttachment::computeFinalLayout(std::shared_ptr<Framebuf
 
 #pragma region Framebuffer
 
-Framebuffer::Framebuffer(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+Framebuffer::Framebuffer(Vulkan* v) : VulkanObject(v) {
 }
 Framebuffer::~Framebuffer() {
   _attachments.clear();
@@ -1652,9 +1658,9 @@ bool Framebuffer::pipelineError(const string_t& msg) {
   Gu::debugBreak();
   return false;
 }
-bool Framebuffer::create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc) {
+bool Framebuffer::create(const string_t& name, RenderFrame* frame, std::unique_ptr<PassDescription> desc) {
   _frame = frame;
-  _passDescription = desc;
+  _passDescription = std::move(desc);
   _name = name;
   //Should be equal. There is one extension that allows variable depth/color samples
 
@@ -1664,13 +1670,13 @@ bool Framebuffer::create(const string_t& name, std::shared_ptr<RenderFrame> fram
     return pipelineError("No framebuffer attachments supplied to Framebuffer::create");
   }
 
-  createRenderPass(frame, getThis<Framebuffer>());
+  createRenderPass(frame, this);
 
   uint32_t w = _frame->imageSize().width;
   uint32_t h = _frame->imageSize().height;
 
   std::vector<VkImageView> vk_attachments;
-  for (auto att : _attachments) {
+  for (auto& att : _attachments) {
     if (att->target() == nullptr) {
       return pipelineError("Framebuffer::create Target '" + att->desc()->_name + "' texture was null.");
     }
@@ -1701,20 +1707,20 @@ bool Framebuffer::createAttachments() {
 
   //The FBO attachments and RenderTExture attachments merge to create the FBO in this function.
   //Place any information that applies to all FBO attachments in here.
-  for (auto out_att : _passDescription->outputs()) {
-    auto attachment = std::make_shared<FramebufferAttachment>(vulkan(), out_att);
-    if (!attachment->init(getThis<Framebuffer>(), _frame)) {
+  for (auto& out_att : _passDescription->outputs()) {
+    auto attachment = std::make_unique<FramebufferAttachment>(vulkan(), out_att.get());
+    if (!attachment->init(this, _frame)) {
       return pipelineError("Failed to initialize fbo attachment '" + out_att->_name + "'");
     }
-    _attachments.push_back(attachment);
+    _attachments.push_back(std::move(attachment));
   }
 
   //Create resolve attachments.
   if (this->sampleCount() != MSAA::Disabled) {
-    for (auto output : _passDescription->outputs()) {
+    for (auto& output : _passDescription->outputs()) {
       //The vulkan spec says that the number of resolve attachments must equal the number of oclor attachments in VkSubpassDescription
       if (output->_type == FBOType::Color) {
-        auto resolve = std::make_shared<OutputDescription>();
+        auto resolve = std::make_unique<OutputDescription>();
         resolve->_name = Stz output->_name + "_resolve";
         resolve->_texture = output->_texture;      //this will be nullptr for swapchain image.
         resolve->_blending = BlendFunc::Disabled;  // ?
@@ -1727,20 +1733,20 @@ bool Framebuffer::createAttachments() {
         resolve->_compareOp = output->_compareOp;
         resolve->_outputBinding = output->_outputBinding;
         resolve->_resolve = true;
-        _resolveDescriptions.push_back(resolve);
 
-        auto attachment = std::make_shared<FramebufferAttachment>(vulkan(), resolve);
-        if (!attachment->init(getThis<Framebuffer>(), _frame)) {
+        auto attachment = std::make_unique<FramebufferAttachment>(vulkan(), resolve.get());
+        if (!attachment->init(this, _frame)) {
           return pipelineError("Failed to initialize FBO resolve attachment '" + resolve->_name + "'");
         }
-        _attachments.push_back(attachment);
+        _resolveDescriptions.push_back(std::move(resolve));
+        _attachments.push_back(std::move(attachment));
       }
     }
   }
 
   return true;
 }
-bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo) {
+bool Framebuffer::createRenderPass(RenderFrame* frame, Framebuffer* fbo) {
   //using subpassLoad you can read previous subpass values. This is more efficient than the old approach.
   //https://www.saschawillems.de/blog/2018/07/19/vulkan-input-attachments-and-sub-passes/
   //https://github.com/KhronosGroup/GLSL/blob/master/extensions/khr/GL_KHR_vulkan_glsl.txt
@@ -1750,7 +1756,7 @@ bool Framebuffer::createRenderPass(std::shared_ptr<RenderFrame> frame, std::shar
   std::vector<VkAttachmentReference> depthAttachmentRefs;
 
   for (size_t iatt = 0; iatt < _attachments.size(); ++iatt) {
-    auto att = _attachments[iatt];
+    auto att = _attachments[iatt].get();
 
     AssertOrThrow2(att != nullptr);
     AssertOrThrow2(att->desc() != nullptr);
@@ -1866,7 +1872,7 @@ bool Framebuffer::validate() {
   }
 
   //Validate has color
-  std::vector<std::shared_ptr<OutputDescription>> depthOutputs;
+  std::vector<OutputDescription*> depthOutputs;
   bool hasColor = false;
   for (size_t i = 0; i < _attachments.size(); ++i) {
     auto output = _attachments[i]->desc();
@@ -1883,7 +1889,7 @@ bool Framebuffer::validate() {
   }
 
   //Validate has target
-  for (auto output : _attachments) {
+  for (auto& output : _attachments) {
     if (output->target() == nullptr) {
       return pipelineError("Output " + output->desc()->_name + " texture was not set.");
     }
@@ -1893,7 +1899,7 @@ bool Framebuffer::validate() {
   MSAA sc_first_color;
   bool sc_set = false;
   for (size_t i = 0; i < _attachments.size(); ++i) {
-    auto output = _attachments[i];
+    auto output = _attachments[i].get();
     MSAA sc = output->target()->sampleCount();
 
     if (output->desc()->_type == FBOType::Color) {
@@ -1914,7 +1920,7 @@ bool Framebuffer::validate() {
   //TODO:
   bool allowOverSampleDepthBuffer = false;  //vulkan()->extensionEnabled(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
   for (size_t i = 0; i < _attachments.size(); ++i) {
-    auto output = _attachments[i];
+    auto output = _attachments[i].get();
 
     if (output->desc()->_type == FBOType::Depth) {
       MSAA sc = output->target()->sampleCount();
@@ -2005,14 +2011,14 @@ uint32_t Framebuffer::nextLocation() {
 
 #pragma region Pipeline
 
-Pipeline::Pipeline(std::shared_ptr<Vulkan> v,
+Pipeline::Pipeline(Vulkan* v,
                    VkPrimitiveTopology topo,
                    VkPolygonMode mode, VkCullModeFlags cullmode) : VulkanObject(v) {
   _primitiveTopology = topo;
   _polygonMode = mode;
   _cullMode = cullmode;
 }
-VkPipelineColorBlendAttachmentState Pipeline::getVkPipelineColorBlendAttachmentState(BlendFunc bf, std::shared_ptr<Framebuffer> fb) {
+VkPipelineColorBlendAttachmentState Pipeline::getVkPipelineColorBlendAttachmentState(BlendFunc bf, Framebuffer* fb) {
   VkPipelineColorBlendAttachmentState cba{};
 
   if (bf == BlendFunc::Disabled) {
@@ -2033,9 +2039,9 @@ VkPipelineColorBlendAttachmentState Pipeline::getVkPipelineColorBlendAttachmentS
   }
   return cba;
 }
-bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
+bool Pipeline::init(PipelineShader* shader,
                     std::shared_ptr<BR2::VertexFormat> vtxFormat,
-                    std::shared_ptr<Framebuffer> pfbo) {
+                    Framebuffer* pfbo) {
   _fbo = pfbo;
 
   if (pfbo->passDescription() == nullptr) {
@@ -2120,10 +2126,10 @@ bool Pipeline::init(std::shared_ptr<PipelineShader> shader,
   };
 
   //Depth getVkBuffer
-  std::shared_ptr<OutputDescription> depth = nullptr;
+  OutputDescription* depth = nullptr;
   for (size_t io = 0; io < pfbo->passDescription()->outputs().size(); ++io) {
     if (pfbo->passDescription()->outputs()[io]->_output == OutputMRT::RT_DefaultDepth) {
-      depth = pfbo->passDescription()->outputs()[io];
+      depth = pfbo->passDescription()->outputs()[io].get();
       break;
     }
   }
@@ -2268,24 +2274,30 @@ Pipeline::~Pipeline() {
 
 #pragma region PipelineShader
 
-std::shared_ptr<PipelineShader> PipelineShader::create(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) {
-  std::shared_ptr<PipelineShader> s = std::make_shared<PipelineShader>(v, name, files);
+std::unique_ptr<PipelineShader> PipelineShader::create(Vulkan* v, const string_t& name, const std::vector<string_t>& files) {
+  auto s = std::make_unique<PipelineShader>(v, name, files);
   s->init();
-  s->vulkan()->swapchain()->registerShader(s);
+  s->vulkan()->swapchain()->registerShader(s.get());
   return s;
 }
-PipelineShader::PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
+PipelineShader::PipelineShader(Vulkan* v, const string_t& name, const std::vector<string_t>& files) : VulkanObject(v) {
   _name = name;
   _files = files;
 }
 PipelineShader::~PipelineShader() {
+  //This could be an error since vulkan is no longer an SP.
+  //Perhaps make vulkan an SP
+  //There are really 2 ways of doing this. weak_ptr is less efficient but less error prone.
+  if (vulkan() && vulkan()->swapchain()) {
+    vulkan()->swapchain()->unregisterShader(this);
+  }
   cleanupDescriptors();
   _modules.clear();
 }
 bool PipelineShader::init() {
   for (auto& str : _files) {
-    std::shared_ptr<ShaderModule> mod = std::make_shared<ShaderModule>(vulkan(), _name, str);
-    _modules.push_back(mod);
+    auto mod = std::make_unique<ShaderModule>(vulkan(), _name, str);
+    _modules.push_back(std::move(mod));
   }
   if (!checkGood()) {
     return false;
@@ -2302,12 +2314,12 @@ bool PipelineShader::init() {
   return true;
 }
 
-std::shared_ptr<ShaderModule> PipelineShader::getModule(ShaderStage stage, bool throwIfNotFound) {
-  std::shared_ptr<ShaderModule> mod = nullptr;
-  for (auto module : _modules) {
+ShaderModule* PipelineShader::getModule(ShaderStage stage, bool throwIfNotFound) {
+  ShaderModule* mod = nullptr;
+  for (auto& module : _modules) {
     auto ss = VulkanUtils::spvReflectShaderStageFlagBits_To_ShaderStage(module->reflectionData()->shader_stage);
     if (ss == stage) {
-      mod = module;
+      mod = module.get();
       break;
     }
   }
@@ -2318,24 +2330,24 @@ std::shared_ptr<ShaderModule> PipelineShader::getModule(ShaderStage stage, bool 
   return mod;
 }
 bool PipelineShader::checkGood() {
-  std::shared_ptr<ShaderModule> vert = getModule(ShaderStage::VertexStage);
+  ShaderModule* vert = getModule(ShaderStage::VertexStage);
   auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
   if (vert->reflectionData()->input_variable_count >= maxinputs) {
     return shaderError("Error creating shader '" + name() + "' - too many input variables");
   }
 
-  std::shared_ptr<ShaderModule> frag = getModule(ShaderStage::FragmentStage);
+  ShaderModule* frag = getModule(ShaderStage::FragmentStage);
   auto maxAttachments = vulkan()->deviceProperties().limits.maxFragmentOutputAttachments;
   if (frag->reflectionData()->output_variable_count >= maxAttachments) {
     return shaderError("Error creating shader '" + name() + "' - too many output attachments in fragment shader.");
   }
 
   //TODO: geom
-  std::shared_ptr<ShaderModule> geom = getModule(ShaderStage::GeometryStage);
+  ShaderModule* geom = getModule(ShaderStage::GeometryStage);
   return true;
 }
 bool PipelineShader::createInputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(ShaderStage::VertexStage, true);
+  ShaderModule* mod = getModule(ShaderStage::VertexStage, true);
 
   auto maxinputs = vulkan()->deviceProperties().limits.maxVertexInputAttributes;
   auto maxbindings = vulkan()->deviceProperties().limits.maxVertexInputBindings;
@@ -2349,7 +2361,7 @@ bool PipelineShader::createInputs() {
   //Note: spvReflect bindings are NOT required to be in order.
   for (uint32_t ii = 0; ii < mod->reflectionData()->input_variable_count; ++ii) {
     auto& iv = mod->reflectionData()->input_variables[ii];
-    std::shared_ptr<VertexAttribute> attrib = std::make_shared<VertexAttribute>();
+    auto attrib = std::make_unique<VertexAttribute>();
     if (iv.location == 0xFFFFFFFF) {
       //0xFFFFFFFF is reserved for gl_InstanceIndex
       _bInstanced = true;
@@ -2394,18 +2406,18 @@ bool PipelineShader::createInputs() {
       }
 
       //iBindingIndex++;
-      _attributes.push_back(attrib);
+      _attributes.push_back(std::move(attrib));
     }
   }
 
   //Sort attribs
-  std::sort(_attributes.begin(), _attributes.end(), [](std::shared_ptr<VertexAttribute>& a, std::shared_ptr<VertexAttribute>& b) {
+  std::sort(_attributes.begin(), _attributes.end(), [](std::unique_ptr<VertexAttribute>& a, std::unique_ptr<VertexAttribute>& b) {
     return a->_desc.location < b->_desc.location;
   });
 
   //Compute Byte offsets.
   size_t iOffset = 0;
-  for (auto iat : _attributes) {
+  for (auto& iat : _attributes) {
     iat->_desc.offset = iOffset;
     iOffset += iat->_totalSizeBytes;
   }
@@ -2479,7 +2491,7 @@ OutputMRT PipelineShader::parseShaderOutputTag(const string_t& tag) {
   return OutputMRT::RT_Undefined;
 }
 bool PipelineShader::createOutputs() {
-  std::shared_ptr<ShaderModule> mod = getModule(ShaderStage::FragmentStage, true);
+  ShaderModule* mod = getModule(ShaderStage::FragmentStage, true);
   if (mod == nullptr) {
     return shaderError("Fragment module not found for shader '" + this->name() + "'");
   }
@@ -2489,7 +2501,7 @@ bool PipelineShader::createOutputs() {
 
     string_t name = string_t(pvar.name);
     if (StringUtil::startsWith(name, "_outFBO")) {
-      auto fb = std::make_shared<ShaderOutputBinding>();
+      auto fb = std::make_unique<ShaderOutputBinding>();
       fb->_name = name;
       fb->_location = mod->reflectionData()->output_variables[inp].location;
       fb->_output = parseShaderOutputTag(fb->_name);
@@ -2510,7 +2522,7 @@ bool PipelineShader::createOutputs() {
       }
       _locations.push_back(fb->_location);
 
-      _outputBindings.push_back(fb);
+      _outputBindings.push_back(std::move(fb));
     }
     else {
       return shaderError("Shader - output variable was not an fbo prefixed with _outFBO - this is not supported.");
@@ -2544,13 +2556,13 @@ bool PipelineShader::createOutputs() {
 
   //Add Renderbuffer by default, ignore if not used.
   //Note: we need this for the _format variable.
-  auto fb = std::make_shared<ShaderOutputBinding>();
+  auto fb = std::make_unique<ShaderOutputBinding>();
   fb->_name = "_auto_depthBuffer";
   fb->_location = maxLoc++;
   fb->_type = FBOType::Depth;
   fb->_output = OutputMRT::RT_DefaultDepth;
   fb->_format = vulkan()->findDepthFormat();
-  _outputBindings.push_back(fb);
+  _outputBindings.push_back(std::move(fb));
 
   return true;
 }
@@ -2626,7 +2638,7 @@ VkPipelineVertexInputStateCreateInfo PipelineShader::getVertexInputInfo(std::sha
 }
 std::vector<VkPipelineShaderStageCreateInfo> PipelineShader::getShaderStageCreateInfos() {
   std::vector<VkPipelineShaderStageCreateInfo> ret;
-  for (auto shader : _modules) {
+  for (auto& shader : _modules) {
     ret.push_back(shader->getPipelineStageCreateInfo());
   }
   return ret;
@@ -2655,12 +2667,12 @@ bool PipelineShader::createDescriptors() {
   uint32_t _nPool_UBOs = 0;
 
   //Parse shader metadata
-  std::vector<std::shared_ptr<Descriptor>> bindingLocations;
+  std::vector<Descriptor*> bindingLocations;
   for (auto& module : _modules) {
     for (uint32_t idb = 0; idb < module->reflectionData()->descriptor_binding_count; idb++) {
       auto& descriptor = module->reflectionData()->descriptor_bindings[idb];
 
-      std::shared_ptr<Descriptor> d = std::make_shared<Descriptor>();
+      auto d = std::make_unique<Descriptor>();
 
       d->_name = std::string(descriptor.name);
       if (d->_name.length() == 0) {
@@ -2734,7 +2746,7 @@ bool PipelineShader::createDescriptors() {
 
       //Reusing names is alright, but may cause problems with built-in variables. This is disabled by default.
 
-      for (auto other : bindingLocations) {
+      for (auto& other : bindingLocations) {
         //**Reusing descriptors will cause severe vulkan errors. It will hault the GPU.
         if (d->_binding == other->_binding) {
           return shaderError("Duplicate binding specified for descriptor '" + d->_name + "' in stage '" + VulkanUtils::ShaderStage_toString(d->_stage) + "', and '" +
@@ -2753,9 +2765,10 @@ bool PipelineShader::createDescriptors() {
           //}
         }
       }
-      bindingLocations.push_back(d);
+      bindingLocations.push_back(d.get());
 
-      _descriptors.insert(std::make_pair(d->_name, d));
+      //Test this
+      _descriptors.insert(std::make_pair(d->_name, std::move(d)));
     }
   }
 
@@ -2819,13 +2832,13 @@ bool PipelineShader::createDescriptors() {
 
   return true;
 }
-std::shared_ptr<Descriptor> PipelineShader::getDescriptor(const string_t& name) {
+Descriptor* PipelineShader::getDescriptor(const string_t& name) {
   //Returns the descriptor of the given name, or nullptr if not found.
-  std::shared_ptr<Descriptor> ret = nullptr;
+  Descriptor* ret = nullptr;
 
   auto it = _descriptors.find(name);
   if (it != _descriptors.end()) {
-    ret = it->second;
+    ret = it->second.get();
   }
   return ret;
 }
@@ -2836,8 +2849,8 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, s
     return shaderError("Shader data was uninitialized when creating UBO.");
   }
 
-  for (auto pair : _shaderData) {
-    std::shared_ptr<ShaderData> data = pair.second;
+  for (auto& pair : _shaderData) {
+    ShaderData* data = pair.second.get();
     auto desc = getDescriptor(var_name);
     if (desc == nullptr) {
       return shaderError("Failed to locate UBO descriptor for shader variable '" + var_name + "'");
@@ -2850,14 +2863,14 @@ bool PipelineShader::createUBO(const string_t& name, const string_t& var_name, s
         return shaderError("Ubo size was greater than the supplied size.");
       }
 
-      std::shared_ptr<ShaderDataUBO> datUBO = std::make_shared<ShaderDataUBO>();
+      auto datUBO = std::make_unique<ShaderDataUBO>();
       datUBO->_buffer = std::make_shared<VulkanBuffer>(
         vulkan(),
         VulkanBufferType::UniformBuffer,
         false,  //not on GPU
         itemSize, itemCount, nullptr, 0);
       datUBO->_descriptor = desc;
-      data->_uniformBuffers.insert(std::make_pair(name, datUBO));
+      data->_uniformBuffers.insert(std::make_pair(name, std::move(datUBO)));
     }
   }
 
@@ -2869,7 +2882,7 @@ bool PipelineShader::bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer>
     return false;
   }
 
-  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  auto desc = getDescriptor(name);
   if (desc == nullptr) {
     return renderError("Descriptor '" + name + "'could not be found for shader '" + this->name() + "'.");
   }
@@ -2911,39 +2924,39 @@ bool PipelineShader::bindSampler(const string_t& name, std::shared_ptr<TextureIm
     return renderError("Tried to bind texture '" + texture->name() + "' that did not have a sampler to sampler location '" + name + "'.");
   }
 
-  std::shared_ptr<Descriptor> desc = getDescriptor(name);
+  auto desc = getDescriptor(name);
   if (desc == nullptr) {
-      return renderError("Descriptor '" + name + "'could not be found for shader.");
-    }
+    return renderError("Descriptor '" + name + "'could not be found for shader.");
+  }
 
-    VkDescriptorImageInfo imageInfo = {
-      .sampler = texture->sampler(),
-      .imageView = texture->imageView(),
-      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    };
-    VkWriteDescriptorSet descriptorWrite = {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .pNext = nullptr,
-      .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
-      .dstBinding = desc->_binding,
-      .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
-      .descriptorCount = 1,
-      .descriptorType = desc->_type,
-      .pImageInfo = &imageInfo,
-      .pBufferInfo = nullptr,
-      .pTexelBufferView = nullptr,
-    };
+  VkDescriptorImageInfo imageInfo = {
+    .sampler = texture->sampler(),
+    .imageView = texture->imageView(),
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  };
+  VkWriteDescriptorSet descriptorWrite = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .pNext = nullptr,
+    .dstSet = _descriptorSets[_pBoundFrame->frameIndex()],
+    .dstBinding = desc->_binding,
+    .dstArrayElement = arrayIndex,  //** Samplers are opaque and thus can be arrayed in GLSL shaders.
+    .descriptorCount = 1,
+    .descriptorType = desc->_type,
+    .pImageInfo = &imageInfo,
+    .pBufferInfo = nullptr,
+    .pTexelBufferView = nullptr,
+  };
 
-    desc->_isBound = true;
+  desc->_isBound = true;
 
-    vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
+  vkUpdateDescriptorSets(vulkan()->device(), 1, &descriptorWrite, 0, nullptr);
   return true;
 }
-string_t PipelineShader::createUniqueFBOName(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> passdesc) {
+string_t PipelineShader::createUniqueFBOName(RenderFrame* frame, ShaderData* data, PassDescription* passdesc) {
   string_t ret = std::string("(") + name() + ").(fbo" + std::to_string((int)data->_framebuffers.size()) + ")";
 
   for (auto io = 0; io < passdesc->outputs().size(); ++io) {
-    auto desc = passdesc->outputs()[io];
+    auto desc = passdesc->outputs()[io].get();
     ret += ".(";
     ret += VulkanUtils::OutputMRT_toString(desc->_output);
     ret += desc->_clear ? ".clear" : ".retain";
@@ -2952,19 +2965,20 @@ string_t PipelineShader::createUniqueFBOName(std::shared_ptr<RenderFrame> frame,
   }
   return ret;
 }
-std::shared_ptr<Framebuffer> PipelineShader::getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc) {
-  auto fbo = findFramebuffer(data, desc);
+Framebuffer* PipelineShader::getOrCreateFramebuffer(RenderFrame* frame, ShaderData* data, std::unique_ptr<PassDescription> desc) {
+  auto fbo = findFramebuffer(data, desc.get());
   if (fbo == nullptr) {
     //Add the FBO, if there's an error we won't keep trying to recreate it every frame.
-    fbo = std::make_shared<Framebuffer>(vulkan());
-    data->_framebuffers.push_back(fbo);
+    auto fbo_pt = std::make_unique<Framebuffer>(vulkan());
+    fbo = fbo_pt.get();
+    data->_framebuffers.push_back(std::move(fbo_pt));
 
     if (desc->outputs().size() == 0) {
       fbo->pipelineError("No FBO outputs were specified.");
     }
     else {
-      string_t fboName = createUniqueFBOName(frame, data, desc);
-      if (!fbo->create(fboName, frame, desc)) {
+      string_t fboName = createUniqueFBOName(frame, data, desc.get());
+      if (!fbo->create(fboName, frame, std::move(desc))) {
         fbo->pipelineError("Failed to create FBO.");
       }
     }
@@ -2972,16 +2986,16 @@ std::shared_ptr<Framebuffer> PipelineShader::getOrCreateFramebuffer(std::shared_
 
   return fbo;
 }
-std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> outputs) {
+Framebuffer* PipelineShader::findFramebuffer(ShaderData* data, PassDescription* outputs) {
   //Returns an exact match on the given input PassDescription and the FBO PassDescription.
-  std::shared_ptr<Framebuffer> fbo = nullptr;
-  for (auto fb : data->_framebuffers) {
+  Framebuffer* fbo = nullptr;
+  for (auto& fb : data->_framebuffers) {
     if (fb->passDescription()->sampleCount() == outputs->sampleCount()) {
       if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
         bool match = true;
         for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
-          auto fboDescOut = fb->passDescription()->outputs()[io];
-          auto inDescOut = outputs->outputs()[io];
+          auto fboDescOut = fb->passDescription()->outputs()[io].get();
+          auto inDescOut = outputs->outputs()[io].get();
 
           //TODO: Find a less error-prone way to match FBOs with pipeline state.
           if (
@@ -2991,7 +3005,7 @@ std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<Sha
           }
         }
         if (match == true) {
-          fbo = fb;
+          fbo = fb.get();
           break;
         }
       }
@@ -2999,17 +3013,19 @@ std::shared_ptr<Framebuffer> PipelineShader::findFramebuffer(std::shared_ptr<Sha
   }
   return fbo;
 }
-bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<PassDescription> input_desc, BR2::urect2* extent) {
+bool PipelineShader::beginRenderPass(CommandBuffer* buf, std::unique_ptr<PassDescription> input_desc_pt, BR2::urect2* extent) {
+  AssertOrThrow2(input_desc_pt != nullptr);
   if (!valid()) {
     return false;
   }
-  if (!input_desc->valid()) {
+  if (!input_desc_pt->valid()) {
     return false;
   }
 
-  auto frame = input_desc->frame();
+  auto frame = input_desc_pt->frame();
   auto sd = getShaderData(frame);
-  auto fbo = getOrCreateFramebuffer(frame, sd, input_desc);
+  std::vector<VkClearValue> clearValues = input_desc_pt->getClearValues();
+  auto fbo = getOrCreateFramebuffer(frame, sd, std::move(input_desc_pt));
   if (!fbo->valid()) {
     return false;
   }
@@ -3020,8 +3036,6 @@ bool PipelineShader::beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::sh
   _pBoundFBO = fbo;
   _pBoundData = sd;
   _pBoundFrame = frame;
-
-  std::vector<VkClearValue> clearValues = input_desc->getClearValues();
 
   uint32_t w = 0, h = 0, x = 0, y = 0;
   if (extent) {
@@ -3077,35 +3091,36 @@ bool PipelineShader::beginPassGood() {
   }
   return true;
 }
-std::shared_ptr<Pipeline> PipelineShader::getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode polymode, VkCullModeFlags cullMode) {
+Pipeline* PipelineShader::getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode polymode, VkCullModeFlags cullMode) {
   if (_pBoundData == nullptr) {
     BRLogError("Pipeline: ShaderData was not set.");
     return nullptr;
   }
-  std::shared_ptr<Pipeline> pipe = nullptr;
-  for (auto the_pipe : _pBoundData->_pipelines) {
+  Pipeline* pipe = nullptr;
+  for (auto& the_pipe : _pBoundData->_pipelines) {
     if (the_pipe->primitiveTopology() == topo &&
         the_pipe->polygonMode() == polymode &&
         the_pipe->vertexFormat() == vertexFormat &&
         the_pipe->cullMode() == cullMode &&
         _pBoundFBO == the_pipe->fbo()) {
-      pipe = the_pipe;
+      pipe = the_pipe.get();
       break;
     }
   }
   if (pipe == nullptr) {
     std::shared_ptr<BR2::VertexFormat> format = nullptr;  // ** TODO create multiple pipelines for Vertex Format, Polygonmode & Topo.
-    pipe = std::make_shared<Pipeline>(vulkan(), topo, polymode, cullMode);
-    pipe->init(getThis<PipelineShader>(), format, _pBoundFBO);
-    _pBoundData->_pipelines.push_back(pipe);
+    auto pipe_pt = std::make_unique<Pipeline>(vulkan(), topo, polymode, cullMode);
+    pipe = pipe_pt.get();
+    pipe->init(this, format, _pBoundFBO);
+    _pBoundData->_pipelines.push_back(std::move(pipe_pt));
   }
   return pipe;
 }
-bool PipelineShader::bindDescriptors(std::shared_ptr<CommandBuffer> cmd) {
+bool PipelineShader::bindDescriptors(CommandBuffer* cmd) {
   if (!beginPassGood()) {
     return false;
   }
-  for (auto desc : _descriptors) {
+  for (auto& desc : _descriptors) {
     if (desc.second->_isBound == false) {
       BRLogWarnOnce("Descriptor '" + desc.second->_name + "' was not bound before invoking shader '" + this->name() + "'");
     }
@@ -3130,7 +3145,7 @@ bool PipelineShader::renderError(const string_t& msg) {
   Gu::debugBreak();
   return false;
 }
-std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame) {
+std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, RenderFrame* frame) {
   auto sd = getShaderData(frame);
   if (sd != nullptr) {
     auto ub = sd->getUBOData(name);
@@ -3141,21 +3156,21 @@ std::shared_ptr<VulkanBuffer> PipelineShader::getUBO(const string_t& name, std::
 
   return nullptr;
 }
-std::shared_ptr<ShaderData> PipelineShader::getShaderData(std::shared_ptr<RenderFrame> frame) {
+ShaderData* PipelineShader::getShaderData(RenderFrame* frame) {
   AssertOrThrow2(frame != nullptr);
   if (_shaderData.size() <= frame->frameIndex()) {
     BRThrowException("Tried to access out of bounds shader data.");
   }
-  return _shaderData[frame->frameIndex()];
+  return _shaderData[frame->frameIndex()].get();
 }
-bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode, VkPrimitiveTopology topo, VkCullModeFlags cull) {
+bool PipelineShader::bindPipeline(CommandBuffer* cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode, VkPrimitiveTopology topo, VkCullModeFlags cull) {
   auto pipe = getPipeline(v_fmt, topo, mode, cull);
   if (pipe == nullptr) {
     return renderError("Output array is not valid for pipeline.");
   }
   return bindPipeline(cmd, pipe);
 }
-bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe) {
+bool PipelineShader::bindPipeline(CommandBuffer* cmd, Pipeline* pipe) {
   if (pipe->fbo() != _pBoundFBO) {
     return renderError("Output FBO is not bound to correct pipeline.");
   }
@@ -3164,21 +3179,21 @@ bool PipelineShader::bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::share
   _pBoundPipeline = pipe;
   return true;
 }
-void PipelineShader::drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances) {
+void PipelineShader::drawIndexed(CommandBuffer* cmd, std::shared_ptr<Mesh> m, uint32_t numInstances) {
   cmd->bindMesh(m);
   cmd->drawIndexed(numInstances);
 }
-void PipelineShader::bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size) {
+void PipelineShader::bindViewport(CommandBuffer* cmd, const BR2::urect2& size) {
   cmd->cmdSetViewport(size);
 }
-void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
+void PipelineShader::endRenderPass(CommandBuffer* buf) {
   AssertOrThrow2(_pBoundFBO != nullptr);
   AssertOrThrow2(_pBoundFrame != nullptr);
 
   //Update RenderTexture Mipmaps (if enabled)
   //**Note: I didn't find anything that allowed FBOs to automatically generate mipmaps.
   //That said, this may not be the best way to recreate mipmaps.
-  for (auto att : _pBoundFBO->attachments()) {
+  for (auto& att : _pBoundFBO->attachments()) {
     if (att->desc()->_texture != nullptr) {
       auto tex = att->desc()->_texture->texture(_pBoundFBO->sampleCount(), _pBoundFrame->frameIndex());
       if (tex) {
@@ -3197,24 +3212,24 @@ void PipelineShader::endRenderPass(std::shared_ptr<CommandBuffer> buf) {
   _pBoundFrame = nullptr;
   buf->endPass();
 }
-void PipelineShader::clearShaderDataCache(std::shared_ptr<RenderFrame> frame) {
+void PipelineShader::clearShaderDataCache(RenderFrame* frame) {
   //Per-swapchain-frame shader data - recreated when window resizes.
-  std::shared_ptr<ShaderData> data = nullptr;
+  ShaderData* data = nullptr;
   auto it = _shaderData.find(frame->frameIndex());
   if (it == _shaderData.end()) {
-    std::shared_ptr<ShaderData> dat = std::make_shared<ShaderData>();
-    _shaderData.insert(std::make_pair(frame->frameIndex(), dat));
+    auto dat = std::make_unique<ShaderData>();
+    _shaderData.insert(std::make_pair(frame->frameIndex(), std::move(dat)));
     it = _shaderData.find(frame->frameIndex());
   }
-  data = it->second;
+  data = it->second.get();
   data->_framebuffers.clear();
   data->_pipelines.clear();
 }
-std::shared_ptr<PassDescription> PipelineShader::getPass(std::shared_ptr<RenderFrame> frame, MSAA sampleCount, BlendFunc globalBlend, FramebufferBlendMode rbm) {
+std::unique_ptr<PassDescription> PipelineShader::getPass(RenderFrame* frame, MSAA sampleCount, BlendFunc globalBlend, FramebufferBlendMode rbm) {
   //@param MSAA - You can't have mixed sample counts except for using the AMD extension to allow varied depth getVkBuffer sample counts.
   //@param globalBlend - If FramebufferBlendMode is default and independent blending is disabled,
   //We set the sample count across all objects ane recreate FBO's as needed.
-  std::shared_ptr<PassDescription> d = std::make_shared<PassDescription>(frame, getThis<PipelineShader>(), sampleCount, globalBlend, rbm);
+  auto d = std::make_unique<PassDescription>(frame, this, sampleCount, globalBlend, rbm);
   return d;
 }
 bool PipelineShader::sampleShadingVariables() {
@@ -3227,19 +3242,19 @@ bool PipelineShader::sampleShadingVariables() {
 
 #pragma region ShaderData
 
-std::shared_ptr<ShaderDataUBO> ShaderData::getUBOData(const string_t& name) {
+ShaderDataUBO* ShaderData::getUBOData(const string_t& name) {
   auto it = _uniformBuffers.find(name);
   if (it == _uniformBuffers.end()) {
     return nullptr;
   }
-  return it->second;
+  return it->second.get();
 }
 
 #pragma endregion
 
 #pragma region RenderFrame
 
-RenderFrame::RenderFrame(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+RenderFrame::RenderFrame(Vulkan* v) : VulkanObject(v) {
 }
 RenderFrame::~RenderFrame() {
   vkDestroySemaphore(vulkan()->device(), _imageAvailableSemaphore, nullptr);
@@ -3249,7 +3264,7 @@ RenderFrame::~RenderFrame() {
 void RenderFrame::addRenderTarget(OutputMRT output, MSAA samples, std::shared_ptr<TextureImage> tex) {
 }
 
-void RenderFrame::init(std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage swapImg, VkSurfaceFormatKHR fmt) {
+void RenderFrame::init(Swapchain* ps, uint32_t frameIndex, VkImage swapImg, VkSurfaceFormatKHR fmt) {
   _pSwapchain = ps;
   _frameIndex = frameIndex;
 
@@ -3259,7 +3274,7 @@ void RenderFrame::init(std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkIma
     BRThrowException("Failed to create swapchain render target: " + errors)
   }
 
-  _pCommandBuffer = std::make_shared<CommandBuffer>(vulkan(), getThis<RenderFrame>());
+  _pCommandBuffer = std::make_unique<CommandBuffer>(vulkan(), this);
 }
 void RenderFrame::createSyncObjects() {
   VkSemaphoreCreateInfo semaphoreInfo = {
@@ -3389,7 +3404,7 @@ const BR2::usize2& RenderFrame::imageSize() {
 #pragma endregion
 
 #pragma region Swapchain
-Swapchain::Swapchain(std::shared_ptr<Vulkan> v) : VulkanObject(v) {
+Swapchain::Swapchain(Vulkan* v) : VulkanObject(v) {
 }
 Swapchain::~Swapchain() {
   _renderTextures.clear();
@@ -3407,8 +3422,8 @@ void Swapchain::initSwapchain(const BR2::usize2& window_size) {
   createSwapChain(window_size);
 
   //Redo RenderTextures (do this before any FBO stuff)
-  for (auto r : _renderTextures) {
-    r->recreateAllTextures();
+  for (auto& r : _renderTextures) {
+    r.second->recreateAllTextures();
   }
 
   //Frames will be new here.
@@ -3428,9 +3443,16 @@ bool Swapchain::findValidPresentMode(VkPresentModeKHR& pm_out) {
   pm_out = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available
   if (!vulkan()->vsyncEnabled()) {
     BRLogInfo("Vsync disabled");
+    //**TODO: fix this so it checks mailbox first, then immediate
     for (const auto& availablePresentMode : presentModes) {
       if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
         pm_out = availablePresentMode;
+        BRLogDebug("Vsync Disabled = Present mode is VK_PRESENT_MODE_MAILBOX_KHR");
+        return true;
+      }
+      else if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+        pm_out = availablePresentMode;
+        BRLogDebug("Vsync Disabled = Present mode is VK_PRESENT_MODE_IMMEDIATE_KHR");
         return true;
       }
     }
@@ -3533,31 +3555,32 @@ void Swapchain::createSwapChain(const BR2::usize2& window_size) {
   for (size_t idx = 0; idx < swapChainImages.size(); ++idx) {
     auto& image = swapChainImages[idx];
     //Frame vs. Pipeline - Frames are worker bees that submit pipelines queues. When done, they pick up a new command queue and submit it.
-    std::shared_ptr<RenderFrame> f = std::make_shared<RenderFrame>(vulkan());
-    f->init(getThis<Swapchain>(), (uint32_t)idx, image, surfaceFormat);
-    _frames.push_back(f);
+    auto f = std::make_unique<RenderFrame>(vulkan());
+    f->init(this, (uint32_t)idx, image, surfaceFormat);
+    _frames.push_back(std::move(f));
   }
   _imagesInFlight = std::vector<VkFence>(frames().size());
 }
 void Swapchain::cleanupSwapChain() {
   _frames.clear();
   _imagesInFlight.clear();
-
-  for (auto r : _renderTextures) {
-    r->_texture = nullptr;
-  }
+  _renderTextures.clear();
 
   if (_swapChain != VK_NULL_HANDLE) {
     vkDestroySwapchainKHR(vulkan()->device(), _swapChain, nullptr);
   }
 }
-void Swapchain::registerShader(std::shared_ptr<PipelineShader> shader) {
-  //Register to prevent the smart pointer from deallcoating.
+void Swapchain::registerShader(PipelineShader* shader) {
   if (_shaders.find(shader) == _shaders.end()) {
     _shaders.insert(shader);
   }
-  for (auto frame : frames()) {
-    shader->clearShaderDataCache(frame);
+  for (auto& frame : frames()) {
+    shader->clearShaderDataCache(frame.get());
+  }
+}
+void Swapchain::unregisterShader(PipelineShader* shader) {
+  if (_shaders.find(shader) != _shaders.end()) {
+    _shaders.erase(shader);
   }
 }
 bool Swapchain::beginFrame(const BR2::usize2& windowsize) {
@@ -3580,16 +3603,18 @@ void Swapchain::endFrame() {
   _frames[_currentFrame]->endFrame();
 
   if (_copyImage_Flag) {
+    //Save the image to disk (debug)
     string_t err;
     auto target = this->frames()[0]->getRenderTarget(OutputMRT::RT_DefaultColor, MSAA::Disabled, VK_FORMAT_B8G8R8A8_SRGB, err, VK_NULL_HANDLE, false);
     auto img = target->copyImageFromGPU();
     img->save("out_Final_Result.png");
 
-    for (int i = 0; i < _renderTextures.size(); ++i) {
-      auto tex = _renderTextures[i]->texture(MSAA::Disabled, _currentFrame);
+    auto ite = _renderTextures.begin();
+    for (int i = 0; ite != _renderTextures.end(); i++, ite++) {
+      auto tex = ite->second->texture(MSAA::Disabled, _currentFrame);
       if (tex) {
         auto img = tex->copyImageFromGPU();
-        img->save(std::string("out_RenderTexture" + std::to_string(i) + ".png").c_str());
+        img->save(std::string("out_RenderTexture" + std::to_string(i) + "_" + ite->second->_name + ".png").c_str());
       }
       else {
         Gu::debugBreak();
@@ -3611,17 +3636,26 @@ void Swapchain::waitImage(uint32_t imageIndex, VkFence myFence) {
 const BR2::usize2& Swapchain::windowSize() {
   return _imageSize;
 }
-std::shared_ptr<RenderFrame> Swapchain::currentFrame() {
-  std::shared_ptr<RenderFrame> frame = nullptr;
-  frame = _frames[_currentFrame];
+RenderFrame* Swapchain::currentFrame() {
+  RenderFrame* frame = nullptr;
+  frame = _frames[_currentFrame].get();
   return frame;
 }
-std::shared_ptr<RenderTexture> Swapchain::createRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter) {
+RenderTexture* Swapchain::getRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter) {
   AssertOrThrow2(filter._samplerType != SamplerType::None);
-  std::shared_ptr<RenderTexture> rt = std::make_shared<RenderTexture>(name, getThis<Swapchain>(), format, filter);
-  rt->createTexture(msaa);
-  _renderTextures.push_back(rt);
-  return rt;
+  RenderTexture* ret = nullptr;
+  auto ite = _renderTextures.find(name);
+  if (ite == _renderTextures.end()) {
+    auto rt = std::make_unique<RenderTexture>(name, this, format, filter);
+    rt->createTexture(msaa);
+    ret = rt.get();
+    _renderTextures.insert(std::make_pair(name, std::move(rt)));
+  }
+  else {
+    ret = ite->second.get();
+  }
+
+  return ret;
 }
 std::shared_ptr<Img32> Swapchain::grabImage(int debugImg) {
   string_t err;
@@ -3649,8 +3683,8 @@ std::shared_ptr<Img32> Swapchain::grabImage(int debugImg) {
 
 #pragma region Vulkan
 
-std::shared_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug) {
-  std::shared_ptr<Vulkan> v = std::make_shared<Vulkan>();
+std::unique_ptr<Vulkan> Vulkan::create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug) {
+  auto v = std::make_unique<Vulkan>();
   v->init(title, win, vsync_enabled, wait_fences, enableDebug);
   return v;
 }
@@ -3680,12 +3714,12 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
   SDL_GetWindowSize(win, &win_w, &win_h);
 
   //Create swapchain
-  _pSwapchain = std::make_shared<Swapchain>(getThis<Vulkan>());
+  _pSwapchain = std::make_unique<Swapchain>(this);
   _pSwapchain->initSwapchain(BR2::usize2(win_w, win_h));
 }
 
 void Vulkan::initVulkan(const string_t& title, SDL_Window* win, bool enableDebug) {
-  _pDebug = std::make_unique<VulkanDebug>(getThis<Vulkan>(), enableDebug);
+  _pDebug = std::make_unique<VulkanDebug>(this, enableDebug);
   createInstance(title, win);
   pickPhysicalDevice();
   createLogicalDevice();
@@ -4066,6 +4100,7 @@ void Vulkan::checkErrors() {
 void Vulkan::validateVkResult(VkResult res, const string_t& fname) {
   checkErrors();
   if (res != VK_SUCCESS) {
+    //TODO: check error codes.
     errorExit(Stz "Error: '" + fname + "' returned '" + VulkanUtils::VkResult_toString(res) + "' (" + res + ")" + Os::newline());
   }
 }
@@ -4178,8 +4213,8 @@ void Vulkan::endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer) {
 uint32_t Vulkan::swapchainImageCount() {
   return _swapchainImageCount;
 }
-std::shared_ptr<Swapchain> Vulkan::swapchain() {
-  return _pSwapchain;
+Swapchain* Vulkan::swapchain() {
+  return _pSwapchain.get();
 }
 void Vulkan::waitIdle() {
   //A fence that waits for the GPU to finish operations.

@@ -1,4 +1,12 @@
 
+10/2021
+So we're optimizing the shared/unique pointers here.
+
+References are raw pointers in the first round.
+In the future, make pointer references weak_ptr.
+
+
+
  ==Setup==
  Swapchain
   <RenderFrame> *async*

@@ -24,7 +24,7 @@ public:
 */
 class VulkanDebug : public VulkanObject {
 public:
-  VulkanDebug(std::shared_ptr<Vulkan> v, bool enableValidationLayers);
+  VulkanDebug(Vulkan* v, bool enableValidationLayers);
   virtual ~VulkanDebug() override;
 
   void createDebugObjects();

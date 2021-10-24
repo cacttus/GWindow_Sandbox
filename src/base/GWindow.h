@@ -18,7 +18,7 @@ namespace VG {
 //Testing out multiple vulkan windows, single instance.
 class GWindow : public VulkanObject {
 public:
-  GWindow(std::shared_ptr<Vulkan> v);
+  GWindow(Vulkan* v);
   virtual ~GWindow() override;
   bool doInput();
   void init();
@@ -38,7 +38,7 @@ public:
   void renderLoop();
   void start();
   
-  std::shared_ptr<GWindow> createWindow();
+  std::unique_ptr<GWindow> createWindow();
 
 private:
   void cycleValue(float& value, const std::vector<double>& values) ;
@@ -47,7 +47,7 @@ private:
   void cleanupShaderMemory();
   void allocateShaderMemory();
   void createTextureImages();
-  void recordCommandBuffer(std::shared_ptr<RenderFrame> frame, double dt);
+  void recordCommandBuffer(RenderFrame* frame, double dt);
   void drawFrame();
   void tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, std::vector<BR2::vec3>& axes_ini);
   void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes);
@@ -64,18 +64,18 @@ private:
   void handleCamera();
 
   void test_overlay();
-
+void createGameAndShaderTest();
   BR2::urect2 getWindowDims();
   std::shared_ptr<Img32> loadImage(const string_t& img);
 
   SDL_Window* _pSDLWindow = nullptr;
-  std::shared_ptr<Vulkan> _vulkan = nullptr;
-  std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
+  std::unique_ptr<Vulkan> _vulkan = nullptr;
+  Vulkan* vulkan() { return _vulkan.get(); }
 
   std::shared_ptr<TextureImage> _testTexture1 = nullptr;
   std::shared_ptr<TextureImage> _testTexture2 = nullptr;
 
-  std::shared_ptr<PipelineShader> _pShader = nullptr;
+  std::unique_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
 
   string_t c_viewProjUBO = "c_viewProjUBO";
@@ -98,7 +98,7 @@ private:
   SDL_Texture* _pDebugTexture = nullptr;
   std::shared_ptr<Img32> _debugImageData = nullptr;
   SDL_Renderer* _vulkan_renderer = nullptr;
-  std::shared_ptr<RenderTexture> test_render_texture = nullptr;
+  //std::weak_ptr<RenderTexture> test_render_texture ;
   int _debugImg = 0;
 
   //Input

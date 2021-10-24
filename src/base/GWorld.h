@@ -54,12 +54,12 @@ public:
   typedef v_v3c4x2n3 VertType;
 
 public:
-  Mesh(std::shared_ptr<Vulkan> v);
+  Mesh(Vulkan* v);
   virtual ~Mesh() override;
 
-  std::shared_ptr<MaterialDummy>& material() { return _material; }
-  std::shared_ptr<VulkanBuffer> vertexBuffer() { return _vertexBuffer; }
-  std::shared_ptr<VulkanBuffer> indexBuffer() { return _indexBuffer; }
+  MaterialDummy* material() { return _material.get(); }
+  VulkanBuffer* vertexBuffer() { return _vertexBuffer.get(); }
+  VulkanBuffer* indexBuffer() { return _indexBuffer.get(); }
   IndexType indexType() { return _indexType; }
 
   uint32_t maxRenderInstances();
@@ -70,14 +70,14 @@ public:
 private:
   std::vector<v_v3c4x2n3> _boxVerts;
   std::vector<uint32_t> _boxInds;
-  std::shared_ptr<VulkanBuffer> _vertexBuffer = nullptr;
-  std::shared_ptr<VulkanBuffer> _indexBuffer = nullptr;
+  std::unique_ptr<VulkanBuffer> _vertexBuffer = nullptr;
+  std::unique_ptr<VulkanBuffer> _indexBuffer = nullptr;
   RenderMode _renderMode = RenderMode::TriangleList;
   IndexType _indexType = IndexType::IndexTypeUint32;
   uint32_t _maxRenderInstances;
   VkVertexInputBindingDescription _bindingDesc;
   std::vector<VkVertexInputAttributeDescription> _attribDesc;
-  std::shared_ptr<MaterialDummy> _material = nullptr;
+  std::unique_ptr<MaterialDummy> _material = nullptr;
   std::shared_ptr<BR2::VertexFormat> _vertexFormat;
 };
 

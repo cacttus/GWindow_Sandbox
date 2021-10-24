@@ -67,7 +67,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallback(
   return VK_FALSE;
 }
 
-VulkanDebug::VulkanDebug(std::shared_ptr<Vulkan> v, bool enableDebug) : VulkanObject(v) {
+VulkanDebug::VulkanDebug(Vulkan* v, bool enableDebug) : VulkanObject(v) {
   _enableDebug = enableDebug;
 }
 VulkanDebug::~VulkanDebug() {

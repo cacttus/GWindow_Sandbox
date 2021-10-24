@@ -15,13 +15,18 @@ namespace VG {
  * @class VulkanObject
  * @brief Base class for objects that use the Vulkan API.
  */
-class VulkanObject : public SharedObject<VulkanObject> {
-  std::shared_ptr<Vulkan> _vulkan = nullptr;
+class VulkanObject{
+  Vulkan* _vulkan = nullptr;
 
 public:
-  VulkanObject(std::shared_ptr<Vulkan> dev) { _vulkan = dev; }
+  VulkanObject(Vulkan* dev) { _vulkan = dev; }
   virtual ~VulkanObject() {}
-  std::shared_ptr<Vulkan> vulkan() { return _vulkan; }
+  Vulkan* vulkan() { return _vulkan; }
+};
+class VulkanObjectShared : public VulkanObject, public SharedObject<VulkanObject> {
+public:
+VulkanObjectShared(Vulkan* v) : VulkanObject(v) {}
+virtual ~VulkanObjectShared(){}
 };
 /**
  * @class VulkanDeviceBuffer
@@ -29,7 +34,7 @@ public:
  * */
 class VulkanDeviceBuffer : public VulkanObject {
 public:
-  VulkanDeviceBuffer(std::shared_ptr<Vulkan> pvulkan, size_t itemSize, size_t itemCount, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+  VulkanDeviceBuffer(Vulkan* pvulkan, size_t itemSize, size_t itemCount, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
   virtual ~VulkanDeviceBuffer() override;
 
   VkBuffer& getVkBuffer() { return _buffer; }
@@ -40,7 +45,7 @@ public:
 
   void copy_from(void* src_buf, size_t copy_count_items, size_t data_offset_items, size_t device_offset_item);
   void copy_to(void* dst_buf, size_t copy_count_items, size_t data_offset_items, size_t buffer_offset_items);
-  void copy_device(std::shared_ptr<VulkanDeviceBuffer> host_buf, size_t item_copyCount, size_t itemOffset_Host, size_t itemOffset_Gpu);
+  void copy_device(VulkanDeviceBuffer* host_buf, size_t item_copyCount, size_t itemOffset_Host, size_t itemOffset_Gpu);
   static uint32_t findMemoryType(VkPhysicalDevice d, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 private:
@@ -61,16 +66,16 @@ private:
  */
 class VulkanBuffer : public VulkanObject {
 public:
-  VulkanBuffer(std::shared_ptr<Vulkan> dev, VulkanBufferType eType, bool bStaged, size_t itemSize, size_t itemCount, void* items, size_t item_count);
+  VulkanBuffer(Vulkan* dev, VulkanBufferType eType, bool bStaged, size_t itemSize, size_t itemCount, void* items, size_t item_count);
   virtual ~VulkanBuffer() override;
 
-  std::shared_ptr<VulkanDeviceBuffer> buffer();
+  VulkanDeviceBuffer* buffer();
 
   void writeData(void* items, size_t item_count, size_t item_offset = 0);
 
 private:
-  std::shared_ptr<VulkanDeviceBuffer> _hostBuffer = nullptr;
-  std::shared_ptr<VulkanDeviceBuffer> _gpuBuffer = nullptr;
+  std::unique_ptr<VulkanDeviceBuffer> _hostBuffer = nullptr;
+  std::unique_ptr<VulkanDeviceBuffer> _gpuBuffer = nullptr;
 
   VulkanBufferType _eType = VulkanBufferType::VertexBuffer;
   bool _bUseStagingBuffer = false;
@@ -102,12 +107,12 @@ public:
 * @class Texture2D
 * @brief 2D images residing on GPU.
 */
-class TextureImage : public VulkanObject {
+class TextureImage : public VulkanObjectShared {
 public:
-  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, VkImage img, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, std::shared_ptr<Img32>, const FilterData& filter);
-  TextureImage(std::shared_ptr<Vulkan> v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter);
+  TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, VkImage img, const FilterData& filter);
+  TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size, VkFormat imgFormat, const FilterData& filter);
+  TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, std::shared_ptr<Img32>, const FilterData& filter);
+  TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter);
 
   virtual ~TextureImage() override;
 
@@ -125,7 +130,7 @@ public:
   static VkSampleCountFlagBits multisampleToVkSampleCountFlagBits(MSAA s);
   static VkSamplerMipmapMode convertMipmapMode(MipmapMode mode, TexFilter filter);
   static void testCycleFilters(TexFilter& g_min_filter, TexFilter& g_mag_filter, MipmapMode& g_mipmap_mode);
-  void generateMipmaps(std::shared_ptr<CommandBuffer> buf = nullptr);
+  void generateMipmaps(CommandBuffer* buf = nullptr);
   static uint32_t msaa_to_int(MSAA s);
   std::shared_ptr<Img32> copyImageFromGPU();
 
@@ -167,7 +172,7 @@ protected:
  * */
 class CommandBuffer : public VulkanObject {
 public:
-  CommandBuffer(std::shared_ptr<Vulkan> ob, std::shared_ptr<RenderFrame> frame);
+  CommandBuffer(Vulkan* ob, RenderFrame* frame);
   virtual ~CommandBuffer() override;
 
   CommandBufferState state() { return _state; }
@@ -179,8 +184,8 @@ public:
   void endPass();
   void end();
   void submit(std::vector<VkPipelineStageFlags> waitStages = {}, std::vector<VkSemaphore> waitSemaphores = {}, std::vector<VkSemaphore> signalSemaphores = {}, VkFence submitFence = VK_NULL_HANDLE, bool waitGPUIdle = true);
-  void copyBufferToImage(std::shared_ptr<VulkanDeviceBuffer> buf, VkImage img, const BR2::usize2& size);
-  void copyImageToBuffer(std::shared_ptr<TextureImage> image, std::shared_ptr<VulkanDeviceBuffer> buf);
+  void copyBufferToImage(VulkanDeviceBuffer* buf, VkImage img, const BR2::usize2& size);
+  void copyImageToBuffer(std::shared_ptr<TextureImage> image, VulkanDeviceBuffer* buf);
   void blitImage(VkImage srcImg, VkImage dstImg, const BR2::irect2& srcRegion, const BR2::irect2& dstRegion,
                  VkImageLayout srcLayout, VkImageLayout dstLayout, uint32_t srcMipLevel, uint32_t dstMipLevel,
                  VkImageAspectFlagBits aspectFlags, VkFilter filter);
@@ -193,10 +198,10 @@ public:
 
 private:
   CommandBufferState _state = CommandBufferState::Unset;
-  std::shared_ptr<RenderFrame> _pRenderFrame = nullptr;
+  RenderFrame* _pRenderFrame = nullptr;
   VkCommandPool _sharedPool = VK_NULL_HANDLE;       //Do not free
   VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;  //_commandBuffers;
-  std::shared_ptr<VulkanBuffer> _pBoundIndexes = nullptr;
+  VulkanBuffer* _pBoundIndexes = nullptr;
 };
 /**
  * @class UBOClassData
@@ -212,17 +217,17 @@ class UBOClassData {
  * */
 class ShaderDataUBO {
 public:
-  std::shared_ptr<Descriptor> _descriptor = nullptr;  //shared ptr to the descriptor in the shader.
+  Descriptor* _descriptor = nullptr;  //shared ptr to the descriptor in the shader.
   std::shared_ptr<VulkanBuffer> _buffer = nullptr;
   UBOClassData _data;
 };
 /**
  * @class VulkanShaderModule
- * @brief Shader module with reflection tanks to Spirv-Reflect.
+ * @brief Shader module with reflection thanks to Spirv-Reflect.
  * */
 class ShaderModule : VulkanObject {
 public:
-  ShaderModule(std::shared_ptr<Vulkan> v, const string_t& base_name, const string_t& file);
+  ShaderModule(Vulkan* v, const string_t& base_name, const string_t& file);
   virtual ~ShaderModule() override;
 
   VkPipelineShaderStageCreateInfo getPipelineStageCreateInfo();
@@ -268,6 +273,7 @@ public:
 /**
  * @class ShaderOutputBinding
  * @brief Generated FBO metadata from the shader that describes the output image.
+ * @details .. Example In GLSL: layout(location = 0) out vec4 _outFBO_DefaultColor;
  * */
 class ShaderOutputBinding {
 public:
@@ -304,7 +310,7 @@ class OutputDescription {
 public:
   static FBOType outputTypeToFBOType(OutputMRT out);
   string_t _name = "";
-  std::shared_ptr<RenderTexture> _texture = nullptr;
+  RenderTexture* _texture ;
   BlendFunc _blending = BlendFunc::AlphaBlend;
   FBOType _type = FBOType::Undefined;
   BR2::vec4 _clearColor{ 0, 0, 0, 1 };
@@ -313,10 +319,11 @@ public:
   uint32_t _clearStencil = 0;
   OutputMRT _output = OutputMRT::RT_DefaultColor;
   CompareOp _compareOp = CompareOp::Less;
-  std::shared_ptr<ShaderOutputBinding> _outputBinding = nullptr;  // This is set internally when we make the FBO
+  ShaderOutputBinding* _outputBinding = nullptr;  // This is set internally when we make the FBO
   bool _resolve = false;                                          // used internally do not set this
-  static std::shared_ptr<OutputDescription> getDepthDF(bool clear = true) {
-    auto outd = std::make_shared<OutputDescription>();
+  static std::unique_ptr<OutputDescription> getDepthDF(bool clear = true) {
+    //Returns a default output Depth FBO description
+    auto outd = std::make_unique<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultDepth;
     outd->_texture = nullptr;
     outd->_blending = BlendFunc::Disabled;
@@ -328,9 +335,10 @@ public:
     outd->_clear = clear;
     return outd;
   }
-  static std::shared_ptr<OutputDescription> getColorDF(std::shared_ptr<RenderTexture> tex = nullptr,
+  static std::unique_ptr<OutputDescription> getColorDF(RenderTexture* tex = nullptr,
                                                        bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0) {
-    auto outd = std::make_shared<OutputDescription>();
+    //Returns a default output Color FBO description
+    auto outd = std::make_unique<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultColor;
     outd->_texture = tex;  // If null, then we use the default framebuffer
     outd->_blending = BlendFunc::AlphaBlend;
@@ -351,7 +359,7 @@ class RenderTexture {
   friend class Swapchain;
 
 public:
-  RenderTexture(const string_t& name, std::shared_ptr<Swapchain> swap, VkFormat format, const FilterData& filter);
+  RenderTexture(const string_t& name, Swapchain* swap, VkFormat format, const FilterData& filter);
   virtual ~RenderTexture();
   //**TODO: use a std::map and switch texture based on multisample preference.
   //We do this if this image must match the swapchain.
@@ -367,7 +375,7 @@ private:
   string_t _name = "unset";
   VkFormat _format = VK_FORMAT_UNDEFINED;
   std::shared_ptr<TextureImage> _texture = nullptr;
-  std::shared_ptr<Swapchain> _swapchain = nullptr;
+  Swapchain* _swapchain = nullptr;
 };
 /**
  * @class PassDescription
@@ -375,17 +383,17 @@ private:
  * */
 class PassDescription {
 public:
-  PassDescription(std::shared_ptr<RenderFrame> frame, std::shared_ptr<PipelineShader> shader, MSAA c, BlendFunc globalBlend, FramebufferBlendMode rbm);
+  PassDescription(RenderFrame* frame, PipelineShader* shader, MSAA c, BlendFunc globalBlend, FramebufferBlendMode rbm);
 
-  void setOutput(std::shared_ptr<OutputDescription> output);
-  void setOutput(const string_t& tag, OutputMRT output, std::shared_ptr<RenderTexture> tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
+  void setOutput(std::unique_ptr<OutputDescription> output);
+  void setOutput(const string_t& tag, OutputMRT output, RenderTexture* tex, BlendFunc blend, bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0);
 
-  const std::vector<std::shared_ptr<OutputDescription>> outputs() { return _outputs; }
+  const std::vector<std::unique_ptr<OutputDescription>>& outputs() { return _outputs; }
   std::vector<VkClearValue> getClearValues();
-  std::shared_ptr<RenderFrame> frame() { return _frame; }
+  RenderFrame* frame() { return _frame; }
   MSAA sampleCount() { return _sampleCount; }
   bool valid() { return _bValid; }
-  std::shared_ptr<PipelineShader> shader() { return _shader; }
+  PipelineShader* shader() { return _shader; }
   bool hasDepthBuffer();
   uint32_t colorOutputCount();
   BlendFunc globalBlend() { return _globalBlend; }
@@ -393,11 +401,11 @@ public:
 
 private:
   bool passError(const string_t& msg);
-  void addValidOutput(std::shared_ptr<OutputDescription> desc);
+  void addValidOutput(std::unique_ptr<OutputDescription> desc);
 
-  std::vector<std::shared_ptr<OutputDescription>> _outputs;
-  std::shared_ptr<PipelineShader> _shader = nullptr;
-  std::shared_ptr<RenderFrame> _frame = nullptr;
+  std::vector<std::unique_ptr<OutputDescription>> _outputs;
+  PipelineShader* _shader = nullptr;
+  RenderFrame* _frame = nullptr;
   bool _bValid = true;  //If an error happened
   MSAA _sampleCount = MSAA::Unset;
   FramebufferBlendMode _blendMode = FramebufferBlendMode::Global;
@@ -409,26 +417,26 @@ private:
 class FramebufferAttachment : public VulkanObject {
 public:
   static const uint32_t InvalidLocation = 999999;
-  FramebufferAttachment(std::shared_ptr<Vulkan> v, std::shared_ptr<OutputDescription> desc);
+  FramebufferAttachment(Vulkan* v, OutputDescription* desc);
   virtual ~FramebufferAttachment() override;
 
-  bool init(std::shared_ptr<Framebuffer> fbo, std::shared_ptr<RenderFrame> frame);
+  bool init(Framebuffer* fbo, RenderFrame* frame);
   //VkImageView getVkImageView() { return _outputImageView; }
   const BR2::usize2& imageSize() { return _imageSize; }
-  std::shared_ptr<OutputDescription> desc() { return _desc; }
+  OutputDescription* desc() { return _desc; }
   VkImageLayout finalLayout() { return _computedFinalLayout; }
   //VkFormat format() { return _computedFormat; }
   uint32_t location() { return _computedLocation; }
   std::shared_ptr<TextureImage> target() { return _target; }
 
 private:
-  void createTarget(std::shared_ptr<Framebuffer> fb, std::shared_ptr<RenderFrame> frame, std::shared_ptr<OutputDescription> out_att);
-  uint32_t computeLocation(std::shared_ptr<Framebuffer> fb);
-  VkImageLayout computeFinalLayout(std::shared_ptr<Framebuffer> fb, std::shared_ptr<OutputDescription> out_att);
+  void createTarget(Framebuffer* fb, RenderFrame* frame, OutputDescription* out_att);
+  uint32_t computeLocation(Framebuffer* fb);
+  VkImageLayout computeFinalLayout(Framebuffer* fb, OutputDescription* out_att);
 
   // VkImageView _outputImageView = VK_NULL_HANDLE;
   BR2::usize2 _imageSize{ 0, 0 };
-  std::shared_ptr<OutputDescription> _desc = nullptr;
+  OutputDescription* _desc = nullptr;
   std::shared_ptr<TextureImage> _target = nullptr;  //this must be set.
   VkImageLayout _computedFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   // VkFormat _computedFormat = VK_FORMAT_UNDEFINED;
@@ -440,7 +448,7 @@ private:
  * */
 class Framebuffer : public VulkanObject {
 public:
-  Framebuffer(std::shared_ptr<Vulkan> v);
+  Framebuffer(Vulkan* v);
   virtual ~Framebuffer() override;
 
   string_t name() { return _name; }
@@ -449,25 +457,25 @@ public:
   MSAA sampleCount();
   bool valid() { return _bValid; }
   const BR2::usize2& imageSize();
-  std::vector<std::shared_ptr<FramebufferAttachment>> attachments() { return _attachments; }
-  std::shared_ptr<PassDescription> passDescription() { return _passDescription; }
+  std::vector<std::unique_ptr<FramebufferAttachment>>& attachments() { return _attachments; }
+  PassDescription* passDescription() { return _passDescription.get(); }
 
-  bool create(const string_t& name, std::shared_ptr<RenderFrame> frame, std::shared_ptr<PassDescription> desc);
+  bool create(const string_t& name, RenderFrame* frame, std::unique_ptr<PassDescription> desc);
   bool pipelineError(const string_t& msg);
   uint32_t nextLocation();
   uint32_t maxLocation();
 
 private:
   bool createAttachments();
-  bool createRenderPass(std::shared_ptr<RenderFrame> frame, std::shared_ptr<Framebuffer> fbo);
+  bool createRenderPass(RenderFrame* frame, Framebuffer* fbo);
   bool validate();
 
-  std::vector<std::shared_ptr<OutputDescription>> _resolveDescriptions;
+  std::vector<std::unique_ptr<OutputDescription>> _resolveDescriptions;
   string_t _name = "*unset";
   VkFramebuffer _framebuffer = VK_NULL_HANDLE;
-  std::vector<std::shared_ptr<FramebufferAttachment>> _attachments;
-  std::shared_ptr<RenderFrame> _frame = nullptr;
-  std::shared_ptr<PassDescription> _passDescription = nullptr;
+  std::vector<std::unique_ptr<FramebufferAttachment>> _attachments;
+  RenderFrame* _frame = nullptr;
+  std::unique_ptr<PassDescription> _passDescription = nullptr;
   VkRenderPass _renderPass = VK_NULL_HANDLE;
   bool _bValid = true;
   uint32_t _currentLocation = 0;
@@ -478,13 +486,13 @@ private:
  * */
 class Pipeline : public VulkanObject {
 public:
-  Pipeline(std::shared_ptr<Vulkan> v,
+  Pipeline(Vulkan* v,
            VkPrimitiveTopology topo,
            VkPolygonMode mode, VkCullModeFlags cm);
   virtual ~Pipeline() override;
-  bool init(std::shared_ptr<PipelineShader> shader,
+  bool init(PipelineShader* shader,
             std::shared_ptr<BR2::VertexFormat> vtxFormat,
-            std::shared_ptr<Framebuffer> fbo);
+            Framebuffer* fbo);
 
   VkPipeline getVkPipeline() { return _pipeline; }
   VkPipelineLayout getVkPipelineLayout() { return _pipelineLayout; }
@@ -492,10 +500,10 @@ public:
   VkPolygonMode polygonMode() { return _polygonMode; }
   VkCullModeFlags cullMode() { return _cullMode; }
   std::shared_ptr<BR2::VertexFormat> vertexFormat() { return _vertexFormat; }
-  std::shared_ptr<Framebuffer> fbo() { return _fbo; }
+  Framebuffer* fbo() { return _fbo; }
 
 private:
-  VkPipelineColorBlendAttachmentState getVkPipelineColorBlendAttachmentState(BlendFunc bf, std::shared_ptr<Framebuffer> fb);
+  VkPipelineColorBlendAttachmentState getVkPipelineColorBlendAttachmentState(BlendFunc bf, Framebuffer* fb);
 
   std::shared_ptr<BR2::VertexFormat> _vertexFormat = nullptr;
   VkPrimitiveTopology _primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -503,7 +511,7 @@ private:
   VkCullModeFlags _cullMode = VK_CULL_MODE_NONE;
   VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
   VkPipeline _pipeline = VK_NULL_HANDLE;
-  std::shared_ptr<Framebuffer> _fbo = nullptr;
+  Framebuffer* _fbo = nullptr;
 };
 /**
  * @class PipelineShader
@@ -511,37 +519,37 @@ private:
  * */
 class PipelineShader : public VulkanObject {
 public:
-  static std::shared_ptr<PipelineShader> create(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
-  PipelineShader(std::shared_ptr<Vulkan> v, const string_t& name, const std::vector<string_t>& files);
+  static std::unique_ptr<PipelineShader> create(Vulkan* v, const string_t& name, const std::vector<string_t>& files);
+  PipelineShader(Vulkan* v, const string_t& name, const std::vector<string_t>& files);
   virtual ~PipelineShader() override;
 
   const string_t& name() { return _name; }
   bool valid() { return _bValid; }
   bool shaderError(const string_t& msg);
   bool renderError(const string_t& msg);
-  const std::vector<std::shared_ptr<ShaderOutputBinding>>& outputBindings() { return _outputBindings; }
+  const std::vector<std::unique_ptr<ShaderOutputBinding>>& outputBindings() const { return _outputBindings; }
   const std::vector<uint32_t> locations() { return _locations; }
   VkDescriptorSetLayout getVkDescriptorSetLayout() { return _descriptorSetLayout; }
   std::vector<VkPipelineShaderStageCreateInfo> getShaderStageCreateInfos();
   VkPipelineVertexInputStateCreateInfo getVertexInputInfo(std::shared_ptr<BR2::VertexFormat> fmt);
   bool sampleShadingVariables();
-  std::shared_ptr<Pipeline> getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode, VkCullModeFlags cullMode);
-  std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, std::shared_ptr<RenderFrame> frame);
+  Pipeline* getPipeline(std::shared_ptr<BR2::VertexFormat> vertexFormat, VkPrimitiveTopology topo, VkPolygonMode mode, VkCullModeFlags cullMode);
+  std::shared_ptr<VulkanBuffer> getUBO(const string_t& name, RenderFrame* frame);
   bool createUBO(const string_t& name, const string_t& var_name, size_t itemSize, size_t itemCount);
-  std::shared_ptr<Pipeline> boundPipeline() { return _pBoundPipeline; }
-  void clearShaderDataCache(std::shared_ptr<RenderFrame> frame);
+  Pipeline* boundPipeline() { return _pBoundPipeline; }
+  void clearShaderDataCache(RenderFrame* frame);
 
-  std::shared_ptr<PassDescription> getPass(std::shared_ptr<RenderFrame> frame, MSAA sampleCount, BlendFunc globalBlend, FramebufferBlendMode blendMode = FramebufferBlendMode::Global);
-  bool beginRenderPass(std::shared_ptr<CommandBuffer> buf, std::shared_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
-  void endRenderPass(std::shared_ptr<CommandBuffer> buf);
+  std::unique_ptr<PassDescription> getPass(RenderFrame* frame, MSAA sampleCount, BlendFunc globalBlend, FramebufferBlendMode blendMode = FramebufferBlendMode::Global);
+  bool beginRenderPass(CommandBuffer* buf, std::unique_ptr<PassDescription> desc, BR2::urect2* extent = nullptr);
+  void endRenderPass(CommandBuffer* buf);
   bool bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer> buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE);  //buf =  Optionally, update.
   bool bindSampler(const string_t& name, std::shared_ptr<TextureImage> texture, uint32_t arrayIndex = 0);
-  bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode = VK_POLYGON_MODE_FILL,
+  bool bindPipeline(CommandBuffer* cmd, std::shared_ptr<BR2::VertexFormat> v_fmt, VkPolygonMode mode = VK_POLYGON_MODE_FILL,
                     VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VkCullModeFlags cull = VK_CULL_MODE_BACK_BIT);
-  bool bindPipeline(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Pipeline> pipe);
-  void bindViewport(std::shared_ptr<CommandBuffer> cmd, const BR2::urect2& size);
-  bool bindDescriptors(std::shared_ptr<CommandBuffer> cmd);
-  void drawIndexed(std::shared_ptr<CommandBuffer> cmd, std::shared_ptr<Mesh> m, uint32_t numInstances);
+  bool bindPipeline(CommandBuffer* cmd, Pipeline* pipe);
+  void bindViewport(CommandBuffer* cmd, const BR2::urect2& size);
+  bool bindDescriptors(CommandBuffer* cmd);
+  void drawIndexed(CommandBuffer* cmd, std::shared_ptr<Mesh> m, uint32_t numInstances);
 
 private:
   bool init();
@@ -550,17 +558,17 @@ private:
   bool createOutputs();
   bool createDescriptors();
   void cleanupDescriptors();
-  std::shared_ptr<Framebuffer> getOrCreateFramebuffer(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
-  std::shared_ptr<Framebuffer> findFramebuffer(std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
-  std::shared_ptr<ShaderData> getShaderData(std::shared_ptr<RenderFrame> frame);
+  Framebuffer* getOrCreateFramebuffer(RenderFrame* frame, ShaderData* data, std::unique_ptr<PassDescription> desc);
+  Framebuffer* findFramebuffer(ShaderData* data, PassDescription* desc);
+  ShaderData* getShaderData(RenderFrame* frame);
   OutputMRT parseShaderOutputTag(const string_t& tag);
   DescriptorFunction classifyDescriptor(const string_t& name);
   BR2::VertexUserType parseUserType(const string_t& err);
-  std::shared_ptr<ShaderModule> getModule(ShaderStage stage, bool throwIfNotFound = false);
-  std::shared_ptr<Descriptor> getDescriptor(const string_t& name);
+  ShaderModule* getModule(ShaderStage stage, bool throwIfNotFound = false);
+  Descriptor* getDescriptor(const string_t& name);
   VkFormat spvReflectFormatToVulkanFormat(SpvReflectFormat fmt);
   bool beginPassGood();
-  string_t createUniqueFBOName(std::shared_ptr<RenderFrame> frame, std::shared_ptr<ShaderData> data, std::shared_ptr<PassDescription> desc);
+  string_t createUniqueFBOName(RenderFrame* frame, ShaderData* data, PassDescription* desc);
 
   string_t _name = "*undefined*";
   std::vector<string_t> _files;
@@ -569,17 +577,17 @@ private:
   std::vector<VkDescriptorSet> _descriptorSets;  // TODO: put these on ShaderData (one per frame)
   std::vector<VkVertexInputAttributeDescription> _attribDescriptions;
   VkVertexInputBindingDescription _bindingDesc;
-  std::vector<std::shared_ptr<ShaderModule>> _modules;
-  std::unordered_map<string_t, std::shared_ptr<Descriptor>> _descriptors;
-  std::vector<std::shared_ptr<VertexAttribute>> _attributes;
-  std::vector<std::shared_ptr<ShaderOutputBinding>> _outputBindings;
-  std::shared_ptr<Framebuffer> _pBoundFBO = nullptr;
-  std::shared_ptr<Pipeline> _pBoundPipeline = nullptr;
-  std::shared_ptr<ShaderData> _pBoundData = nullptr;
-  std::shared_ptr<RenderFrame> _pBoundFrame = nullptr;
+  std::vector<std::unique_ptr<ShaderModule>> _modules;
+  std::unordered_map<string_t, std::unique_ptr<Descriptor>> _descriptors;
+  std::vector<std::unique_ptr<VertexAttribute>> _attributes;
+  std::vector<std::unique_ptr<ShaderOutputBinding>> _outputBindings;
+  Framebuffer* _pBoundFBO = nullptr;
+  Pipeline* _pBoundPipeline = nullptr;
+  ShaderData* _pBoundData = nullptr;
+  RenderFrame* _pBoundFrame = nullptr;
   bool _bInstanced = false;  //True if we find gl_InstanceIndex (gl_instanceID) in the shader - and we will bind vertexes per instance.
   bool _bValid = true;       // TODO: flags
-  std::map<uint32_t, std::shared_ptr<ShaderData>> _shaderData;
+  std::map<uint32_t, std::unique_ptr<ShaderData>> _shaderData;
   std::vector<uint32_t> _locations;
 };
 /**
@@ -588,10 +596,10 @@ private:
  * */
 class ShaderData {
 public:
-  std::unordered_map<std::string, std::shared_ptr<ShaderDataUBO>> _uniformBuffers;
-  std::shared_ptr<ShaderDataUBO> getUBOData(const string_t& name);
-  std::vector<std::shared_ptr<Framebuffer>> _framebuffers;  //In the future we can optimize this search.
-  std::vector<std::shared_ptr<Pipeline>> _pipelines;        // All pipelines bound to this data.
+  std::unordered_map<std::string, std::unique_ptr<ShaderDataUBO>> _uniformBuffers;
+  ShaderDataUBO* getUBOData(const string_t& name);
+  std::vector<std::unique_ptr<Framebuffer>> _framebuffers;  //In the future we can optimize this search.
+  std::vector<std::unique_ptr<Pipeline>> _pipelines;        // All pipelines bound to this data.
 };
 /**
  * @class RenderFrame
@@ -599,17 +607,17 @@ public:
  */
 class RenderFrame : public VulkanObject {
 public:
-  RenderFrame(std::shared_ptr<Vulkan> v);
+  RenderFrame(Vulkan* v);
   virtual ~RenderFrame() override;
 
   const BR2::usize2& imageSize();
-  std::shared_ptr<Swapchain> getSwapchain() { return _pSwapchain; }
+  Swapchain* getSwapchain() const { return _pSwapchain; }
   //VkImageView getVkImageView() { return _swapImageView; }
-  std::shared_ptr<CommandBuffer> commandBuffer() { return _pCommandBuffer; }     //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
+  CommandBuffer* commandBuffer() { return _pCommandBuffer.get(); }     //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
   uint32_t currentRenderingImageIndex() { return _currentRenderingImageIndex; }  //TODO: remove later
   uint32_t frameIndex() { return _frameIndex; }                                  //Image index in the swapchain array
 
-  void init(std::shared_ptr<Swapchain> ps, uint32_t frameIndex, VkImage swapImg, VkSurfaceFormatKHR fmt);
+  void init(Swapchain* ps, uint32_t frameIndex, VkImage swapImg, VkSurfaceFormatKHR fmt);
   bool beginFrame();
   void endFrame();
 
@@ -622,8 +630,8 @@ private:
 
   FrameState _frameState = FrameState::Unset;
 
-  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
-  std::shared_ptr<CommandBuffer> _pCommandBuffer = nullptr;
+  Swapchain* _pSwapchain = nullptr;
+  std::unique_ptr<CommandBuffer> _pCommandBuffer = nullptr;
 
   uint32_t _frameIndex = 0;
 
@@ -641,7 +649,7 @@ private:
  * */
 class Swapchain : public VulkanObject {
 public:
-  Swapchain(std::shared_ptr<Vulkan> v);  //TODO: bool vsync -> use FIFO swapchain mode.
+  Swapchain(Vulkan* v);  //TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
 
@@ -649,16 +657,17 @@ public:
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
   VkSwapchainKHR getVkSwapchain() { return _swapChain; }
-  const std::vector<std::shared_ptr<RenderFrame>>& frames() { return _frames; }
-  std::shared_ptr<RenderFrame> currentFrame();
+  const std::vector<std::unique_ptr<RenderFrame>>& frames() { return _frames; }
+  RenderFrame* currentFrame();
   const BR2::usize2& windowSize();
   VkFormat imageFormat() { return _surfaceFormat.format; }
 
   void initSwapchain(const BR2::usize2& window_size);
   bool beginFrame(const BR2::usize2& windowsize);
   void endFrame();
-  void registerShader(std::shared_ptr<PipelineShader> shader);
-  std::shared_ptr<RenderTexture> createRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter);
+  void registerShader(PipelineShader* shader);
+  void unregisterShader(PipelineShader* shader);
+  RenderTexture* getRenderTexture(const string_t& name, VkFormat format, MSAA msaa, const FilterData& filter);
   void copyImageFlag() {
     _copyImage_Flag = true;
   }
@@ -673,21 +682,21 @@ private:
   bool _copyImage_Flag = false;
 
   FrameState _frameState = FrameState::Unset;
-  std::unordered_set<std::shared_ptr<PipelineShader>> _shaders;
-  std::vector<std::shared_ptr<RenderFrame>> _frames;
+  std::unordered_set<PipelineShader*> _shaders;
+  std::vector<std::unique_ptr<RenderFrame>> _frames;
   size_t _currentFrame = 0;
   std::vector<VkFence> _imagesInFlight;  //Shared handle do not delete
   VkSwapchainKHR _swapChain = VK_NULL_HANDLE;
   BR2::usize2 _imageSize{ 0, 0 };
   bool _bSwapChainOutOfDate = false;
-  std::vector<std::shared_ptr<RenderTexture>> _renderTextures;
+  std::unordered_map<string_t, std::unique_ptr<RenderTexture>> _renderTextures;
   VkSurfaceFormatKHR _surfaceFormat;
 };
 /**
  * @class Vulkan 
  * @brief Root class for the GWindow vulkan api.
  */
-class Vulkan : public SharedObject<Vulkan> {
+class Vulkan /*: public SharedObject<Vulkan> */{
 public:
   struct QueueFamilies {
     std::optional<uint32_t> _graphicsFamily;
@@ -700,7 +709,7 @@ public:
   Vulkan();
   virtual ~Vulkan();
 
-  static std::shared_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
+  static std::unique_ptr<Vulkan> create(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
 
   const VkSurfaceKHR& windowSurface() { return _windowSurface; }
   const VkPhysicalDevice& physicalDevice() { return _physicalDevice; }
@@ -727,7 +736,7 @@ public:
   VkFormat findDepthFormat();
   VkCommandBuffer beginOneTimeGraphicsCommands();
   void endOneTimeGraphicsCommands(VkCommandBuffer commandBuffer);
-  std::shared_ptr<Swapchain> swapchain();
+  Swapchain* swapchain();
 
 private:
   void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
@@ -748,7 +757,7 @@ private:
 
   std::unique_ptr<VulkanDebug> _pDebug;
   std::unique_ptr<QueueFamilies> _pQueueFamilies;
-  std::shared_ptr<Swapchain> _pSwapchain = nullptr;
+  std::unique_ptr<Swapchain> _pSwapchain = nullptr;
   VkPhysicalDevice _physicalDevice = VK_NULL_HANDLE;
   VkDevice _device = VK_NULL_HANDLE;
   VkInstance _instance = VK_NULL_HANDLE;
