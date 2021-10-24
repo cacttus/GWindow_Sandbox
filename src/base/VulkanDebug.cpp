@@ -40,11 +40,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
     msghead += Stz "[W]";
     msghead += Stz ":";
     BRLogWarn(msghead + msg);
+    Gu::debugBreak();
   }
   else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
     msghead += Stz "[E]";
     msghead += Stz ":";
     BRLogError(msghead + msg);
+    Gu::debugBreak();
   }
   else {
     msghead += Stz "[?]";
@@ -53,6 +55,15 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
   }
   return VK_FALSE;
 }
+// typedef VkBool32 (VKAPI_PTR *PFN_vkDebugReportCallbackEXT)(
+//     VkDebugReportFlagsEXT                       flags,
+//     VkDebugReportObjectTypeEXT                  objectType,
+//     uint64_t                                    object,
+//     size_t                                      location,
+//     int32_t                                     messageCode,
+//     const char*                                 pLayerPrefix,
+//     const char*                                 pMessage,
+//     void*                                       pUserData);
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallback(
   VkDebugReportFlagsEXT flags,
   VkDebugReportObjectTypeEXT objectType,
@@ -62,13 +73,14 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallback(
   const char* pLayerPrefix,
   const char* pMessage,
   void* pUserData) {
-  //BRLogDebug(std::string("    [GPU] p:") + std::string(pLayerPrefix) + std::string("c:") + std::to_string(messageCode) + " -> " + std::string(pMessage));
+  BRLogDebug(std::string("    [GPU] p:") + std::string(pLayerPrefix) + std::string("c:") + std::to_string(messageCode) + " -> " + std::string(pMessage));
 
   return VK_FALSE;
 }
 
 VulkanDebug::VulkanDebug(Vulkan* v, bool enableDebug) : VulkanObject(v) {
   _enableDebug = enableDebug;
+  createDebugObjects();
 }
 VulkanDebug::~VulkanDebug() {
   if (_debugMessenger != VK_NULL_HANDLE) {
@@ -86,12 +98,12 @@ void VulkanDebug::createDebugObjects() {
   createDebugMessenger();
   createDebugReport();
 }
-
 void VulkanDebug::createDebugReport() {
   VkLoadExt(vulkan()->instance(), vkCreateDebugReportCallbackEXT);
   VkLoadExt(vulkan()->instance(), vkDestroyDebugReportCallbackEXT);
   if (vkCreateDebugReportCallbackEXT == nullptr || vkDestroyDebugReportCallbackEXT == nullptr) {
     BRLogWarn("Debug reporting is not supported or you forgot to load the extension.");
+    Gu::debugBreak();
   }
   else {
     VkDebugReportCallbackCreateInfoEXT info = {

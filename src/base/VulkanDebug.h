@@ -27,13 +27,15 @@ public:
   VulkanDebug(Vulkan* v, bool enableValidationLayers);
   virtual ~VulkanDebug() override;
 
-  void createDebugObjects();
+  
+  bool debugOutputEnabled() { return _enableDebug; }
 
 private:
+  void createDebugObjects();
   void createDebugMessenger();
   void createDebugReport();
 
-  bool _enableDebug = false;
+  bool _enableDebug = true;
   VkExtFn(vkCreateDebugUtilsMessengerEXT);
   VkExtFn(vkDestroyDebugUtilsMessengerEXT);
   VkExtFn(vkCreateDebugReportCallbackEXT);

@@ -3719,8 +3719,8 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
 }
 
 void Vulkan::initVulkan(const string_t& title, SDL_Window* win, bool enableDebug) {
-  _pDebug = std::make_unique<VulkanDebug>(this, enableDebug);
   createInstance(title, win);
+  _pDebug = std::make_unique<VulkanDebug>(this, enableDebug);
   pickPhysicalDevice();
   createLogicalDevice();
   getDeviceProperties();
@@ -3764,7 +3764,7 @@ void Vulkan::createInstance(const string_t& title, SDL_Window* win) {
 }
 
 void Vulkan::errorExit(const string_t& str) {
-  BRLogError(str);
+  BRLogError("Fatal Error -- " + str);
 
   SDLUtils::checkSDLErr();
   Gu::debugBreak();
@@ -3779,12 +3779,12 @@ std::vector<const char*> Vulkan::getRequiredExtensionNames(SDL_Window* win) {
   //Returns # of REQUIRED instance extensions
   unsigned int extensionCount;
   if (!SDL_Vulkan_GetInstanceExtensions(win, &extensionCount, nullptr)) {
-    errorExit("Couldn't get instance extensions");
+    errorExit("Couldn't get instance extensions for SDL (1)");
   }
   extensionNames = std::vector<const char*>(extensionCount);
   if (!SDL_Vulkan_GetInstanceExtensions(win, &extensionCount,
                                         extensionNames.data())) {
-    errorExit("Couldn't get instance extensions (2)");
+    errorExit("Couldn't get instance extensions for SDL (2)");
   }
 
   // Debug print the extension names.
@@ -3799,14 +3799,19 @@ std::vector<const char*> Vulkan::getRequiredExtensionNames(SDL_Window* win) {
   if (_bEnableValidationLayers) {
     extensionNames.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     extensionNames.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+    //extensionNames.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
   }
   return extensionNames;
 }
 std::vector<const char*> Vulkan::getValidationLayers() {
   std::vector<const char*> layerNames{};
   if (_bEnableValidationLayers) {
-    layerNames.push_back("VK_LAYER_LUNARG_standard_validation");
-    //layerNames.push_back("VK_LAYER_KHRONOS_validation");
+    //Note: VK_LAYER_LUNARG_standard_valdiation and other layers are deprecated.
+    //see https://www.lunarg.com/wp-content/uploads/2019/04/UberLayer_V3.pdf
+    //If this fails then check vulkan-validationlayers package is installed.
+    //The settings in this validation layer are controlled via enabling VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME
+    //  and supplyihng VkValidationFeaturesEXT, appended to VkInstanceCreateInfo
+    layerNames.push_back("VK_LAYER_KHRONOS_validation");
   }
 
   //Check if validation layers are supported.
@@ -3817,7 +3822,7 @@ std::vector<const char*> Vulkan::getValidationLayers() {
     }
   }
   if (str.length()) {
-    errorExit("One or more validation layers are not supported:\r\n" + str);
+    errorExit("One or more validation layers are not supported:\r\n" + str + "\r\nNote: On Linux you may need to install the vulkan-validationlayers package.");
   }
   str = "Enabling Validation Layers: \r\n";
   for (auto layer : layerNames) {

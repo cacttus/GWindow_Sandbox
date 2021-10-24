@@ -462,6 +462,8 @@ void GSDL::updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuf
   // ub.proj._m22 *= -1;
 }
 void GSDL::drawFrame() {
+  AssertOrThrow2(_vulkan);
+  AssertOrThrow2(_vulkan->swapchain());
   if (_vulkan->swapchain()->beginFrame(getWindowDims().size)) {
     static auto last_time = std::chrono::high_resolution_clock::now();
     double t01 = std::chrono::duration<double, std::chrono::seconds::period>(std::chrono::high_resolution_clock::now() - last_time).count();
