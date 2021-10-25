@@ -1,3 +1,5 @@
+TODO: Device Buffers (mesh/texture) must be referenced by Vulkan main class - Without this vulkan cannot shut down properly.
+
 TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image. Fix this.
 
 TODO: 1 RTT is broken
