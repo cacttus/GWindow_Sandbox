@@ -46,7 +46,6 @@ std::unique_ptr<GWindow> GSDL::createWindow() {
   return nullptr;
 }
 
-
 void GSDL::makeDebugTexture(int w, int h) {
   if (_pDebugTexture != nullptr) {
     SDL_DestroyTexture(_pDebugTexture);
@@ -57,18 +56,17 @@ void GSDL::makeDebugTexture(int w, int h) {
 }
 void GSDL::makeDebugWindow() {
   destroyDebugWindow();
-  _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE |SDL_WINDOW_VULKAN);
+  _pDebugWindow = SDL_CreateWindow("Debug", 700, 100, 500, 500, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
   SDLUtils::checkSDLErr();
 
-int flags=0;
+  int flags = 0;
 #if defined(BR2_OS_LINUX)
 //flags = SDL_RENDERER_ACCELERATED;
 #elif defined(BR2_OS_WINDOWS)
 #endif
 
-//SDL Doc  You may not combine this with 3D or the rendering API on this window.
-// But what if we make a new window? it shouldnot mess with up new window
-
+  //SDL Doc  You may not combine this with 3D or the rendering API on this window.
+  // But what if we make a new window? it shouldnot mess with up new window
 
   _pDebugRenderer = SDL_CreateRenderer(_pDebugWindow, -1, flags);
   SDLUtils::checkSDLErr();
@@ -244,9 +242,105 @@ SDL_Window* GSDL::makeSDLWindow(const GraphicsWindowCreateParameters& params, in
 
   return ret;
 }
+void SettingsFile::load() {
+  //load file
+  std::fstream f;
+  f.open("./settings.dat", std::ios::in | std::ios::binary);
+  if (!f.good()) {
+    BRLogError("Settings file could not be found.");
+    return;
+  }
+  f.seekg(0, std::ios::end);
+  auto len = f.tellg();
+  f.seekg(0, std::ios::beg);
+  std::unique_ptr<char[]> buf(new char[len]);
+  f.read(buf.get(), len);
+  f.close();
 
+  //tokenize file .. ANSI locale .. lazy today
+  std::vector<std::vector<std::string>> kvps;
+  {
+    std::vector<std::string> cur_kvp;
+    uint32_t line = 1;
+    std::string tok = "";
+    for (auto i = 0; i < len; i++, line++) {
+      char c = buf[i];
+      if (c == ' ' || c == '=' || c == '\n') {
+        cur_kvp.push_back(tok);
+        tok = "";
+        if (c == '\n') {
+          if (cur_kvp.size() == 2) {
+            kvps.push_back(cur_kvp);
+          }
+          else {
+            BRLogError("Invalid key-value-pair count, must be 2");
+            Gu::debugBreak();
+          }
+          cur_kvp.clear();
+        }
+      }
+      else if (c == '\r') {
+      }
+      else if (isalnum(c) || c == '.' || c == '_' || c == '-') {
+        tok += c;
+      }
+      else {
+        BRLogError("Unrecognized token " + std::string(c, 1) + " in settings file on line " + std::to_string(line));
+        Gu::debugBreak();
+      }
+    }
+  }
+  std::function<bool(const std::string& a, const std::string& b)> scmpi = [](const std::string& a, const std::string& b) {
+    return std::equal(a.begin(), a.end(),
+                      b.begin(), b.end(),
+                      [](char a, char b) {
+                        return tolower(a) == tolower(b);
+                      });
+  };
+  std::function<bool(const std::string&, bool)> readBool = [scmpi](const std::string& a, bool default_value) {
+    if (scmpi(a, "true")) {
+      return true;
+    }
+    else if (scmpi(a, "false")) {
+      return false;
+    }
+    else if (scmpi(a, "1")) {
+      return true;
+    }
+    else if (scmpi(a, "0")) {
+      return false;
+    }
+    else if (scmpi(a, "t")) {
+      return true;
+    }
+    else if (scmpi(a, "f")) {
+      return false;
+    }
+    else {
+    }
+    return default_value;
+  };
+  //parse tokens
+  {
+    for (auto& kvp : kvps) {
+      if (kvp.size() == 2) {
+        if (scmpi(kvp[0], "enable_debug")) {
+          _debugEnabled = readBool(kvp[1], false);
+          BRLogDebug("enable_debug = " + std::to_string(_debugEnabled));
+        }
+        else {
+          BRLogError("Unrecognized settings token " + kvp[0]);
+          Gu::debugBreak();
+        }
+      }
+    }
+  }
+}
 void GSDL::init() {
   try {
+    _settings = std::make_unique<SettingsFile>();
+    _settings->load();
+
     // Make the window.
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1) {
@@ -262,19 +356,9 @@ void GSDL::init() {
 
     sdl_PrintVideoDiagnostics();
 
-    bool enableDebug = false;
-#ifdef _DEBUG
-    enableDebug = true;
-    BRLogInfo("GPU debugging enabled.");
-#else
-    BRLogInfo("GPU debugging disabled.");
-#endif
-
-    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, enableDebug);
+    _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, _settings->_debugEnabled);
 
     createGameAndShaderTest();
-
-
 
     BRLogInfo("Showing window..");
     SDL_ShowWindow(_pSDLWindow);
@@ -285,19 +369,19 @@ void GSDL::init() {
     throw ex;
   }
 }
-void GSDL::createGameAndShaderTest(){
-    _game = nullptr;
-    _pShader = nullptr;
-    _game = std::make_shared<GameDummy>();
-    _game->_mesh1 = std::make_shared<Mesh>(_vulkan.get());
-    _game->_mesh1->makeBox();
-    _game->_mesh2 = std::make_shared<Mesh>(_vulkan.get());
-    _game->_mesh2->makeBox();
+void GSDL::createGameAndShaderTest() {
+  _game = nullptr;
+  _pShader = nullptr;
+  _game = std::make_shared<GameDummy>();
+  _game->_mesh1 = std::make_shared<Mesh>(_vulkan.get());
+  _game->_mesh1->makeBox();
+  _game->_mesh2 = std::make_shared<Mesh>(_vulkan.get());
+  _game->_mesh2->makeBox();
 
-    //Make Shader.
-    _pShader = PipelineShader::create(_vulkan.get(), "Vulkan-Tutorial-Test-Shader",
-                                      std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
-    allocateShaderMemory();
+  //Make Shader.
+  _pShader = PipelineShader::create(_vulkan.get(), "Vulkan-Tutorial-Test-Shader",
+                                    std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
+  allocateShaderMemory();
 }
 void GSDL::sdl_PrintVideoDiagnostics() {
   // Init Video
@@ -412,8 +496,8 @@ void GSDL::updateLights(std::shared_ptr<VulkanBuffer> lightsBuffer, float dt) {
       lights[lights.size() - 1].specColor = BR2::vec3(1, 1, 1);
       lights[lights.size() - 1].specHardness = 1.0f;
       lights[lights.size() - 1].specIntensity = 1.0f;
-      lights_speed.push_back(2 + fr01() * 8);   
-      lights_r.push_back(2 + fr01() * 10); 
+      lights_speed.push_back(2 + fr01() * 8);
+      lights_r.push_back(2 + fr01() * 10);
     }
     //Disable the rest
     for (size_t i = _numLights; i < _maxLights; ++i) {
@@ -491,7 +575,7 @@ void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
   updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
   updateLights(lightsubo, (float)dt);
   // }
-  
+
   //if (test_render_texture.lock() == nullptr) {
   auto test_render_texture = vulkan()->swapchain()->getRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
                                                                      FilterData{ SamplerType::Sampled, MipmapMode::Disabled, vulkan()->maxAF(),
@@ -560,7 +644,7 @@ void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
       }
     }
     else {
-      bool pass1_success = false; 
+      bool pass1_success = false;
       if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
         auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
         if (g_use_rtt) {
@@ -691,6 +775,14 @@ void GSDL::cleanup() {
   // All child objects created using instance must have been destroyed prior to destroying instance - Vulkan Spec.
   cleanupShaderMemory();
   _pShader = nullptr;
+
+  //TODO: all managers must be destroyed before we destroy Vulkan.
+  //All buffers, and everything that uses Vulkan Instance.
+  _testTexture1 = nullptr;
+  _testTexture2 = nullptr;
+  _pShader = nullptr;
+  _game = nullptr;
+
   _vulkan = nullptr;
 
   SDL_DestroyWindow(_pSDLWindow);
@@ -723,8 +815,8 @@ void GSDL::handleCamera() {
     float x = -delta.x / 300;
     float y = -delta.y / 300;
     if (x != 0 || y != 0) {
-      float delta_rot_x = (float)(M_2PI *(double)  x);
-      float delta_rot_y = (float)(M_PI * (double) y);
+      float delta_rot_x = (float)(M_2PI * (double)x);
+      float delta_rot_y = (float)(M_PI * (double)y);
       float zxradius = sqrt(campos.x * campos.x + campos.y * campos.y + campos.z * campos.z);
 
       if (_initial_cam_rot_set == false) {
@@ -924,9 +1016,11 @@ void GSDL::renderLoop() {
       _fpsMeter_Update.update();
       if (_fpsMeter_Update.getFrameNumber() % 2 == 0) {
         float f_upd = _fpsMeter_Update.getFps();
-        string_t fp_upd = std::to_string((int)f_upd);
+        float f_upd_a = _fpsMeter_Update.getFpsAvg();
+        string_t fp_upd = Stz std::to_string((int)f_upd) + "/" + std::to_string((int)f_upd_a);
         float f_r = _fpsMeter_Render.getFps();
-        string_t fp_r = std::to_string((int)f_r);
+        float f_r_a = _fpsMeter_Render.getFpsAvg();
+        string_t fp_r = std::to_string((int)f_r) + "/" + std::to_string((int)f_r_a);
 
         string_t zmmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Error")));
         string_t zmin_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Error")));

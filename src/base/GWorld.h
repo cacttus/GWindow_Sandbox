@@ -16,7 +16,7 @@ class FpsMeter {
 public:
   bool deltaMs(uint64_t& __inout_ last, uint64_t ms);
   float getFps() { return _fpsLast; }
-  float getFpsAvg() { return _fpsLast; }
+  float getFpsAvg() ; //0.5s
   void update();
   uint64_t getFrameNumber() { return _iFrame; }
   bool frameMod(uint64_t i) {
@@ -31,6 +31,8 @@ private:
   uint64_t _tmr = 0;
   float _fpsLast = 60;
   uint64_t _iFrame = 0;  //Current frame number
+  std::vector<float> _avgs;
+  float _avg=0;
 };
 
 #pragma region GameDummy

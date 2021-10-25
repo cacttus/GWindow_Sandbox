@@ -149,23 +149,26 @@ protected:
   VkImageTiling _tiling = VK_IMAGE_TILING_OPTIMAL;
   VkImageUsageFlags _usage = VK_IMAGE_USAGE_SAMPLED_BIT;
   VkMemoryPropertyFlags _properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-  VkImageLayout _initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkImageAspectFlags _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-  VkImageLayout _finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  //after we've generated mipmaps
+  VkImageLayout _initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  VkImageLayout _finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;  
+  VkImageLayout _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;  
   VkImageUsageFlags _transferSrc = (VkImageUsageFlags)0;
   bool _error = false;
+  bool _ownsImage = true;
 
   void cleanup();
   void createGPUImage();  // = VK_IMAGE_LAYOUT_UNDEFINED
   void createView();      // = 1
   void createSampler();
   bool isFeatureSupported(VkFormatFeatureFlagBits flag);
-  void copyImageToGPU();
+  void formatGPUImageMemory();
   void transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
   void flipImage20161206(uint8_t* image, int width, int height);
   VkFilter convertFilter(TexFilter filter, bool cubicSupported);
   void computeMipLevels();
   bool computeTypeProperties();
+  void transitionImage();
 };
 /**
  * @class CommandBuffer
@@ -635,7 +638,7 @@ private:
 
   uint32_t _frameIndex = 0;
 
-  std::map<OutputMRT, std::map<MSAA, std::shared_ptr<TextureImage>>> _renderTargets;
+  std::map<OutputMRT, std::map<MSAA, std::shared_ptr<TextureImage>>> _renderTargets; //Stores output images by their ShaderOutput, and by their MSAA level. MAX 2 MSAA images.
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
@@ -652,7 +655,7 @@ public:
   Swapchain(Vulkan* v);  //TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
-
+  const uint32_t maxRenderFrameMSAAImages() { return 2; } //* To prevent memory overflow we will limit MSAA image levels to a maximum of 2: Disabled (default), and a single MSAA
   void outOfDate() { _bSwapChainOutOfDate = true; }
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
@@ -672,12 +675,15 @@ public:
     _copyImage_Flag = true;
   }
   std::shared_ptr<Img32> grabImage(int debugImg);
+  const VkSurfaceCapabilitiesKHR& surfaceCaps();
+  uint32_t swapchainImageCount();
 
 private:
   void createSwapChain(const BR2::usize2& window_size);
   void cleanupSwapChain();
   bool findValidSurfaceFormat(std::vector<VkFormat> fmts, VkSurfaceFormatKHR& fmt_out);
   bool findValidPresentMode(VkPresentModeKHR& pm_out);
+  void refreshSurfaceCaps();
 
   bool _copyImage_Flag = false;
 
@@ -691,6 +697,38 @@ private:
   bool _bSwapChainOutOfDate = false;
   std::unordered_map<string_t, std::unique_ptr<RenderTexture>> _renderTextures;
   VkSurfaceFormatKHR _surfaceFormat;
+  VkSurfaceCapabilitiesKHR _surfaceCaps;
+};
+class ValidationLayerExtension {
+public:
+  const char* _layer;
+  std::vector<const char*> _extensions;
+};
+/**
+*  @class VulkanDebug
+*  @brief A lot of vulkan errors are simple access violations relevant to a struct.
+*         Outputs memory offsets of vulkan structs for debugging.
+*         Provides enum stringification.
+*/
+class VulkanDebug : public VulkanObject {
+public:
+  VulkanDebug(Vulkan* v, bool bEnableDebug);
+  virtual ~VulkanDebug() override;
+  bool debugEnabled() { return _enableDebug; }
+  void createDebugObjects();
+
+private:
+  void createDebugMessenger();
+  void createDebugReport();
+
+  bool _enableDebug = true;
+  VkExtFn(vkCreateDebugUtilsMessengerEXT);
+  VkExtFn(vkDestroyDebugUtilsMessengerEXT);
+  VkExtFn(vkCreateDebugReportCallbackEXT);
+  VkExtFn(vkDestroyDebugReportCallbackEXT);
+
+  VkDebugUtilsMessengerEXT _debugMessenger = VK_NULL_HANDLE;
+  VkDebugReportCallbackEXT _debugReporter = VK_NULL_HANDLE;
 };
 /**
  * @class Vulkan 
@@ -720,7 +758,6 @@ public:
   const VkQueue& presentQueue() { return _presentQueue; }
   bool vsyncEnabled() { return _vsync_enabled; }
   bool waitFences() { return _wait_fences; }
-  const VkSurfaceCapabilitiesKHR& surfaceCaps();
   const VkPhysicalDeviceProperties& deviceProperties();
   const VkPhysicalDeviceLimits& deviceLimits();
   const VkPhysicalDeviceFeatures& deviceFeatures();
@@ -741,7 +778,7 @@ public:
 private:
   void init(const string_t& title, SDL_Window* win, bool vsync_enabled, bool wait_fences, bool enableDebug);
   void initVulkan(const string_t& title, SDL_Window* win, bool enableDebug);
-  void createInstance(const string_t& title, SDL_Window* win);
+  void createInstance(const string_t& title, SDL_Window* win, bool enableDebug);
   std::vector<const char*> getRequiredExtensionNames(SDL_Window* win);
   std::vector<const char*> getValidationLayers();
   bool isValidationLayerSupported(const string_t& name);
@@ -752,7 +789,6 @@ private:
   void createLogicalDevice();
   Vulkan::QueueFamilies* findQueueFamilies();
   void createCommandPool();
-  void getDeviceProperties();
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
   std::unique_ptr<VulkanDebug> _pDebug;
@@ -765,11 +801,8 @@ private:
   VkQueue _graphicsQueue = VK_NULL_HANDLE;  // Device queues are implicitly cleaned up when the device is destroyed, so we don't need to do anything in cleanup.
   VkQueue _presentQueue = VK_NULL_HANDLE;
   VkSurfaceKHR _windowSurface;
-  bool _bEnableValidationLayers = true;  // TODO: set this in settings
   std::unordered_map<string_t, VkExtensionProperties> _deviceExtensions;
   std::unordered_map<std::string, VkLayerProperties> supported_validation_layers;
-  VkSurfaceCapabilitiesKHR _surfaceCaps;
-  uint32_t _swapchainImageCount = 0;
   bool _bPhysicalDeviceAcquired = false;
   bool _vsync_enabled = false;
   bool _wait_fences = false;

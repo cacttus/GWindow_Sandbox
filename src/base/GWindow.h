@@ -24,6 +24,11 @@ public:
   void init();
   void renderLoop();
 };
+class SettingsFile {
+public:
+  void load();
+  bool _debugEnabled = false;
+};
 /**
  *  @class GSDL
  *  @brief Vulkan windowing main class
@@ -32,16 +37,15 @@ class GSDL {
 public:
   GSDL();
   virtual ~GSDL();
-   
+
   bool doInput();
   void init();
   void renderLoop();
   void start();
-  
   std::unique_ptr<GWindow> createWindow();
 
 private:
-  void cycleValue(float& value, const std::vector<double>& values) ;
+  void cycleValue(float& value, const std::vector<double>& values);
   bool fueq(float x, float y, float e = 0.0001);
   void cleanup();
   void cleanupShaderMemory();
@@ -62,19 +66,18 @@ private:
   void drawDebugWindow();
   void makeDebugTexture(int w, int h);
   void handleCamera();
-
   void test_overlay();
-void createGameAndShaderTest();
+  void createGameAndShaderTest();
   BR2::urect2 getWindowDims();
   std::shared_ptr<Img32> loadImage(const string_t& img);
-
-  SDL_Window* _pSDLWindow = nullptr;
-  std::unique_ptr<Vulkan> _vulkan = nullptr;
   Vulkan* vulkan() { return _vulkan.get(); }
+  
+  SDL_Window* _pSDLWindow = nullptr;
+  std::unique_ptr<SettingsFile> _settings;
 
+  std::unique_ptr<Vulkan> _vulkan = nullptr;
   std::shared_ptr<TextureImage> _testTexture1 = nullptr;
   std::shared_ptr<TextureImage> _testTexture2 = nullptr;
-
   std::unique_ptr<PipelineShader> _pShader = nullptr;
   std::shared_ptr<GameDummy> _game = nullptr;
 
@@ -109,7 +112,7 @@ void createGameAndShaderTest();
   float mouse_wheel = 0;
   bool _initial_cam_rot_set = false;
   float theta = 0;
-  float phi= 0;
+  float phi = 0;
   float min_radius = 2;
 
   //Temps & shader
@@ -126,7 +129,6 @@ void createGameAndShaderTest();
   std::vector<float> rots_ini2;
   std::vector<BR2::vec3> axes1;
   std::vector<BR2::vec3> axes2;
-
 };
 
 }  // namespace VG

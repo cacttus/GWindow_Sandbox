@@ -11,6 +11,10 @@ bool FpsMeter::deltaMs(uint64_t& __inout_ last, uint64_t ms) {
   }
   return false;
 }
+float FpsMeter::getFpsAvg() {
+  return _avg;
+}
+
 void FpsMeter::update() {
   //Only call this once per frame.
   uint64_t cur = Gu::getMicroseconds();
@@ -24,12 +28,24 @@ void FpsMeter::update() {
   accum += fps_numerator / delta;
   divisor += 1.0f;
   _last = cur;
+  
+  _avgs.push_back(_fpsLast);
+  if (_avgs.size() > 9999) {
+    _avgs.erase(_avgs.begin());
+  }
 
   if (cur - _tmr > 500000) {  //Update .5s
     if (divisor == 0) {
       divisor = accum;
     }
-    _fpsLast = (float)(accum/ divisor);
+    _fpsLast = (float)(accum / divisor);
+    _avg = 0;
+    if (_avgs.size() > 0) {
+      for (auto f : _avgs) {
+        _avg += f;
+      }
+      _avg /= (float)_avgs.size();
+    }
     _tmr = cur;
     accum = 0;
     divisor = 0;
@@ -48,36 +64,36 @@ uint32_t Mesh::maxRenderInstances() { return _maxRenderInstances; }
 void Mesh::makeBox() {
   //      6     7
   //  2      3
-  //      4     5    
-  //  0      1   
-  std::vector<v_v3c4> bv = { 
+  //      4     5
+  //  0      1
+  std::vector<v_v3c4> bv = {
     { { 0, 0, 0 }, { 1, 1, 1, 1 } },
-    { { 1, 0, 0 }, { 1, 1, 1, 1 } },  
-    { { 0, 1, 0 }, { 1, 1, 1, 1 } },  
-    { { 1, 1, 0 }, { 1, 1, 1, 1 } },  
-    { { 0, 0, 1 }, { 1, 1, 1, 1 } },   
-    { { 1, 0, 1 }, { 1, 1, 1, 1 } },  
-    { { 0, 1, 1 }, { 1, 1, 1, 1 } }, 
+    { { 1, 0, 0 }, { 1, 1, 1, 1 } },
+    { { 0, 1, 0 }, { 1, 1, 1, 1 } },
+    { { 1, 1, 0 }, { 1, 1, 1, 1 } },
+    { { 0, 0, 1 }, { 1, 1, 1, 1 } },
+    { { 1, 0, 1 }, { 1, 1, 1, 1 } },
+    { { 0, 1, 1 }, { 1, 1, 1, 1 } },
     { { 1, 1, 1 }, { 1, 1, 1, 1 } },
-  };    
-#define BV_VFACE(bl, br, tl, tr, nx)            \
-  { bv[bl]._pos, bv[bl]._color, { 0, 1 }, nx }, \
-  { bv[br]._pos, bv[br]._color, { 1, 1 }, nx }, \
-  { bv[tl]._pos, bv[tl]._color, { 0, 0 }, nx }, \
-  { bv[tr]._pos, bv[tr]._color, { 1, 0 }, nx }
-         
-  _boxVerts = {  
-    BV_VFACE(0, 1, 2, 3, BR2::vec3( 0, 0, -1) ),  //F 
-    BV_VFACE(1, 5, 3, 7, BR2::vec3( 1, 0, 0 ) ),  //R
-    BV_VFACE(5, 4, 7, 6, BR2::vec3( 0, 0, 1 ) ),  //A
-    BV_VFACE(4, 0, 6, 2, BR2::vec3( -1, 0, 0)   ),  //L
-    BV_VFACE(4, 5, 0, 1, BR2::vec3( 0, -1, 0)   ),  //B
-    BV_VFACE(2, 3, 6, 7, BR2::vec3( 0, 1, 0 ) )   //T
-  };  
-   
+  };
+#define BV_VFACE(bl, br, tl, tr, nx)              \
+  { bv[bl]._pos, bv[bl]._color, { 0, 1 }, nx },   \
+    { bv[br]._pos, bv[br]._color, { 1, 1 }, nx }, \
+    { bv[tl]._pos, bv[tl]._color, { 0, 0 }, nx }, \
+    { bv[tr]._pos, bv[tr]._color, { 1, 0 }, nx }
+
+  _boxVerts = {
+    BV_VFACE(0, 1, 2, 3, BR2::vec3(0, 0, -1)),  //F
+    BV_VFACE(1, 5, 3, 7, BR2::vec3(1, 0, 0)),   //R
+    BV_VFACE(5, 4, 7, 6, BR2::vec3(0, 0, 1)),   //A
+    BV_VFACE(4, 0, 6, 2, BR2::vec3(-1, 0, 0)),  //L
+    BV_VFACE(4, 5, 0, 1, BR2::vec3(0, -1, 0)),  //B
+    BV_VFACE(2, 3, 6, 7, BR2::vec3(0, 1, 0))    //T
+  };
+
 //   CW
 //  2------>3
-//  |    / 
+//  |    /
 //  | /
 //  0------>1
 #define BV_IFACE(idx) ((idx * 4) + 0), ((idx * 4) + 3), ((idx * 4) + 1), ((idx * 4) + 0), ((idx * 4) + 2), ((idx * 4) + 3)
@@ -152,12 +168,10 @@ void Mesh::recopyData() {
     BV_IFACE(4),
     BV_IFACE(5),
   };
-  _vertexBuffer->vulkan()->waitIdle();  
+  _vertexBuffer->vulkan()->waitIdle();
   _vertexBuffer->writeData(_boxVerts.data(), _boxVerts.size());
   _indexBuffer->writeData(_boxInds.data(), _boxInds.size());
- 
 }
-
 
 #pragma endregion
 
