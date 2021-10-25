@@ -1,99 +1,86 @@
-
-10/2021
-So we're optimizing the shared/unique pointers here.
-
-References are raw pointers in the first round.
-In the future, make pointer references weak_ptr.
-
-
-
- ==Setup==
- Swapchain
-  <RenderFrame> *async*
-    <Shader,Mesh> -> <PipelineBinding>
-      
-      Pipeline creation categories
-        Shader - Shader modules.
-        InputAssembly - tris, lines..
-        VertexInfo - Vertex.
-        One Pipeline per shader, per vertex, per input
-
-      *If no pipeline exists, create pipeline*
-
-      1 CommandBuffer per RenderFrame
-
-        time_step = 0.01;
-        Semaphore frameReady
-
-        //It makes more sense to process multiple physics updates when multiple frames are available, yet
-        //physics data is recurrent, and so is game state, so we can't process it asynchronoulsy unless we copy a new game to each thread.
-
-        This isn't valid.
-          thread 0
-            game->update(fixed_timestep)
-          thread 1
-            game->update(fixed_timestep)
-          thread 2
-            game->update(fixed_timestep)
-
-
-        thread 0
-          double t_diff= clock.now() - last
+ ### Design
+Vulkan
+  Window Surface (SDL_Vulkan_Create..)
+    Swapchain
+      <RenderFrame> *async*
+        <Shader,Mesh> -> <PipelineBinding>
           
-          //Fixed timestep updates.
-          while(t_diff > 0) {
-            //Do not update any graphics here.
-            game->updatePhysicsAndGameLogic(fixed_timestep)
-            t_diff -= fixed_timestep;
-          }
-          remainder = abs(t_diff)
+          Pipeline creation categories
+            Shader - Shader modules.
+            InputAssembly - tris, lines..
+            VertexInfo - Vertex.
+            One Pipeline per shader, per vertex, per input
 
-          if(frameReady.get()) {
-            thread1->
-          }
-          checkForFrame();
-          thread 1 -> draw();
+          *If no pipeline exists, create pipeline*
 
-        thread 1
-          while(1) {
-            bool b = swapchain->frameAvailable()
-            if(b) {
-              frameReady.set(thread_0)
-            }
+          1 CommandBuffer per RenderFrame
 
-          }
-        
-        beginFrame()
-          wait for new image
+            time_step = 0.01;
+            Semaphore frameReady
 
-          game->draw()
-            scene->gatherVisibleObjects()
-            scene->drawShadows()
-              for all objects
-                frame->commandBuffer->drawObject()
-                  pipeline = getPipeline(Mesh, Shader, Material, triangle_list)
-                        pipeline = find_pipeline
-                        if(pipeline == null)
-                          createPipeline()
-                            vkQueueWaitIdle
-                            ..pipe = new pipeline()..
-                          return pipe
+            This isn't valid.
+              thread 0
+                game->update(fixed_timestep)
+              thread 1
+                game->update(fixed_timestep)
+              thread 2
+                game->update(fixed_timestep)
 
-                  vkCmdBindPipeline(pipeline)
-                  vkCmdBindDescriptorSets
-                  vkCmdDrawIndexed()
-            scene->drawMeshes()
-            scene->drawForward()
-          
-        endFrame()
-          submitQueue
-      Framebuffer
-      1. Multiple command buffers, or single command buffer. Create it, then submit
-      2. Single command buffer is the correct approach.
 
-      Pipeline
-  ==Draw==
+            thread 0
+              double t_diff= clock.now() - last
+              
+              //Fixed timestep updates.
+              while(t_diff > 0) {
+                //Do not update any graphics here.
+                game->updatePhysicsAndGameLogic(fixed_timestep)
+                t_diff -= fixed_timestep;
+              }
+              remainder = abs(t_diff)
 
-https://stackoverflow.com/questions/53307042/vulkan-when-should-i-create-a-new-pipeline
+              if(frameReady.get()) {
+                thread1->
+              }
+              checkForFrame();
+              thread 1 -> draw();
 
-//Ok, so how do we make drawing more dynamic? Draw multiple meshes.
+            thread 1
+              while(1) {
+                bool b = swapchain->frameAvailable()
+                if(b) {
+                  frameReady.set(thread_0)
+                }
+
+              }
+            
+            beginFrame()
+              wait for new image
+
+              game->draw()
+                scene->gatherVisibleObjects()
+                scene->drawShadows()
+                  for all objects
+                    frame->commandBuffer->drawObject()
+                      pipeline = getPipeline(Mesh, Shader, Material, triangle_list)
+                            pipeline = find_pipeline
+                            if(pipeline == null)
+                              createPipeline()
+                                vkQueueWaitIdle
+                                ..pipe = new pipeline()..
+                              return pipe
+
+                      vkCmdBindPipeline(pipeline)
+                      vkCmdBindDescriptorSets
+                      vkCmdDrawIndexed()
+                scene->drawMeshes()
+                scene->drawForward()
+              
+            endFrame()
+              submitQueue
+          Framebuffer
+          1. Multiple command buffers, or single command buffer. Create it, then submit
+          2. Single command buffer is the correct approach.
+
+          Pipeline
+
+    https://stackoverflow.com/questions/53307042/vulkan-when-should-i-create-a-new-pipeline

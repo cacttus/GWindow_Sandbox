@@ -1,21 +1,9 @@
-Metaglob project steps
-* Shared uniforms?
-* get geometry shaders to work.
-* implement meta-globs.
-
-TODO: get validation layers to work. I get no debug info.
-
-TODO: pass->cullMode(CullMode::Front)
-      pass->polygonMode(PolygonMode::Fill)
-      pass->setAlpha(BlendState::AlphaBlend)
-
 TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image. Fix this.
 
-TODO: RTT is broken
-      Multipass rendering is broken
+TODO: 1 RTT is broken
+      2 Multipass rendering is broken
 
-TODO: sample rate shading.
-  VkPhysicalDeviceFeatures sampleRateShading - tells us if it's enabled.
+TODO: sample rate shading. -> VkPhysicalDeviceFeatures sampleRateShading 
 
 ## Roadmap
 1. continue implementing supported BR2 pipeline features
@@ -37,7 +25,7 @@ TODO: sample rate shading.
 * Multiple FBOs (deferred MRTs)
 * UBO Copy for instance data is very slow. Figure out how to optimize this.
 
-## Wishlist (Backlog)
+## Backlog
 * Instanced meshes as a system.
     * __Instance Dispatch__ - Updating JUST 2000 instances ubo causes severe lag (2400fps -> 80fps in debug, 2400fps -> 600fps RT) due to matrix multiplication (It's not the UBO copy I tested it)
     * Dispatch instance updates to the GPU. This may not be necessary really but it's fun to think about.
