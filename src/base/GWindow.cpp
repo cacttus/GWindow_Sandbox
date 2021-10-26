@@ -11,7 +11,7 @@ static TexFilter g_min_filter = TexFilter::Linear;
 static TexFilter g_mag_filter = TexFilter::Linear;
 static bool g_poly_line = false;
 static bool g_use_rtt = true;
-static int g_pass_test_idx = 4;
+static int g_pass_test_idx = 0;
 static float g_anisotropy = 1;
 static MSAA g_multisample = MSAA::Disabled;
 bool g_test_img1 = true;
@@ -19,8 +19,8 @@ VkCullModeFlags g_cullmode = VK_CULL_MODE_BACK_BIT;
 bool g_lighting = true;
 float g_spec_hard = 20;      //exponent
 float g_spec_intensity = 1;  //mix value
-const bool g_wait_fences = false;
-const bool g_vsync_enable = false;
+bool g_wait_fences = false;
+bool g_vsync_enable = false;
 
 #pragma region GWindow
 
@@ -40,12 +40,9 @@ GSDL::~GSDL() {
 }
 void GSDL::start() {
 }
-std::unique_ptr<GWindow> GSDL::createWindow() {
-  std::unique_ptr<GWindow> win = nullptr;
-
+GWindow* GSDL::createWindow() {
   return nullptr;
 }
-
 void GSDL::makeDebugTexture(int w, int h) {
   if (_pDebugTexture != nullptr) {
     SDL_DestroyTexture(_pDebugTexture);
@@ -346,6 +343,7 @@ void GSDL::init() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1) {
       vulkan()->errorExit(Stz "SDL could not be initialized: " + SDL_GetError());
     }
+    sdl_PrintVideoDiagnostics();
 
     string_t title = base_title;
     GraphicsWindowCreateParameters params(
@@ -354,7 +352,6 @@ void GSDL::init() {
       nullptr);
     _pSDLWindow = makeSDLWindow(params, SDL_WINDOW_VULKAN, false);
 
-    sdl_PrintVideoDiagnostics();
 
     _vulkan = Vulkan::create(title, _pSDLWindow, g_wait_fences, g_vsync_enable, _settings->_debugEnabled);
 
@@ -380,7 +377,7 @@ void GSDL::createGameAndShaderTest() {
 
   //Make Shader.
   _pShader = PipelineShader::create(_vulkan.get(), "Vulkan-Tutorial-Test-Shader",
-                                    std::vector{ App::rootFile("test_vs.spv"), App::rootFile("test_fs.spv") });
+                                    std::vector{ App::dataFile("test.vs.spv"), App::dataFile("test.fs.spv") });
   allocateShaderMemory();
 }
 void GSDL::sdl_PrintVideoDiagnostics() {
@@ -555,14 +552,20 @@ void GSDL::drawFrame() {
 
     RenderFrame* frame = _vulkan->swapchain()->currentFrame();
     if (frame != nullptr) {
-      recordCommandBuffer(frame, t01);
+      if (g_pass_test_idx == 0) {
+        cmd_simpleCubes(frame, t01);
+      }
+      else if (g_pass_test_idx == 1) {
+        cmd_RenderToTexture(frame, t01);
+      }
     }
     _vulkan->swapchain()->endFrame();
     _fpsMeter_Render.update();
     g_iFrameNumber++;
   }
 }
-void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
+void GSDL::cmd_RenderToTexture(RenderFrame* frame, double dt) {
+  //2 Pass Render to texture test
   uint32_t frameIndex = frame->frameIndex();
 
   auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
@@ -570,17 +573,69 @@ void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
   auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
   auto lightsubo = _pShader->getUBO(c_lightsUBO, frame);
   updateViewProjUniformBuffer(viewProj);
-  //  if (_fpsMeter_Update.frameMod(50)) {
   updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt, axes1);
   updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
   updateLights(lightsubo, (float)dt);
-  // }
+  auto renderTex = vulkan()->swapchain()->getRenderTexture("Test_RenderTexture", vulkan()->swapchain()->imageFormat(), g_multisample,
+                                                           FilterData{ SamplerType::Sampled, MipmapMode::Disabled, vulkan()->maxAF(),
+                                                                       TexFilter::Linear, TexFilter::Linear, MipLevels::Unset });
+  float cr, cg, cb;
+  cr = cg = cb = (float)_fpsMeter_Update.fpsMod(1);
+  auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+  auto topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  auto cmd = frame->commandBuffer();
+  cmd->begin();
+  {
+    auto renderPass1 = _pShader->getPass(frame, g_multisample, BlendFunc::Disabled, FramebufferBlendMode::Independent);
+    renderPass1->setOutput("test_render_texture", OutputMRT::RT_DefaultColor, renderTex, BlendFunc::Disabled, true, cr, cg, cb);
+    renderPass1->setOutput(OutputDescription::depthDefault(true));
 
-  //if (test_render_texture.lock() == nullptr) {
-  auto test_render_texture = vulkan()->swapchain()->getRenderTexture("Test_RenderTExture", vulkan()->swapchain()->imageFormat(), g_multisample,
-                                                                     FilterData{ SamplerType::Sampled, MipmapMode::Disabled, vulkan()->maxAF(),
-                                                                                 TexFilter::Linear, TexFilter::Linear, MipLevels::Unset });
-  //}
+    if (_pShader->beginRenderPass(cmd, std::move(renderPass1))) {
+      if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
+        //A compatible descriptor set must be bound for all set numbers that any shaders in a pipeline access,
+        // at the time that a drawing or dispatching command is recorded to execute using that pipeline
+        // YUou can't modify descriptors when a command is in the recording state.
+        _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+        _pShader->bindUBO("_uboViewProj", viewProj);
+        _pShader->bindSampler("_ufTexture0", _testTexture1);
+        _pShader->bindUBO("_uboInstanceData", inst1);
+        _pShader->bindUBO("_uboLights", lightsubo);
+        _pShader->bindDescriptors(cmd);
+        _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+      }
+      _pShader->endRenderPass(cmd);
+    }
+    auto renderPass2 = _pShader->getPass(frame, g_multisample, BlendFunc::Disabled, FramebufferBlendMode::Independent);
+
+    renderPass2->setOutput(OutputDescription::colorDefault(nullptr, true));
+    renderPass2->setOutput(OutputDescription::depthDefault(true));
+
+    if (_pShader->beginRenderPass(cmd, std::move(renderPass2))) {
+      if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
+        _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+        _pShader->bindUBO("_uboViewProj", viewProj);
+        _pShader->bindSampler("_ufTexture0", renderTex->texture(MSAA::Disabled, frame->frameIndex()));
+        _pShader->bindUBO("_uboInstanceData", inst2);
+        _pShader->bindUBO("_uboLights", lightsubo);
+        _pShader->bindDescriptors(cmd);
+        _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
+      }
+      _pShader->endRenderPass(cmd);
+    }
+  }
+  cmd->end();
+}
+void GSDL::cmd_simpleCubes(RenderFrame* frame, double dt) {
+  uint32_t frameIndex = frame->frameIndex();
+
+  auto viewProj = _pShader->getUBO(c_viewProjUBO, frame);
+  auto inst1 = _pShader->getUBO(c_instanceUBO_1, frame);
+  auto inst2 = _pShader->getUBO(c_instanceUBO_2, frame);
+  auto lightsubo = _pShader->getUBO(c_lightsUBO, frame);
+  updateViewProjUniformBuffer(viewProj);
+  updateInstanceUniformBuffer(inst1, offsets1, rots_delta1, rots_ini1, (float)dt, axes1);
+  updateInstanceUniformBuffer(inst2, offsets2, rots_delta2, rots_ini2, (float)dt, axes2);
+  updateLights(lightsubo, (float)dt);
 
   auto cmd = frame->commandBuffer();
   cmd->begin();
@@ -612,7 +667,7 @@ void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
       }
     }
 
-    //Testing Polygon Mode
+    //Testing Polygon Mode / topology
     auto mode = g_poly_line ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     auto topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
@@ -625,92 +680,89 @@ void GSDL::recordCommandBuffer(RenderFrame* frame, double dt) {
 
     //if x=0 test a simple pass
     //otherwise test the complex pass.
-    if (g_pass_test_idx == 4) {
-      auto simple_pass = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
-      simple_pass->setOutput(OutputDescription::getColorDF());
-      simple_pass->setOutput(OutputDescription::getDepthDF());
-      if (_pShader->beginRenderPass(cmd, std::move(simple_pass))) {
-        if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
-          _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
-          _pShader->bindUBO("_uboViewProj", viewProj);
+    auto simple_pass = _pShader->getPass(frame, g_multisample, BlendFunc::Disabled, FramebufferBlendMode::Independent);
+    simple_pass->setOutput(OutputDescription::colorDefault());
+    simple_pass->setOutput(OutputDescription::depthDefault());
+    if (_pShader->beginRenderPass(cmd, std::move(simple_pass))) {
+      if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
+        _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+        _pShader->bindUBO("_uboViewProj", viewProj);
 
-          _pShader->bindSampler("_ufTexture0", _testTexture1);
-          _pShader->bindUBO("_uboInstanceData", inst1);
-          _pShader->bindUBO("_uboLights", lightsubo);
-          _pShader->bindDescriptors(cmd);
-          _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
-        }
-        _pShader->endRenderPass(cmd);
+        _pShader->bindSampler("_ufTexture0", _testTexture1);
+        _pShader->bindUBO("_uboInstanceData", inst1);
+        _pShader->bindUBO("_uboLights", lightsubo);
+        _pShader->bindDescriptors(cmd);
+        _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
       }
+      _pShader->endRenderPass(cmd);
     }
-    else {
-      bool pass1_success = false;
-      if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
-        auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
-        if (g_use_rtt) {
-          pass1->setOutput("test_render_texture", OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::AlphaBlend, true, c_r, c_g, c_b);
-        }
-        else {
-          //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
-          pass1->setOutput(OutputDescription::getColorDF(nullptr, true, c_r, c_g, c_b));
-        }
-        pass1->setOutput(OutputDescription::getDepthDF(true));
-
-        if (_pShader->beginRenderPass(cmd, std::move(pass1))) {
-          if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
-            pass1_success = true;
-            if (g_pass_test_idx != 0) {
-              _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
-              _pShader->bindUBO("_uboViewProj", viewProj);
-
-              //white face Smiley
-              _pShader->bindSampler("_ufTexture0", _testTexture1);
-              _pShader->bindUBO("_uboInstanceData", inst1);
-              _pShader->bindUBO("_uboLights", lightsubo);
-              _pShader->bindDescriptors(cmd);
-              _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
-            }
-          }
-
-          _pShader->endRenderPass(cmd);
-        }
-      }
-
-      if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
-        //black Smiley
-        auto tex = g_use_rtt ? test_render_texture->texture(MSAA::Disabled, frame->frameIndex()) : _testTexture2;
-
-        auto pass2 = _pShader->getPass(frame, g_multisample, BlendFunc::AlphaBlend, FramebufferBlendMode::Independent);
-
-        if (pass1_success) {
-          //3 && rtt - clear - we're going to draw the texture from last frame - testing rendertextures
-          //3 && !rtt - don't clear - we're going to attempt a second pass on the same data.
-          bool clear = g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt);
-          pass2->setOutput(OutputDescription::getColorDF(nullptr, clear));
-          pass2->setOutput(OutputDescription::getDepthDF(clear));
-        }
-        else {
-          pass2->setOutput(OutputDescription::getColorDF());
-          pass2->setOutput(OutputDescription::getDepthDF());
-        }
-
-        if (_pShader->beginRenderPass(cmd, std::move(pass2))) {
-          if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
-            _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
-            _pShader->bindUBO("_uboViewProj", viewProj);
-
-            //black face smiley
-            _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
-            _pShader->bindUBO("_uboInstanceData", inst2);
-            _pShader->bindUBO("_uboLights", lightsubo);
-            _pShader->bindDescriptors(cmd);
-            _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
-          }
-          _pShader->endRenderPass(cmd);
-        }
-      }
-
-    }  //if x != 0
+    //     else {
+    //       bool pass1_success = false;
+    //       if (g_pass_test_idx == 0 || g_pass_test_idx == 1 || g_pass_test_idx == 3) {
+    //         auto pass1 = _pShader->getPass(frame, g_multisample, BlendFunc::Disabled, FramebufferBlendMode::Independent);
+    //         if (g_use_rtt) {
+    //           pass1->setOutput("test_render_texture", OutputMRT::RT_DefaultColor, test_render_texture, BlendFunc::Disabled, true, c_r, c_g, c_b);
+    //         }
+    //         else {
+    //           //Todo: Remove colorDF and DepthDF and just use the pass to create the description.
+    //           pass1->setOutput(OutputDescription::colorDefault(nullptr, true, c_r, c_g, c_b));
+    //         }
+    //         pass1->setOutput(OutputDescription::depthDefault(true));
+    //
+    //         if (_pShader->beginRenderPass(cmd, std::move(pass1))) {
+    //           if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
+    //             pass1_success = true;
+    //             if (g_pass_test_idx != 0) {
+    //               _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+    //               _pShader->bindUBO("_uboViewProj", viewProj);
+    //
+    //               _pShader->bindSampler("_ufTexture0", _testTexture1);
+    //               _pShader->bindUBO("_uboInstanceData", inst1);
+    //               _pShader->bindUBO("_uboLights", lightsubo);
+    //               _pShader->bindDescriptors(cmd);
+    //               _pShader->drawIndexed(cmd, _game->_mesh1, _numInstances);  //Changed from pipe::drawIndexed
+    //             }
+    //           }
+    //
+    //           _pShader->endRenderPass(cmd);
+    //         }
+    //       }
+    //
+    //       //image layouts of render passes for attachment 0 must match.
+    //
+    //       if (g_pass_test_idx == 2 || g_pass_test_idx == 3) {
+    //         auto tex = g_use_rtt ? test_render_texture->texture(MSAA::Disabled, frame->frameIndex()) : _testTexture2;
+    //
+    //         auto pass2 = _pShader->getPass(frame, g_multisample, BlendFunc::Disabled, FramebufferBlendMode::Independent);
+    //
+    //         if (pass1_success) {
+    //           //3 && rtt - clear - we're going to draw the texture from last frame - testing rendertextures
+    //           //3 && !rtt - don't clear - we're going to attempt a second pass on the same data.
+    //           bool clear = g_pass_test_idx == 2 || (g_pass_test_idx == 3 && g_use_rtt);
+    //           pass2->setOutput(OutputDescription::colorDefault(nullptr, clear));
+    //           pass2->setOutput(OutputDescription::depthDefault(clear));
+    //         }
+    //         else {
+    //           pass2->setOutput(OutputDescription::colorDefault());
+    //           pass2->setOutput(OutputDescription::depthDefault());
+    //         }
+    //
+    //         if (_pShader->beginRenderPass(cmd, std::move(pass2))) {
+    //           if (_pShader->bindPipeline(cmd, nullptr, mode, topo, g_cullmode)) {
+    //             _pShader->bindViewport(cmd, { { 0, 0 }, _vulkan->swapchain()->windowSize() });
+    //             _pShader->bindUBO("_uboViewProj", viewProj);
+    //
+    //             _pShader->bindSampler("_ufTexture0", pass1_success ? tex : _testTexture2);
+    //             _pShader->bindUBO("_uboInstanceData", inst2);
+    //             _pShader->bindUBO("_uboLights", lightsubo);
+    //             _pShader->bindDescriptors(cmd);
+    //             _pShader->drawIndexed(cmd, _game->_mesh2, _numInstances);  //Changed from pipe::drawIndexed
+    //           }
+    //           _pShader->endRenderPass(cmd);
+    //         }
+    //       }
+    //
+    //     }  //if x != 0
   }
   cmd->end();
 }
@@ -737,7 +789,7 @@ std::shared_ptr<Img32> GSDL::loadImage(const string_t& img) {
 }
 void GSDL::createTextureImages() {
   // auto img = loadImage(App::rootFile("test.png"));
-  auto img = loadImage(App::rootFile(g_test_img1 ? "grass.png" : "TexturesCom_MetalBare0253_2_M.png"));
+  auto img = loadImage(App::dataFile(g_test_img1 ? "grass.png" : "TexturesCom_MetalBare0253_2_M.png"));
   if (img) {
     _testTexture1 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img,
                                                    FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
@@ -746,7 +798,7 @@ void GSDL::createTextureImages() {
   else {
     vulkan()->errorExit("Could not load test image 1.");
   }
-  auto img2 = loadImage(App::rootFile("dirt.png"));
+  auto img2 = loadImage(App::dataFile("dirt.png"));
   if (img2) {
     _testTexture2 = std::make_shared<TextureImage>(vulkan(), img->_name, TextureType::ColorTexture, MSAA::Disabled, img2,
                                                    FilterData{ SamplerType::Sampled, g_mipmap_mode, g_anisotropy, g_min_filter,
@@ -942,6 +994,14 @@ bool GSDL::doInput() {
       else if (event.key.keysym.scancode == SDL_SCANCODE_5) {
         cycleValue(g_spec_intensity, { 0.005, 0.05, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 5.0 });
       }
+      else if (event.key.keysym.scancode == SDL_SCANCODE_6) {
+        g_vsync_enable = !g_vsync_enable;
+        this->_vulkan->set_vsync(g_vsync_enable);
+      }      
+      else if (event.key.keysym.scancode == SDL_SCANCODE_7) {
+        g_wait_fences = !g_wait_fences;
+        this->_vulkan->set_wait_fences(g_wait_fences);
+      }      
       else if (event.key.keysym.scancode == SDL_SCANCODE_8) {
         _game->_mesh1->recopyData();
         _game->_mesh2->recopyData();
@@ -1016,11 +1076,9 @@ void GSDL::renderLoop() {
       _fpsMeter_Update.update();
       if (_fpsMeter_Update.getFrameNumber() % 2 == 0) {
         float f_upd = _fpsMeter_Update.getFps();
-        float f_upd_a = _fpsMeter_Update.getFpsAvg();
-        string_t fp_upd = Stz std::to_string((int)f_upd) + "/" + std::to_string((int)f_upd_a);
+        string_t fp_upd = Stz std::to_string((int)f_upd) ;
         float f_r = _fpsMeter_Render.getFps();
-        float f_r_a = _fpsMeter_Render.getFpsAvg();
-        string_t fp_r = std::to_string((int)f_r) + "/" + std::to_string((int)f_r_a);
+        string_t fp_r = std::to_string((int)f_r) ;
 
         string_t zmmip_mode = (g_mipmap_mode == MipmapMode::Linear) ? ("L") : ((g_mipmap_mode == MipmapMode::Nearest) ? ("N") : ((g_mipmap_mode == MipmapMode::Disabled) ? ("D") : ("Error")));
         string_t zmin_f = (g_min_filter == TexFilter::Linear) ? ("L") : ((g_min_filter == TexFilter::Nearest) ? ("N") : ((g_min_filter == TexFilter::Cubic) ? ("C") : ("Error")));
@@ -1032,6 +1090,7 @@ void GSDL::renderLoop() {
         string_t mag_f = " 3=TMagf(" + zmag_f + ")";
         string_t specg = " 4=specH(" + std::to_string(g_spec_hard) + ")";
         string_t speci = " 5=specI(" + std::to_string(g_spec_intensity) + ")";
+        string_t vsync = " 6=vsync(" + std::to_string(g_vsync_enable) + ")";
         string_t savimg = " 9=shdbg";
         string_t culm = " F2=Cull(" + std::to_string((int)g_cullmode) + ")";
         string_t line = " F3=Line(" + std::to_string((int)g_poly_line) + ")";
@@ -1041,7 +1100,7 @@ void GSDL::renderLoop() {
         string_t msaa = " F10=MSAA(x" + std::to_string((int)TextureImage::msaa_to_int(g_multisample)) + ")";
         string_t img = " F11=chimg";
 
-        string_t out = fps + mip_f + min_f + mag_f + specg + speci + savimg + culm + line + rtt + pass + aniso + msaa + img;
+        string_t out = fps + mip_f + min_f + mag_f + specg + speci + vsync + savimg + culm + line + rtt + pass + aniso + msaa + img;
 
         SDL_SetWindowTitle(_pSDLWindow, out.c_str());
       }

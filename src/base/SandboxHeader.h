@@ -134,7 +134,7 @@ typedef std::string string_t;
 #undef AssertOrThrow2
 #endif
 
-#define BRThrowException(x) throw std::string(x);
+#define BRThrowException(x) do{ BRLogError(x); throw std::string(x); }while(0);
 static void log_log(const std::string& str) {
   std::cout << str << std::endl;
 }
@@ -174,7 +174,7 @@ public:
 
 //We will share the BR2 VTX Format later.
 class DummyVertexFormat {
-  public:
+public:
 };
 
 //String
@@ -351,7 +351,7 @@ public:
   }
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription = {
-      .binding = 0,                // uint32_t         -- this is the layout location
+      .binding = 0,                  // uint32_t         -- this is the layout location
       .stride = sizeof(v_v3c4x2n3),  // uint32_t
       // **Instanced rendering.
       //**use VK_VERTEX_INPUT_RATE_INSTANCE
@@ -370,6 +370,12 @@ public:
   static string_t formatPath(const string_t& p);
   static string_t getDirectoryNameFromPath(const string_t& pathName);
   static string_t toHex(int value, bool bIncludePrefix);
+  static std::string dataFile(const std::string file) {
+    return Stz "./data/" + file;
+  }
+  static std::string binFile(const std::string file) {
+    return Stz "./" + file;
+  }
   static std::string rootFile(const std::string file) {
     //Return the filename relative to project root directory.
 #ifdef BR2_OS_LINUX
@@ -381,7 +387,7 @@ public:
 #endif
   }
 };
-enum ImageFormat { 
+enum ImageFormat {
   Undefined,
   RGBA_32BIT,
   RGB_24BIT,
@@ -390,7 +396,7 @@ class Img32 {
 public:
   unsigned char* _data = nullptr;
   std::size_t data_len_bytes = 0;
-  
+
   string_t _name = "unset";
   BR2::usize2 _size{ 0, 0 };
   ImageFormat _format = ImageFormat::RGBA_32BIT;

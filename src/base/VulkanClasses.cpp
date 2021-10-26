@@ -196,6 +196,8 @@ VulkanDeviceBuffer* VulkanBuffer::buffer() {
 #pragma region TextureImage
 
 TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const FilterData& filter) : VulkanObjectShared(v) {
+  //Default CTOR gets called by all..
+  //TODO: we should really separate these ctors into create() functions and name them appropriately..
   _type = type;
   _filter = filter;
   _samples = samples;
@@ -209,7 +211,7 @@ TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MS
 }
 TextureImage::TextureImage(Vulkan* v, const string_t& name, TextureType type, MSAA samples, const BR2::usize2& size,
                            VkFormat format, const FilterData& filter) : TextureImage(v, name, type, samples, filter) {
-  //Depth format constructor
+  //Depth & Color attachment constructor
   cleanup();
   _format = format;
   _size = size;
@@ -288,12 +290,10 @@ bool TextureImage::computeTypeProperties() {
   }
   else if (_type == TextureType::ColorAttachment) {
     _tiling = VK_IMAGE_TILING_OPTIMAL;
-    //MSAA -
-    //VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT/
     _usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | _transferSrc;
     _properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-    _initialLayout = _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;  //Changed due to errors
+    _initialLayout = _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     _finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   }
   else if (_type == TextureType::DepthAttachment) {
@@ -301,7 +301,7 @@ bool TextureImage::computeTypeProperties() {
     _usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     _properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     _aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    _initialLayout = _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;  //Changed due to errors.
+    _initialLayout = _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     _finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
   }
   else {
@@ -635,6 +635,10 @@ std::shared_ptr<Img32> TextureImage::copyImageFromGPU() {
   return image;
 }
 void TextureImage::transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+  if (oldLayout == newLayout) {
+    return;
+  }
+
   auto commandBuffer = vulkan()->beginOneTimeGraphicsCommands();
 
   //We can make this better .. later.
@@ -964,7 +968,6 @@ CommandBuffer::CommandBuffer(Vulkan* v, RenderFrame* pframe) : VulkanObject(v) {
 CommandBuffer::~CommandBuffer() {
   if (_state != CommandBufferState::Submit) {
     BRLogWarn("Command buffer wasn't submitted before being destroyed.");
-    Gu::debugBreak();
   }
   vkFreeCommandBuffers(vulkan()->device(), _sharedPool, 1, &_commandBuffer);
 }
@@ -1354,6 +1357,7 @@ void RenderTexture::createTexture(MSAA msaa) {
     BRThrowException("Too many MSAA sampled textures in RenderTexture - limit 2");
   }
 
+  //One RenderTexture image for each swapchain frame.
   for (auto& frame : _swapchain->frames()) {
     auto tex = std::make_shared<TextureImage>(_swapchain->vulkan(),
                                               _name,
@@ -1392,7 +1396,7 @@ PassDescription::PassDescription(RenderFrame* frame, PipelineShader* shader, MSA
 
   bool ib = (frame->vulkan()->deviceFeatures().independentBlend == VK_TRUE);
   if (!ib && _blendMode == FramebufferBlendMode::Independent) {
-    passError("In PassDescription: Independent blending is not supported on your GPU. Use 'Global' or allow a Default blending.");
+    passError("In PassDescription: Independent blending is not supported on the GPU. Use 'Global' or allow a Default blending.");
   }
 
   // Check Multisampling
@@ -1752,6 +1756,10 @@ bool Framebuffer::createRenderPass(RenderFrame* frame, Framebuffer* fbo) {
     VkSampleCountFlagBits sample_flags = TextureImage::multisampleToVkSampleCountFlagBits(output_sampleCount);
 
     if (att->desc()->_type == FBOType::Color) {
+      if (att->target() != nullptr) {
+        int n = 0;
+        n++;
+      }
       if (att->desc()->_resolve) {
         sample_flags = VK_SAMPLE_COUNT_1_BIT;
       }
@@ -2639,7 +2647,7 @@ DescriptorFunction PipelineShader::classifyDescriptor(const string_t& name) {
 }
 bool PipelineShader::createDescriptors() {
   //Create uniform blocks
-  //Create samplers
+  //Create samplers 
   uint32_t _nPool_Samplers = 0;
   uint32_t _nPool_UBOs = 0;
 
@@ -2883,6 +2891,31 @@ bool PipelineShader::bindUBO(const string_t& name, std::shared_ptr<VulkanBuffer>
   };
   vkUpdateDescriptorSets(vulkan()->device(), 1, &descWrite, 0, nullptr);
 
+
+/*
+https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#fundamentals-objectmodel-lifetime-cmdbuffers
+The following Vulkan objects must not be destroyed while any command buffers using the object are in the pending state:
+    VkEvent
+    VkQueryPool
+    VkBuffer
+    VkBufferView
+    VkImage
+    VkImageView
+    VkPipeline
+    VkSampler
+    VkSamplerYcbcrConversion
+    VkDescriptorPool
+    VkFramebuffer
+    VkRenderPass
+    VkCommandBuffer
+    VkCommandPool
+    VkDeviceMemory
+    VkDescriptorSet
+    VkIndirectCommandsLayoutNV
+    VkAccelerationStructureNV
+    VkAccelerationStructureKHR
+*/
+
   desc->_isBound = true;
 
   return true;
@@ -2964,20 +2997,24 @@ Framebuffer* PipelineShader::getOrCreateFramebuffer(RenderFrame* frame, ShaderDa
   return fbo;
 }
 Framebuffer* PipelineShader::findFramebuffer(ShaderData* data, PassDescription* outputs) {
-  //Returns an exact match on the given input PassDescription and the FBO PassDescription.
+  //Find an adequate framebuffer to handle this RenderPass
+  //Must return an exact match on the given input PassDescription and the FBO PassDescription.
   Framebuffer* fbo = nullptr;
   for (auto& fb : data->_framebuffers) {
     if (fb->passDescription()->sampleCount() == outputs->sampleCount()) {
       if (fb->passDescription()->outputs().size() == outputs->outputs().size()) {
         bool match = true;
         for (auto io = 0; io < fb->passDescription()->outputs().size(); ++io) {
-          auto fboDescOut = fb->passDescription()->outputs()[io].get();
-          auto inDescOut = outputs->outputs()[io].get();
+          OutputDescription* fboDescOut = fb->passDescription()->outputs()[io].get();
+          OutputDescription* inDescOut = outputs->outputs()[io].get();
 
           //TODO: Find a less error-prone way to match FBOs with pipeline state.
+          //tbh why not just create a new FBO with each pipeline.
           if (
-            fboDescOut->_output != inDescOut->_output || fboDescOut->_clear != inDescOut->_clear  //This sucks, but this is because the LOAD_OP is hard set in the render pass.
-            || fboDescOut->_type != inDescOut->_type) {
+            fboDescOut->_output != inDescOut->_output 
+            || fboDescOut->_clear != inDescOut->_clear  //This sucks, but this is because the LOAD_OP is hard set in the render pass.
+            || fboDescOut->_type != inDescOut->_type
+            ) {
             match = false;
           }
         }
@@ -3003,12 +3040,28 @@ bool PipelineShader::beginRenderPass(CommandBuffer* buf, std::unique_ptr<PassDes
   auto sd = getShaderData(frame);
   std::vector<VkClearValue> clearValues = input_desc_pt->getClearValues();
   auto fbo = getOrCreateFramebuffer(frame, sd, std::move(input_desc_pt));
-  if (!fbo->valid()) {
+  if (fbo == nullptr || !fbo->valid()) {
     return false;
   }
   else if (fbo->attachments().size() == 0) {
     return fbo->pipelineError("No output FBOs have been created.");
   }
+
+  //This doesn't work ..
+  //Make sure the currently bound FBO for the last renderpass has the same final image lyaout as the previous renderpass
+  // if (_pBoundFBO) {
+  //   for (auto& att : _pBoundFBO->attachments()) {
+  //     for (auto& att2 : fbo->attachments()) {
+  //       if (att2->location() == att->location()) {
+  //         //not sure but the warning says it's location zero
+  //         if (att2->finalLayout() != att->finalLayout()) {
+  //           BRLogError("Output FBO attachment zero has a layout image different from the previous FBO");
+  //           Gu::debugBreak();
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
 
   _pBoundFBO = fbo;
   _pBoundData = sd;
@@ -3104,9 +3157,7 @@ bool PipelineShader::bindDescriptors(CommandBuffer* cmd) {
   }
 
   vkCmdBindDescriptorSets(cmd->getVkCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pBoundPipeline->getVkPipelineLayout(),
-                          0,  //Layout ID
-                          1,
-                          &_descriptorSets[_pBoundFrame->frameIndex()], 0, nullptr);
+                          0,  1, &_descriptorSets[_pBoundFrame->frameIndex()], 0, nullptr);
   return true;
 }
 bool PipelineShader::shaderError(const string_t& msg) {
@@ -3797,6 +3848,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
     // BRLogDebug("Ignoring invalid message.");
     return VK_FALSE;
   }
+  else if (msg.find("Device Extension:") != std::string::npos) {
+    // BRLogDebug("Ignoring invalid message.");
+    return VK_FALSE;
+  }
 
   std::string msghead = "[GPU]";
   if (messageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
@@ -3949,7 +4004,7 @@ void Vulkan::init(const string_t& title, SDL_Window* win, bool vsync_enabled, bo
   AssertOrThrow2(win != nullptr);
 
   //Setup vulkan devices
-  _vsync_enabled = vsync_enabled;
+  _vsync_enabled = vsync_enabled; // .. Settings file .. 
   _wait_fences = wait_fences;
 
   initVulkan(title, win, enableDebug);
@@ -4452,7 +4507,13 @@ void Vulkan::waitIdle() {
 float Vulkan::maxAF() {
   return deviceLimits().maxSamplerAnisotropy;
 }
-
+void Vulkan::set_vsync(bool enable){
+  _vsync_enabled = enable;
+  swapchain()->outOfDate();
+}
+void Vulkan::set_wait_fences(bool enable){
+  _wait_fences = enable;
+}
 #pragma endregion
 
 }  // namespace VG

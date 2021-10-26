@@ -132,32 +132,25 @@ ${SDL2_LIBRARIES} ${SDLNET_LIBRARIES} ${VG_ADDL_LIBS} ${X11_LIBRARIES} ${LUA_LIB
 #${CMAKE_CURRENT_SOURCE_DIR}/../VulkanGame/lib/libVulkanGame-0.4.1_x86d.a
 )
 
- 
+####################################### 
 #Compile shaders.
+# Just always run a script. Moved file change detection to a bash script. 
+# In the future we'll figure out why Cmake wasn't detecting file changes.
+# Especially importantthat we fix this for Winxx..
 
-set(shader_path ${CMAKE_CURRENT_LIST_DIR}/)
-file(GLOB shaders RELATIVE ${CMAKE_SOURCE_DIR} "${shader_path}*.vs" "${shader_path}*.fs")
-foreach(shader ${shaders})
-  set(input_glsl "${CMAKE_CURRENT_LIST_DIR}/${shader}")
-  set(output_spv "${input_glsl}.spv")
-  execute_process(COMMAND "glslc" "${input_glsl}" "-o" "${output_spv}")
-endforeach()
+# set(shader_path ${CMAKE_CURRENT_LIST_DIR}/)
+# file(GLOB shaders RELATIVE ${CMAKE_SOURCE_DIR} "${shader_path}*.vs" "${shader_path}*.fs")
+# foreach(shader ${shaders})
+#   set(input_glsl "${CMAKE_CURRENT_LIST_DIR}/${shader}")
+#   set(output_spv "${input_glsl}.spv")
+#   execute_process(COMMAND "glslc" "${input_glsl}" "-o" "${output_spv}")
+# endforeach()
+#file(GLOB_RECURSE SHADER_FILES ${CMAKE_CURRENT_LIST_DIR}/*.vs *.fs *.gs)
+add_custom_command(TARGET ${VG_TARGET_NAME} POST_BUILD
+  COMMAND ${CMAKE_CURRENT_LIST_DIR}/compile_shaders.sh 
+  #SOURCES ${SHADER_FILES} 
+  #DEPENDS ${SHADER_FILES}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+)
 
-#--CMakeLists.txt--
-file(GLOB_RECURSE SHADER_FILES ${CMAKE_CURRENT_LIST_DIR}/*.vs *.fs *.gs)
-add_custom_target(compile_shaders ALL
-COMMAND ${CMAKE_CURRENT_LIST_DIR}/compile_shaders.sh 
-SOURCES ${SHADER_FILES} 
-DEPENDS ${SHADER_FILES}
-WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
-#--compile_shaders.sh--
-# FILE=./shaderc/bin/glslc
-# if test -f "$FILE"; then
-#   echo "Compiling Shaders."
-#   ./shaderc/bin/glslc -fshader-stage=vertex ./test.vs -o ./test_vs.spv
-#   ./shaderc/bin/glslc -fshader-stage=fragment ./test.fs -o ./test_fs.spv
-# else 
-#   echo "./shaderc not found - Download shaderc and place in project root:"
-#   echo "https://github.com/google/shaderc#downloads"
-# fi
     

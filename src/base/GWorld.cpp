@@ -29,10 +29,6 @@ void FpsMeter::update() {
   divisor += 1.0f;
   _last = cur;
   
-  _avgs.push_back(_fpsLast);
-  if (_avgs.size() > 9999) {
-    _avgs.erase(_avgs.begin());
-  }
 
   if (cur - _tmr > 500000) {  //Update .5s
     if (divisor == 0) {
@@ -40,12 +36,6 @@ void FpsMeter::update() {
     }
     _fpsLast = (float)(accum / divisor);
     _avg = 0;
-    if (_avgs.size() > 0) {
-      for (auto f : _avgs) {
-        _avg += f;
-      }
-      _avg /= (float)_avgs.size();
-    }
     _tmr = cur;
     accum = 0;
     divisor = 0;

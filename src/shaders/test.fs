@@ -1,12 +1,12 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
-
+ 
 layout(location = 0) in vec4 _vColorVS;
 layout(location = 1) in vec2 _vTexcoordVS;
 layout(location = 2) in vec3 _vNormalVS;
 layout(location = 3) in vec3 _vPositionVS;
 layout(location = 4) in vec3 _vCamPosVS;
-
+ 
 layout(location = 0) out vec4 _outFBO_DefaultColor;
 
 layout(binding = 2) uniform sampler2D _ufTexture0;

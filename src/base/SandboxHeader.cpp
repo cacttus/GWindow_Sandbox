@@ -16,7 +16,7 @@ void Img32::save(const char* filepath) {
     Gu::debugBreak();
   }
 }
-string_t App::_appRoot = "";
+string_t App::_appRoot = ""; // This is now the root above the /bin directory for keeping the data there.
 string_t App::toHex(int value, bool bIncludePrefix) {
   std::stringstream ss;
   if (bIncludePrefix) {
@@ -129,14 +129,14 @@ void Gu::debugBreak() {
 }
 std::vector<char> Gu::readFile(const std::string& file) {
   string_t file_loc = App::combinePath(App::_appRoot, file);
-  std::cout << "Loading file " << file_loc << std::endl;
+  BRLogDebug("Loading file "  +  file_loc);
 
   //chdir("~/git/GWindow_Sandbox/");
   //#endif
   //::ate avoid seeking to the end. Neat trick.
   std::ifstream fs(file_loc, std::ios::in | std::ios::binary | std::ios::ate);
   if (!fs.good() || !fs.is_open()) {
-    BRThrowException(Stz "Could not open shader file '" + file_loc + "'");
+    BRThrowException(Stz "Could not open file '" + file_loc + "'");
     return std::vector<char>{};
   }
 

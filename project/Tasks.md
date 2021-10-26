@@ -1,4 +1,5 @@
 TODO: Device Buffers (mesh/texture) must be referenced by Vulkan main class - Without this vulkan cannot shut down properly.
+      shared_ptr<Mesh> and shared_ptr<TextureImage> are culprits for being unique_ptr'd
 
 TODO: The OutputMRT is a problem because it specifies BOTH the shader's bind point AND a type of texture image. Fix this.
 
@@ -6,6 +7,9 @@ TODO: 1 RTT is broken
       2 Multipass rendering is broken
 
 TODO: sample rate shading. -> VkPhysicalDeviceFeatures sampleRateShading 
+
+
+
 
 ## Roadmap
 1. continue implementing supported BR2 pipeline features
@@ -23,6 +27,7 @@ TODO: sample rate shading. -> VkPhysicalDeviceFeatures sampleRateShading
     * Isolate the GL classes.
 
 ## Bugs 
+* Texture mipmapping / Filtering bug. Looks like it the textures may not be copied correctly. 
 * Address concern of Shader output format not matching FBO format
 * Multiple FBOs (deferred MRTs)
 * UBO Copy for instance data is very slow. Figure out how to optimize this.

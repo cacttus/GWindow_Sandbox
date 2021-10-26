@@ -6,7 +6,7 @@ layout(location = 1) in vec2 fragTexCoord;
 
 layout(location = 0) out vec4 _outFBOColor;
 //layout(location = 1) out float _outFBODepth;
-
+ 
 //layout(location = 0) out vec4 _gPositionOut; 
 //layout(location = 1) out vec4 _gColorOut;
 //layout(location = 2) out vec4 _gNormalOut;

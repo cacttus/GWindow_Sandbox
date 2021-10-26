@@ -42,16 +42,19 @@ public:
   void init();
   void renderLoop();
   void start();
-  std::unique_ptr<GWindow> createWindow();
+  GWindow* createWindow();
 
 private:
+  std::vector<std::unique_ptr<GWindow>> _windows;
+
   void cycleValue(float& value, const std::vector<double>& values);
   bool fueq(float x, float y, float e = 0.0001);
   void cleanup();
   void cleanupShaderMemory();
   void allocateShaderMemory();
   void createTextureImages();
-  void recordCommandBuffer(RenderFrame* frame, double dt);
+  void cmd_simpleCubes(RenderFrame* frame, double dt);
+  void cmd_RenderToTexture(RenderFrame* frame, double dt);
   void drawFrame();
   void tryInitializeOffsets(std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, std::vector<BR2::vec3>& axes_ini);
   void updateInstanceUniformBuffer(std::shared_ptr<VulkanBuffer> instanceBuffer, std::vector<BR2::vec3>& offsets, std::vector<float>& rots_delta, std::vector<float>& rots_ini, float dt, std::vector<BR2::vec3>& axes);

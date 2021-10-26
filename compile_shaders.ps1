@@ -1,3 +1,4 @@
+#TODO: update this with the same script in bash
 If( Test-Path "..\shaderc\glslc\Debug\glslc.exe"){
   Write-Host "Found glslc."
   ..\shaderc\glslc\Debug\glslc.exe -fshader-stage=vertex ./test.vs -o ./test_vs.spv

@@ -101,7 +101,8 @@
     "any": "cpp",
     "unordered_set": "cpp",
     "hash_map": "cpp",
-    "forward_list": "cpp"
+    "forward_list": "cpp",
+    "*.inc": "cpp"
   },
   "cmake.configureOnOpen": false,
   "cmake.debugConfig": {

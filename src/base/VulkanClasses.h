@@ -15,7 +15,7 @@ namespace VG {
  * @class VulkanObject
  * @brief Base class for objects that use the Vulkan API.
  */
-class VulkanObject{
+class VulkanObject {
   Vulkan* _vulkan = nullptr;
 
 public:
@@ -25,8 +25,8 @@ public:
 };
 class VulkanObjectShared : public VulkanObject, public SharedObject<VulkanObject> {
 public:
-VulkanObjectShared(Vulkan* v) : VulkanObject(v) {}
-virtual ~VulkanObjectShared(){}
+  VulkanObjectShared(Vulkan* v) : VulkanObject(v) {}
+  virtual ~VulkanObjectShared() {}
 };
 /**
  * @class VulkanDeviceBuffer
@@ -151,8 +151,8 @@ protected:
   VkMemoryPropertyFlags _properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
   VkImageAspectFlags _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
   VkImageLayout _initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkImageLayout _finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;  
-  VkImageLayout _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;  
+  VkImageLayout _finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  VkImageLayout _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkImageUsageFlags _transferSrc = (VkImageUsageFlags)0;
   bool _error = false;
   bool _ownsImage = true;
@@ -249,13 +249,13 @@ class Descriptor {
 public:
   string_t _name = "";
   VkDescriptorType _type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-  uint32_t _binding = 0;  //The acutal binding index.
+  uint32_t _binding = 0;  //The acutal binding index. GLSL: layout(location = ..)
   uint32_t _arraySize = 0;
   uint32_t _blockSizeBytes = 0;
   uint32_t _bufferSizeBytes = 0;
   ShaderStage _stage;
   bool _isBound = false;
-  DescriptorFunction _function = DescriptorFunction::Unset;
+  DescriptorFunction _function = DescriptorFunction::Unset; //Used by the engine to auto update common descriptors (lights/MVP matrix), Custom if not auto.
 };
 /**
  * Vertex attribute
@@ -313,7 +313,7 @@ class OutputDescription {
 public:
   static FBOType outputTypeToFBOType(OutputMRT out);
   string_t _name = "";
-  RenderTexture* _texture ;
+  RenderTexture* _texture;
   BlendFunc _blending = BlendFunc::AlphaBlend;
   FBOType _type = FBOType::Undefined;
   BR2::vec4 _clearColor{ 0, 0, 0, 1 };
@@ -323,8 +323,8 @@ public:
   OutputMRT _output = OutputMRT::RT_DefaultColor;
   CompareOp _compareOp = CompareOp::Less;
   ShaderOutputBinding* _outputBinding = nullptr;  // This is set internally when we make the FBO
-  bool _resolve = false;                                          // used internally do not set this
-  static std::unique_ptr<OutputDescription> getDepthDF(bool clear = true) {
+  bool _resolve = false;                          // used internally do not set this
+  static std::unique_ptr<OutputDescription> depthDefault(bool clear = true) {
     //Returns a default output Depth FBO description
     auto outd = std::make_unique<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultDepth;
@@ -338,8 +338,8 @@ public:
     outd->_clear = clear;
     return outd;
   }
-  static std::unique_ptr<OutputDescription> getColorDF(RenderTexture* tex = nullptr,
-                                                       bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0) {
+  static std::unique_ptr<OutputDescription> colorDefault(RenderTexture* tex = nullptr,
+                                                            bool clear = true, float clear_r = 0, float clear_g = 0, float clear_b = 0) {
     //Returns a default output Color FBO description
     auto outd = std::make_unique<OutputDescription>();
     outd->_name = ShaderOutputBinding::_outFBO_DefaultColor;
@@ -577,11 +577,11 @@ private:
   std::vector<string_t> _files;
   VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSetLayout _descriptorSetLayout = VK_NULL_HANDLE;
-  std::vector<VkDescriptorSet> _descriptorSets;  // TODO: put these on ShaderData (one per frame)
+  std::vector<VkDescriptorSet> _descriptorSets;  //One per frame, TODO: put these on ShaderData (one per frame)
   std::vector<VkVertexInputAttributeDescription> _attribDescriptions;
   VkVertexInputBindingDescription _bindingDesc;
   std::vector<std::unique_ptr<ShaderModule>> _modules;
-  std::unordered_map<string_t, std::unique_ptr<Descriptor>> _descriptors;
+  std::unordered_map<string_t, std::unique_ptr<Descriptor>> _descriptors; //Maps descriptor name e.g. "_viewMatrix" to the descriptor (specific shader input)
   std::vector<std::unique_ptr<VertexAttribute>> _attributes;
   std::vector<std::unique_ptr<ShaderOutputBinding>> _outputBindings;
   Framebuffer* _pBoundFBO = nullptr;
@@ -596,6 +596,8 @@ private:
 /**
  * @class ShaderData
  * @brief Swapchain Frame (async) shader data.
+ * @details Contains one set of data per async frame. Each vectors/array should have
+ *          the same number of first rank elements which corresponds to one frame in the Swapchain.
  * */
 class ShaderData {
 public:
@@ -616,7 +618,7 @@ public:
   const BR2::usize2& imageSize();
   Swapchain* getSwapchain() const { return _pSwapchain; }
   //VkImageView getVkImageView() { return _swapImageView; }
-  CommandBuffer* commandBuffer() { return _pCommandBuffer.get(); }     //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
+  CommandBuffer* commandBuffer() { return _pCommandBuffer.get(); }               //Possible to have multiple buffers as vkQUeueSubmit allows for multiple. Need?
   uint32_t currentRenderingImageIndex() { return _currentRenderingImageIndex; }  //TODO: remove later
   uint32_t frameIndex() { return _frameIndex; }                                  //Image index in the swapchain array
 
@@ -638,7 +640,7 @@ private:
 
   uint32_t _frameIndex = 0;
 
-  std::map<OutputMRT, std::map<MSAA, std::shared_ptr<TextureImage>>> _renderTargets; //Stores output images by their ShaderOutput, and by their MSAA level. MAX 2 MSAA images.
+  std::map<OutputMRT, std::map<MSAA, std::shared_ptr<TextureImage>>> _renderTargets;  //Stores output images by their ShaderOutput, and by their MSAA level. MAX 2 MSAA images.
 
   VkFence _inFlightFence = VK_NULL_HANDLE;
   VkFence _imageInFlightFence = VK_NULL_HANDLE;
@@ -655,7 +657,7 @@ public:
   Swapchain(Vulkan* v);  //TODO: bool vsync -> use FIFO swapchain mode.
   virtual ~Swapchain() override;
 
-  const uint32_t maxRenderFrameMSAAImages() { return 2; } //* To prevent memory overflow we will limit MSAA image levels to a maximum of 2: Disabled (default), and a single MSAA
+  const uint32_t maxRenderFrameMSAAImages() { return 2; }  //* To prevent memory overflow we will limit MSAA image levels to a maximum of 2: Disabled (default), and a single MSAA
   void outOfDate() { _bSwapChainOutOfDate = true; }
   bool isOutOfDate() { return _bSwapChainOutOfDate; }
   void waitImage(uint32_t imageIndex, VkFence myFence);
@@ -734,7 +736,7 @@ private:
  * @class Vulkan 
  * @brief Root class for the GWindow vulkan api.
  */
-class Vulkan /*: public SharedObject<Vulkan> */{
+class Vulkan /*: public SharedObject<Vulkan> */ {
 public:
   struct QueueFamilies {
     std::optional<uint32_t> _graphicsFamily;
@@ -764,6 +766,8 @@ public:
   uint32_t swapchainImageCount();
   MSAA maxMSAA();
   float maxAF();
+  void set_vsync(bool enable);
+  void set_wait_fences(bool enable);
 
   void waitIdle();
   void checkErrors();

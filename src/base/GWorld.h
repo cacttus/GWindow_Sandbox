@@ -22,7 +22,11 @@ public:
   bool frameMod(uint64_t i) {
     return (_iFrame % i) == 0;
   }
-
+  double fpsMod(float seconds) {
+    //return [0,1] in the given seconds
+    double f = fmod((double)_iFrame, _avg)*seconds;
+    return f;
+  }
 private:
   double accum = 0;
   double divisor = 0;

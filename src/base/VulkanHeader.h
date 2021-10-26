@@ -70,9 +70,10 @@ enum class IndexType {
   IndexTypeUint32
 };
 enum class CommandBufferState {
-  Unset,
-  Begin,
-  End,
+  //https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#commandbuffers-lifecycle
+  Unset, //Initial
+  Begin, //Recording
+  End, //Pending
   BeginPass,
   EndPass,
   Submit
@@ -80,9 +81,9 @@ enum class CommandBufferState {
 enum class DescriptorFunction {
   Unset,
   Custom,
-  ViewProjMatrixUBO,
-  InstnaceMatrixUBO,
-  LightsUBO
+  ViewProjMatrixUBO, //Automatic descriptors
+  InstnaceMatrixUBO, //Automatic descriptors
+  LightsUBO           //Automatic descriptors
 };
 enum class FramebufferBlendMode {
   Global, Independent
